@@ -1,0 +1,66 @@
+# --- Build (Makefile / build.bat) ---
+build/
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.exe
+*.exp
+*.pdb
+*.ilk
+*.def
+*.so
+*.dylib
+rz_test
+
+# --- Saídas do rz_test ---
+*.ppm
+*.pgm
+*.png
+out/
+# reference_hashes.txt deve ser gerado na máquina alvo; descomente para não versionar
+reference_hashes.txt
+
+# --- Dependências geradas pelo compilador ---
+*.d
+*.gch
+*.pch
+
+# --- Editores / IDEs ---
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.idea/
+*.code-workspace
+*.sublime-*
+*.swp
+*.swo
+*~
+.cache/
+compile_commands.json
+.clangd
+
+# --- Visual Studio ---
+.vs/
+*.suo
+*.user
+*.sdf
+*.opensdf
+*.VC.db
+Debug/
+Release/
+x64/
+x86/
+
+# --- CMake (caso entre no futuro) ---
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+cmake-build-*/
+
+# --- Sistema ---
+Thumbs.db
+desktop.ini
+.DS_Store
