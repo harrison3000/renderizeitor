@@ -47,9 +47,21 @@ void updateFollowCamera(RzContext* ctx, Vec3 target) {
                            target.y + ctx->followHeight * cs,
                            target.z + cosf(yawRad) * rope };
         ctx->followInitialized = true;
+        ctx->followAppliedDistance = ctx->followDistance;
     }
 
     Vec3 eye = ctx->followEye;
+
+    // Corda mudou de comprimento (zoom do host): a distância horizontal atual
+    // muda na mesma proporção, na hora. Sem isso, a câmera só reagiria quando
+    // o alvo saísse da faixa frouxa da corda.
+    if (ctx->followAppliedDistance != ctx->followDistance) {
+        const float scale = ctx->followDistance / ctx->followAppliedDistance;
+        eye.x = target.x + (eye.x - target.x) * scale;
+        eye.z = target.z + (eye.z - target.z) * scale;
+        ctx->followAppliedDistance = ctx->followDistance;
+    }
+
     const float dx = eye.x - target.x;
     const float dz = eye.z - target.z;
     const float dist = sqrtf(dx * dx + dz * dz);
@@ -169,7 +181,7 @@ Mat4 updateCamera(RzContext* ctx) {
     const float radius = ctx->terrainRadius;
     float nearPlane = terrainDist - radius;
     if (nearPlane > 0.5f * focusDist) nearPlane = 0.5f * focusDist;
-    if (nearPlane < 0.01f * radius) nearPlane = 0.01f * radius;
+    if (nearPlane < 0.002f * radius) nearPlane = 0.002f * radius;   // ~0,36 tile: chão perto da câmera
     const float farPlane = terrainDist + radius;
     ctx->nearPlane = nearPlane;
     ctx->farPlane  = farPlane;

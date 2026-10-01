@@ -158,8 +158,8 @@ int main(int argc, char** argv) {
     const float heightScale = RZTD_HEIGHT_SCALE;   // padrão de rzSetTerrainScale
     auto placeVehicle = [&](int frame) {
         float x, z, heading;
-        rztdVehiclePath(float(frame) / 2048.0f, &x, &z, &heading);
-        rztdVehicle(&vehicle, x, rztdGroundHeight(heightmap, heightScale, x, z), z, heading);
+        rztdVehiclePath(float(frame) / 8192.0f, &x, &z, &heading);   // ~0,05 tile por frame
+        rztdVehicle(&vehicle, heightmap, heightScale, x, z, heading);
     };
     if (objects) {
         // Primeiro objeto: o veículo, que anda e é o alvo da câmera
@@ -183,8 +183,8 @@ int main(int argc, char** argv) {
         }
         int top = 0;
         for (int i = 0; i < 256 * 256; ++i) if (heightmap[i] > top) top = heightmap[i];
-        cubeY = float(top) * heightScale + 8.0f;
-        rztdSpinningCube(&cube, cubeX, cubeY, cubeZ, 4.0f, 0.0f);
+        cubeY = float(top) * heightScale + 2.0f;
+        rztdSpinningCube(&cube, cubeX, cubeY, cubeZ, 0.6f, 0.0f);
         err = rzCreateObject(ctx, cube.vertices, cube.vertexCount, cube.indices, cube.indexCount, &cubeId);
         if (err != RZ_OK) { std::fprintf(stderr, "rzCreateObject (cubo) falhou: %d\n", err); return 1; }
         rzSetObjectColor(ctx, cubeId, 0x00E04030u);
@@ -196,7 +196,7 @@ int main(int argc, char** argv) {
     double totalMs = 0.0;
     for (int f = 0; f < frames; ++f) {
         if (cubeId >= 0) {
-            rztdSpinningCube(&cube, cubeX, cubeY, cubeZ, 4.0f, float(f) * 0.05f);
+            rztdSpinningCube(&cube, cubeX, cubeY, cubeZ, 0.6f, float(f) * 0.05f);
             rzUpdateObjectVertices(ctx, cubeId, cube.vertices);
         }
         if (vehicleId >= 0) {

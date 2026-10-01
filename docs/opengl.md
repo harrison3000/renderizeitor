@@ -1,7 +1,8 @@
 # Renderizeitor — versão OpenGL
 
 Reimplementação do renderer de software em OpenGL 3.3 core, mantendo a API C.
-O código de software continua em `rendgerong` como referência.
+A versão de software (`rendgerong`) foi descontinuada e removida; a tabela
+abaixo fica como registro do que mudou. A spec atual é `renderizeitor-spec.md`.
 
 ## Mudanças na API
 
@@ -46,9 +47,3 @@ O llvmpipe gasta por triângulo, e o terreno tem 130 mil triângulos de 1–2 px
 Numa GPU real isso cai para frações de milissegundo. Para rodar em CPU fraca
 (Allwinner D1), a próxima otimização seria descartar blocos do terreno fora do
 frustum e reduzir detalhe ao longe (LOD por blocos).
-
-## Comparação com o software
-
-Com a mesma escala e câmera, a imagem do OpenGL difere da do software em ~0,1%
-dos pixels (bordas de triângulos: regras de rasterização diferentes). Os hashes
-do `rz_test` só são comparáveis na mesma máquina e driver.

@@ -44,11 +44,12 @@ constexpr float kAmbient         = 0.3f;
 constexpr float kDefaultCellSize    = 1.0f;
 constexpr float kDefaultHeightScale = 16.0f / 255.0f;
 
-constexpr float kFollowDistance  = 12.0f;   // padrões da câmera de perseguição
-constexpr float kFollowHeight    = 3.0f;
+// Câmera de perseguição, na escala de um carro de ~0,85 tile
+constexpr float kFollowDistance  = 3.0f;    // corda (tiles)
+constexpr float kFollowHeight    = 1.0f;    // altura acima do alvo (tiles)
 constexpr float kFollowStiffness = 0.08f;
-constexpr float kFollowClearance    = 2.0f;   // altura mínima desejada sobre o chão (tiles)
-constexpr float kFollowMinClearance = 0.3f;   // limite duro sobre o chão (tiles)
+constexpr float kFollowClearance    = 0.5f;   // altura mínima desejada sobre o chão (tiles)
+constexpr float kFollowMinClearance = 0.1f;   // limite duro sobre o chão (tiles)
 constexpr float kFollowClimb        = 0.2f;   // amortecimento ao subir
 
 constexpr float kDistanceMin = 0.02f;   // fator sobre a distância padrão D = 2R
@@ -219,6 +220,7 @@ struct RzContext {
     float    followHeight;
     float    followStiffness;
     bool     followInitialized;
+    float    followAppliedDistance;   // corda com que followEye foi calculado
     rz::Vec3 followEye;
 
     // Objetos (id = índice no array; slots livres são reaproveitados)

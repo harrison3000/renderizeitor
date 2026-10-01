@@ -4,6 +4,8 @@
  * A DLL cria uma janela filha OpenGL dentro da janela deste programa
  * (rzCreateWindow) e desenha direto nela.
  *
+ *   W / S                   acelera / freia e dá ré no carro
+ *   A / D                   vira o carro para a esquerda / direita
  *   Seta cima / baixo       sobe / desce a câmera (pitch da órbita; seguindo: altura)
  *   Seta direita / esquerda acelera / freia a rotação (passando de zero, inverte)
  *   PgUp / PgDn             aproxima / afasta a câmera (seguindo: comprimento da corda)
@@ -48,8 +50,8 @@ static int32_t g_paused = 0;
 static float   g_zoom   = 1.0f;
 
 /* Câmera de perseguição */
-#define FOLLOW_DIST_DEFAULT   12.0f
-#define FOLLOW_HEIGHT_DEFAULT 3.0f
+#define FOLLOW_DIST_DEFAULT   3.0f      /* na escala do carro (~0,85 tile) */
+#define FOLLOW_HEIGHT_DEFAULT 1.0f
 static float   g_followDist   = FOLLOW_DIST_DEFAULT;
 static float   g_followHeight = FOLLOW_HEIGHT_DEFAULT;
 static int32_t g_textures = 1;
@@ -64,18 +66,56 @@ static RztdMesh g_cube;
 static float    g_cubePos[3];
 static float    g_cubeAngle = 0.0f;
 
-/* Veículo: primeiro objeto, anda pela ilha e é o alvo da câmera */
+/* Veículo: primeiro objeto, dirigido com WASD e alvo da câmera.
+   Sem física: velocidade com aceleração e atrito, e o carro só acompanha a
+   altura e a inclinação do terreno. Unidades: tiles e frames (60 fps). */
 static int32_t  g_vehicleId = -1;
 static RztdMesh g_vehicle;
-static int32_t  g_vehicleFrame = 0;
 static int32_t  g_follow = 1;
 static const uint8_t* g_heights;
+static float    g_carX, g_carZ, g_carHeading, g_carSpeed;
 #define HEIGHT_SCALE RZTD_HEIGHT_SCALE   /* padrão de rzSetTerrainScale */
 
+#define CAR_MAX_SPEED    0.06f            /* tiles/frame: ~3,6 tiles/s, ~60 km/h */
+#define CAR_MAX_REVERSE  0.025f
+#define CAR_ACCEL        0.0015f
+#define CAR_BRAKE        0.003f
+#define CAR_FRICTION     0.97f            /* sem acelerador, a velocidade decai */
+#define CAR_TURN_RATE    0.045f           /* rad/frame na velocidade máxima */
+
 static void placeVehicle(void) {
-    float x, z, heading;
-    rztdVehiclePath((float)g_vehicleFrame / 2048.0f, &x, &z, &heading);
-    rztdVehicle(&g_vehicle, x, rztdGroundHeight(g_heights, HEIGHT_SCALE, x, z), z, heading);
+    rztdVehicle(&g_vehicle, g_heights, HEIGHT_SCALE, g_carX, g_carZ, g_carHeading);
+}
+
+static int keyDown(int vk);
+
+static void driveCar(int active) {
+    int forward = active && keyDown('W');
+    int back    = active && keyDown('S');
+    int left    = active && keyDown('A');
+    int right   = active && keyDown('D');
+    float turn, nx, nz;
+
+    if (forward)    g_carSpeed += (g_carSpeed < 0.0f) ? CAR_BRAKE : CAR_ACCEL;
+    else if (back)  g_carSpeed -= (g_carSpeed > 0.0f) ? CAR_BRAKE : CAR_ACCEL;
+    else            g_carSpeed *= CAR_FRICTION;
+    if (g_carSpeed >  CAR_MAX_SPEED)   g_carSpeed =  CAR_MAX_SPEED;
+    if (g_carSpeed < -CAR_MAX_REVERSE) g_carSpeed = -CAR_MAX_REVERSE;
+    if (g_carSpeed > -0.0005f && g_carSpeed < 0.0005f && !forward && !back) g_carSpeed = 0.0f;
+
+    /* Vira proporcional à velocidade (parado não gira; de ré, inverte) */
+    turn = CAR_TURN_RATE * (g_carSpeed / CAR_MAX_SPEED);
+    if (left)  g_carHeading -= turn;
+    if (right) g_carHeading += turn;
+
+    nx = g_carX + cosf(g_carHeading) * g_carSpeed;
+    nz = g_carZ + sinf(g_carHeading) * g_carSpeed;
+    if (nx < 1.0f || nx > 254.0f || nz < 1.0f || nz > 254.0f) {   /* borda do mapa */
+        g_carSpeed = 0.0f;
+        return;
+    }
+    g_carX = nx;
+    g_carZ = nz;
 }
 static uint8_t g_tileMap[256 * 256];
 
@@ -143,14 +183,14 @@ static void handleInput(HWND hwnd) {
     if (GetForegroundWindow() != hwnd) return;
 
     if (g_follow) {
-        if (keyDown(VK_UP))    g_followHeight += 0.1f;
-        if (keyDown(VK_DOWN))  g_followHeight -= 0.1f;
+        if (keyDown(VK_UP))    g_followHeight += 0.03f;
+        if (keyDown(VK_DOWN))  g_followHeight -= 0.03f;
         if (keyDown(VK_PRIOR)) g_followDist /= ZOOM_SPEED;
         if (keyDown(VK_NEXT))  g_followDist *= ZOOM_SPEED;
-        if (g_followHeight < -2.0f) g_followHeight = -2.0f;
-        if (g_followHeight > 40.0f) g_followHeight = 40.0f;
-        if (g_followDist < 3.0f)    g_followDist = 3.0f;
-        if (g_followDist > 80.0f)   g_followDist = 80.0f;
+        if (g_followHeight < -0.5f) g_followHeight = -0.5f;
+        if (g_followHeight > 20.0f) g_followHeight = 20.0f;
+        if (g_followDist < 1.0f)    g_followDist = 1.0f;
+        if (g_followDist > 40.0f)   g_followDist = 40.0f;
     } else {
         if (keyDown(VK_UP))   g_pitch += PITCH_SPEED;
         if (keyDown(VK_DOWN)) g_pitch -= PITCH_SPEED;
@@ -261,8 +301,10 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         if (err == RZ_OK) err = rzSetTileMap(g_ctx, g_tileMap, 256, 256);
     }
     if (err == RZ_OK) {
-        /* Primeiro objeto: o veículo */
+        /* Primeiro objeto: o veículo, no início do percurso automático */
         g_heights = heightmap;
+        rztdVehiclePath(0.0f, &g_carX, &g_carZ, &g_carHeading);
+        g_carSpeed = 0.0f;
         placeVehicle();
         err = rzCreateObject(g_ctx, g_vehicle.vertices, g_vehicle.vertexCount,
                              g_vehicle.indices, g_vehicle.indexCount, &g_vehicleId);
@@ -290,8 +332,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
             }
         }
         for (i = 0; i < 256 * 256; ++i) if (heightmap[i] > top) top = heightmap[i];
-        g_cubePos[0] = 128.0f; g_cubePos[1] = (float)top * heightScale + 8.0f; g_cubePos[2] = 128.0f;
-        rztdSpinningCube(&g_cube, g_cubePos[0], g_cubePos[1], g_cubePos[2], 4.0f, 0.0f);
+        g_cubePos[0] = 128.0f; g_cubePos[1] = (float)top * heightScale + 2.0f; g_cubePos[2] = 128.0f;
+        rztdSpinningCube(&g_cube, g_cubePos[0], g_cubePos[1], g_cubePos[2], 0.6f, 0.0f);
         if (err == RZ_OK) err = rzCreateObject(g_ctx, g_cube.vertices, g_cube.vertexCount,
                                                g_cube.indices, g_cube.indexCount, &g_cubeId);
         if (err == RZ_OK) {
@@ -328,13 +370,13 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
 
         handleInput(hwnd);
 
-        /* O host move o cubo e avisa o renderer */
-        ++g_vehicleFrame;
+        /* O host move o carro e o cubo e avisa o renderer */
+        driveCar(GetForegroundWindow() == hwnd);
         placeVehicle();
         rzUpdateObjectVertices(g_ctx, g_vehicleId, g_vehicle.vertices);
 
         g_cubeAngle += 0.03f;
-        rztdSpinningCube(&g_cube, g_cubePos[0], g_cubePos[1], g_cubePos[2], 4.0f, g_cubeAngle);
+        rztdSpinningCube(&g_cube, g_cubePos[0], g_cubePos[1], g_cubePos[2], 0.6f, g_cubeAngle);
         rzUpdateObjectVertices(g_ctx, g_cubeId, g_cube.vertices);
         rzSetCameraPitch(g_ctx, g_pitch);
         rzSetCameraDistance(g_ctx, g_zoom);

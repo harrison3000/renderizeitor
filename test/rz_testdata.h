@@ -188,7 +188,7 @@ static void rztdGenerateTileMap(const uint8_t* heights, uint8_t* tileMap) {
 
 #define RZTD_MESH_MAX_VERTS  64
 #define RZTD_MESH_MAX_INDEX  256
-#define RZTD_MAX_OBJECTS     48
+#define RZTD_MAX_OBJECTS     200
 
 typedef struct {
     uint32_t vertices[RZTD_MESH_MAX_VERTS * 3];
@@ -292,36 +292,38 @@ static void rztdSpinningCube(RztdMesh* m, float cx, float cy, float cz, float ha
     }
 }
 
+/* Escala: 1 unidade = 1 tile (célula). O carro tem ~0,85 de comprimento
+   (~4 m, então um tile tem ~4,7 m); o resto segue a mesma proporção. */
+
 /* Casas e torres espalhadas nas áreas de grama planas. heightScale = altura
    de uma unidade do heightmap em tiles. Devolve quantos objetos foram gerados. */
 static int rztdGenerateBuildings(const uint8_t* heights, float heightScale,
                                  RztdMesh* meshes, uint32_t* colors, int maxObjects) {
     int count = 0, gx, gz;
-    for (gz = 12; gz < 244 && count < maxObjects; gz += 14) {
-        for (gx = 12; gx < 244 && count < maxObjects; gx += 14) {
+    for (gz = 8; gz < 248 && count < maxObjects; gz += 6) {
+        for (gx = 8; gx < 248 && count < maxObjects; gx += 6) {
             uint32_t h = rztdHash(gx, gz, 1234u);
-            int cx = gx + (int)(h % 7u) - 3, cz = gz + (int)((h >> 3) % 7u) - 3;
+            int cx = gx + (int)(h % 5u) - 2, cz = gz + (int)((h >> 3) % 5u) - 2;
             int lo = 255, hi = 0, x, z;
-            for (z = cz - 3; z <= cz + 3; ++z) {
-                for (x = cx - 3; x <= cx + 3; ++x) {
+            for (z = cz - 2; z <= cz + 2; ++z) {
+                for (x = cx - 2; x <= cx + 2; ++x) {
                     int v = heights[z * 256 + x];
                     if (v < lo) lo = v;
                     if (v > hi) hi = v;
                 }
             }
-            if (lo < 50 || hi > 170 || hi - lo > 28) continue;
+            if (lo < 55 || hi > 165 || hi - lo > 20 || (h >> 20) % 3u == 0) continue;
             {
                 RztdMesh* m = &meshes[count];
                 float ground = (float)lo * heightScale;
+                float slope = (float)(hi - lo) * heightScale;   /* paredes descem até o ponto mais baixo */
                 m->vertexCount = 0;
                 m->indexCount = 0;
-                if ((h >> 12) % 4u == 0) {       /* torre octogonal, telhado plano */
-                    rztdPrism(m, (float)cx, (float)cz, 2.0f, 8, 0.0f,
-                              ground, ground + 9.0f + (float)(hi - lo) * heightScale, 0.0f);
+                if ((h >> 12) % 5u == 0) {       /* torre octogonal (~6 m de largura, ~12 m) */
+                    rztdPrism(m, (float)cx, (float)cz, 0.6f, 8, 0.0f, ground, ground + 2.6f + slope, 0.0f);
                     colors[count] = 0x00A8A8B0u;
-                } else {                          /* casa com telhado de quatro águas */
-                    float wall = ground + 2.5f + (float)(hi - lo) * heightScale;
-                    rztdPrism(m, (float)cx, (float)cz, 2.6f, 4, 0.785398f, ground, wall, 1.8f);
+                } else {                          /* casa (~8 m de lado), telhado de quatro águas */
+                    rztdPrism(m, (float)cx, (float)cz, 1.1f, 4, 0.785398f, ground, ground + 0.65f + slope, 0.5f);
                     colors[count] = ((h >> 16) & 1u) ? 0x00C0A080u : 0x00D8C8A0u;
                 }
                 ++count;
@@ -332,10 +334,12 @@ static int rztdGenerateBuildings(const uint8_t* heights, float heightScale,
 }
 
 /* ------------------------------------------------------------------------- */
-/* Veículo que percorre a ilha (objeto que se move, com vértice-alvo)          */
+/* Veículo (objeto que se move, com vértice-alvo)                              */
 /* ------------------------------------------------------------------------- */
 
 #define RZTD_VEHICLE_TARGET 16   /* vértice extra, fora dos polígonos: alvo da câmera */
+#define RZTD_VEHICLE_LENGTH 0.85f
+#define RZTD_VEHICLE_WIDTH  0.40f
 
 /* Altura do terreno em tiles no ponto (x, z), interpolação bilinear. */
 static float rztdGroundHeight(const uint8_t* heights, float heightScale, float x, float z) {
@@ -352,8 +356,46 @@ static float rztdGroundHeight(const uint8_t* heights, float heightScale, float x
     return ((h00 + (h10 - h00) * fx) * (1.0f - fz) + (h01 + (h11 - h01) * fx) * fz) * heightScale;
 }
 
-/* Caixa (8 vértices) em coordenadas locais do veículo, já girada e posicionada. */
-static void rztdVehicleBox(RztdMesh* m, float px, float py, float pz, float ch, float sh,
+/* Referencial do veículo apoiado no terreno: origem no chão, f = frente,
+   u = cima, s = lado; inclinado conforme a altura do terreno nas 4 pontas. */
+typedef struct {
+    float o[3], f[3], u[3], s[3];
+} RztdFrame;
+
+static void rztdNormalize(float* v) {
+    float inv = 1.0f / sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    v[0] *= inv; v[1] *= inv; v[2] *= inv;
+}
+
+static RztdFrame rztdVehicleFrame(const uint8_t* heights, float heightScale,
+                                  float x, float z, float heading) {
+    RztdFrame fr;
+    float ch = cosf(heading), sh = sinf(heading);
+    float hl = 0.5f * RZTD_VEHICLE_LENGTH, hw = 0.5f * RZTD_VEHICLE_WIDTH;
+    float front = rztdGroundHeight(heights, heightScale, x + ch * hl, z + sh * hl);
+    float back  = rztdGroundHeight(heights, heightScale, x - ch * hl, z - sh * hl);
+    float right = rztdGroundHeight(heights, heightScale, x - sh * hw, z + ch * hw);
+    float left  = rztdGroundHeight(heights, heightScale, x + sh * hw, z - ch * hw);
+    fr.o[0] = x; fr.o[1] = 0.25f * (front + back + right + left); fr.o[2] = z;
+    fr.f[0] = ch * 2.0f * hl;  fr.f[1] = front - back; fr.f[2] = sh * 2.0f * hl;
+    fr.s[0] = -sh * 2.0f * hw; fr.s[1] = right - left; fr.s[2] = ch * 2.0f * hw;
+    rztdNormalize(fr.f);
+    rztdNormalize(fr.s);
+    fr.u[0] = fr.s[1] * fr.f[2] - fr.s[2] * fr.f[1];      /* u = s x f */
+    fr.u[1] = fr.s[2] * fr.f[0] - fr.s[0] * fr.f[2];
+    fr.u[2] = fr.s[0] * fr.f[1] - fr.s[1] * fr.f[0];
+    rztdNormalize(fr.u);
+    return fr;
+}
+
+static int rztdFrameVertex(RztdMesh* m, const RztdFrame* fr, float lx, float ly, float lz) {
+    return rztdVertex(m, fr->o[0] + fr->f[0] * lx + fr->u[0] * ly + fr->s[0] * lz,
+                         fr->o[1] + fr->f[1] * lx + fr->u[1] * ly + fr->s[1] * lz,
+                         fr->o[2] + fr->f[2] * lx + fr->u[2] * ly + fr->s[2] * lz);
+}
+
+/* Caixa (8 vértices) em coordenadas locais do veículo (x frente, y cima, z lado). */
+static void rztdVehicleBox(RztdMesh* m, const RztdFrame* fr,
                            float x0, float x1, float y0, float y1, float z0, float z1, int skipBottom) {
     static const int faces[6][4] = {
         { 0, 1, 3, 2 }, { 4, 6, 7, 5 }, { 0, 4, 5, 1 }, { 2, 3, 7, 6 }, { 0, 2, 6, 4 }, { 1, 5, 7, 3 },
@@ -361,38 +403,39 @@ static void rztdVehicleBox(RztdMesh* m, float px, float py, float pz, float ch, 
     int base = m->vertexCount, i, k;
     float cx = 0.0f, cy = 0.0f, cz = 0.0f;
     for (i = 0; i < 8; ++i) {
-        /* x local = frente, z local = lado */
-        float lx = (i & 4) ? x1 : x0, ly = (i & 2) ? y1 : y0, lz = (i & 1) ? z1 : z0;
-        rztdVertex(m, px + lx * ch - lz * sh, py + ly, pz + lx * sh + lz * ch);
+        rztdFrameVertex(m, fr, (i & 4) ? x1 : x0, (i & 2) ? y1 : y0, (i & 1) ? z1 : z0);
     }
     for (i = 0; i < 8; ++i) { cx += m->pos[base + i][0]; cy += m->pos[base + i][1]; cz += m->pos[base + i][2]; }
     cx *= 0.125f; cy *= 0.125f; cz *= 0.125f;
     for (i = 0; i < 6; ++i) {
         int ids[4];
-        float fx = 0.0f, fy = 0.0f, fz = 0.0f;
+        float fx = 0.0f, fy = 0.0f, fz = 0.0f, down;
         for (k = 0; k < 4; ++k) {
             ids[k] = base + faces[i][k];
             fx += m->pos[ids[k]][0] - cx; fy += m->pos[ids[k]][1] - cy; fz += m->pos[ids[k]][2] - cz;
         }
-        if (skipBottom && fy < -0.01f) continue;
+        down = fx * fr->u[0] + fy * fr->u[1] + fz * fr->u[2];   /* face de baixo: oposta a u */
+        if (skipBottom && down < -0.001f) continue;
         rztdPolygon(m, ids, 4, fx, fy, fz);
     }
 }
 
-/* Veículo em (x, z) sobre o chão, virado para `heading` (radianos, no plano
-   xz). Carroceria + cabine, e o vértice RZTD_VEHICLE_TARGET no centro do teto. */
-static void rztdVehicle(RztdMesh* m, float x, float ground, float z, float heading) {
-    float ch = cosf(heading), sh = sinf(heading);
-    float y = ground + 0.6f;             /* flutua um pouco acima do chão */
+/* Veículo (~0,85 x 0,40 tile) em (x, z), virado para `heading` (radianos, no
+   plano xz), apoiado e inclinado no terreno. Carroceria + cabine, e o vértice
+   RZTD_VEHICLE_TARGET acima do centro do teto (alvo da câmera). */
+static void rztdVehicle(RztdMesh* m, const uint8_t* heights, float heightScale,
+                        float x, float z, float heading) {
+    RztdFrame fr = rztdVehicleFrame(heights, heightScale, x, z, heading);
+    float hl = 0.5f * RZTD_VEHICLE_LENGTH, hw = 0.5f * RZTD_VEHICLE_WIDTH;
     m->vertexCount = 0;
     m->indexCount = 0;
-    rztdVehicleBox(m, x, y, z, ch, sh, -2.2f, 2.2f, 0.0f, 1.0f, -1.1f, 1.1f, 0);   /* carroceria */
-    rztdVehicleBox(m, x, y, z, ch, sh, -1.4f, 0.6f, 1.0f, 1.9f, -0.9f, 0.9f, 1);   /* cabine */
-    rztdVertex(m, x, y + 1.9f, z);                                                   /* alvo */
+    rztdVehicleBox(m, &fr, -hl, hl, 0.03f, 0.20f, -hw, hw, 0);                  /* carroceria */
+    rztdVehicleBox(m, &fr, -0.26f, 0.10f, 0.20f, 0.36f, -0.16f, 0.16f, 1);     /* cabine */
+    rztdFrameVertex(m, &fr, 0.0f, 0.36f, 0.0f);                                 /* alvo */
 }
 
-/* Posição no percurso (volta em torno do centro da ilha) no instante t
-   (em voltas, 1.0 = uma volta). Devolve x, z e o rumo. */
+/* Posição no percurso automático (volta em torno do centro da ilha) no
+   instante t (em voltas, 1.0 = uma volta). Devolve x, z e o rumo. */
 static void rztdVehiclePath(float t, float* x, float* z, float* heading) {
     float a = t * 6.2831853f;
     float r = 62.0f + 14.0f * sinf(a * 3.0f);            /* raio variável: contorna morros */

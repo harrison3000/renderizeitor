@@ -158,9 +158,9 @@ RZ_API int32_t RZ_CALL rzSetCameraPitch(RzContext* ctx, float pitchDegrees);
 RZ_API int32_t RZ_CALL rzSetCameraTarget(RzContext* ctx, int32_t id, int32_t vertex);
 
 /* Câmera de perseguição, como se puxada por uma corda:
-   distance  comprimento da corda, em tiles (padrão 12): com o alvo mais longe
+   distance  comprimento da corda, em tiles (padrão 3): com o alvo mais longe
              que isso, a câmera é puxada; mais perto que a metade, ela recua;
-   height    altura desejada acima do alvo, em tiles (padrão 3);
+   height    altura desejada acima do alvo, em tiles (padrão 1);
    stiffness fração do caminho até a posição desejada percorrida a cada
              rzRender, em (0, 1] (padrão 0.08): menor = mais suave e atrasada. */
 RZ_API int32_t RZ_CALL rzSetCameraFollow(RzContext* ctx, float distance, float height,
