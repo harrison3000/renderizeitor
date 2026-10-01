@@ -14,6 +14,7 @@
 #include <math.h>
 
 #define RZTD_ATLAS_SIZE 256
+#define RZTD_HEIGHT_SCALE (16.0f / 255.0f)   /* byte 255 = 16 tiles, como no legado */
 
 /* Tipos de bloco: cada um ocupa uma linha do atlas (16 variações) e usa uma
    rampa de 32 cores da paleta. */
@@ -178,8 +179,9 @@ static void rztdGenerateTileMap(const uint8_t* heights, uint8_t* tileMap) {
 }
 
 /* ------------------------------------------------------------------------- */
-/* Objetos de teste, no formato do legado: vértices 8.24 absolutos (y para    */
+/* Objetos de teste, no formato do legado: vértices 8.24 absolutos (z para    */
 /* cima, 1.0 = 1 tile), polígonos convexos fechados repetindo o 1º índice.    */
+/* As funções abaixo recebem (x, y, z) com y para cima e gravam (x, z, y).   */
 /* Faces orientadas para fora (regra da mão direita), o que as deixa em        */
 /* sentido anti-horário na tela quando vistas de fora: use RZ_CULL_CW.         */
 /* ------------------------------------------------------------------------- */
@@ -205,9 +207,10 @@ static uint32_t rztdFixed824(float v) {
 static int rztdVertex(RztdMesh* m, float x, float y, float z) {
     int i = m->vertexCount++;
     m->pos[i][0] = x; m->pos[i][1] = y; m->pos[i][2] = z;
+    /* Formato do legado: (coluna, linha, altura) — z para cima */
     m->vertices[i * 3 + 0] = rztdFixed824(x);
-    m->vertices[i * 3 + 1] = rztdFixed824(y);
-    m->vertices[i * 3 + 2] = rztdFixed824(z);
+    m->vertices[i * 3 + 1] = rztdFixed824(z);
+    m->vertices[i * 3 + 2] = rztdFixed824(y);
     return i;
 }
 

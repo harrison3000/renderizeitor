@@ -27,14 +27,37 @@ typedef struct RzContext RzContext;
 #define RZ_ERR_INVALID_ARG  1   /* ponteiro nulo ou parâmetro fora de faixa */
 #define RZ_ERR_SIZE         2   /* dimensão acima do limite ou não suportada */
 #define RZ_ERR_NO_MEMORY    3   /* falha de alocação */
+#define RZ_ERR_GL           4   /* OpenGL 3.3 indisponível, ou falha de contexto/shader/janela */
 
+/* Limite do modo offscreen (rzCreate). */
 #define RZ_MAX_WIDTH   1920
 #define RZ_MAX_HEIGHT  1080
 
-/* pixels: array width*height de RGBQUAD (uint32 0x00RRGGBB), top-down,
-   de posse do host, válido até rzDestroy. */
+/* Versão OpenGL (3.3 core). Dois modos de saída:
+
+   rzCreate        offscreen: renderiza num framebuffer da GPU e, a cada
+                   rzRender, copia a imagem para `pixels` (width*height de
+                   RGBQUAD, uint32 0x00RRGGBB, top-down, de posse do host,
+                   válido até rzDestroy). Igual à versão de software; útil para
+                   testes e para rodar sem janela (llvmpipe).
+
+   rzCreateWindow  janela filha: cria uma janela dentro de `parentWindow` (HWND
+                   no Windows) em (x, y, width, height), no cliente do pai, e
+                   rzRender desenha direto nela (sem cópia). O pai deve ter
+                   WS_CLIPCHILDREN. O mouse e o teclado continuam indo para o
+                   pai. Deve ser chamada da thread do loop de mensagens do pai.
+
+   Em ambos, o contexto OpenGL pertence à thread que chamou rzCreate*: todas
+   as outras funções devem ser chamadas dessa mesma thread. */
 RZ_API int32_t RZ_CALL rzCreate(int32_t width, int32_t height,
                                 void* pixels, RzContext** outCtx);
+
+RZ_API int32_t RZ_CALL rzCreateWindow(void* parentWindow, int32_t x, int32_t y,
+                                      int32_t width, int32_t height, RzContext** outCtx);
+
+/* Só no modo janela: move/redimensiona a janela filha (coordenadas do cliente do pai). */
+RZ_API int32_t RZ_CALL rzSetViewport(RzContext* ctx, int32_t x, int32_t y,
+                                     int32_t width, int32_t height);
 
 RZ_API void    RZ_CALL rzDestroy(RzContext* ctx);
 
@@ -42,7 +65,8 @@ RZ_API void    RZ_CALL rzDestroy(RzContext* ctx);
 RZ_API int32_t RZ_CALL rzSetHeightmap(RzContext* ctx, const uint8_t* data,
                                       int32_t width, int32_t height);
 
-/* cellSize: distância entre pontos da grade; heightScale: altura por unidade do byte. */
+/* cellSize: distância entre pontos da grade; heightScale: altura por unidade do byte.
+   Padrão: cellSize = 1, heightScale = 16/255 (byte 255 = 16 tiles; mundo 255 x 255 x 16). */
 RZ_API int32_t RZ_CALL rzSetTerrainScale(RzContext* ctx,
                                          float cellSize, float heightScale);
 
@@ -61,11 +85,13 @@ RZ_API int32_t RZ_CALL rzSetTileAtlas(RzContext* ctx, const uint8_t* indices,
 RZ_API int32_t RZ_CALL rzSetTileMap(RzContext* ctx, const uint8_t* data,
                                     int32_t width, int32_t height);
 
-/* Filtragem das texturas. Sempre nearest dentro do nível; muda só a escolha
-   do nível de mipmap (evita o "shimmering" dos polígonos distantes). */
+/* Filtragem das texturas. A ampliação (perto) é sempre nearest; muda a redução
+   (longe), que evita o "shimmering" dos polígonos distantes. */
 #define RZ_FILTER_NEAREST     0   /* sem mipmap */
-#define RZ_FILTER_MIPMAP      1   /* nível mais próximo */
-#define RZ_FILTER_MIP_DITHER  2   /* dither ordenado entre os dois níveis vizinhos (padrão) */
+#define RZ_FILTER_MIPMAP      1   /* nearest no nível mais próximo */
+#define RZ_FILTER_MIP_DITHER  2   /* nearest, dither ordenado entre os dois níveis vizinhos (padrão) */
+#define RZ_FILTER_MIP_LINEAR  3   /* nearest dentro do nível, mistura linear entre níveis */
+#define RZ_FILTER_TRILINEAR   4   /* bilinear dentro do nível, linear entre níveis */
 
 RZ_API int32_t RZ_CALL rzSetTextureFilter(RzContext* ctx, int32_t filter);
 
@@ -75,7 +101,7 @@ RZ_API int32_t RZ_CALL rzSetTextureFilter(RzContext* ctx, int32_t filter);
 
 /* Vértices: array de vertexCount * 3 uint32_t (três eixos por vértice), em
    ponto fixo 8.24 sem sinal, coordenadas absolutas no mundo: 1.0 = 1 tile.
-   A ordem dos eixos é definida por rzSetObjectAxes (padrão RZ_AXES_Y_UP).
+   A ordem dos eixos é definida por rzSetObjectAxes (padrão RZ_AXES_Z_UP, como no legado).
 
    Polígonos: índices (uint16_t) concatenados; cada polígono termina com uma
    cópia do seu primeiro índice, por exemplo  0 1 2 3 0  4 5 6 4 ...
@@ -148,7 +174,8 @@ RZ_API int32_t RZ_CALL rzSetCameraDistance(RzContext* ctx, float factor);
    Negativo gira ao contrário, 0 para. Padrão 1 << 22 (1024 frames por volta). */
 RZ_API int32_t RZ_CALL rzSetRotationStep(RzContext* ctx, int32_t step);
 
-/* Avança a rotação, renderiza o frame no buffer do host. Não aloca. */
+/* Avança a câmera e renderiza o frame: offscreen, copia para o buffer do host;
+   janela, apresenta (SwapBuffers). Não aloca. */
 RZ_API int32_t RZ_CALL rzRender(RzContext* ctx);
 
 #ifdef __cplusplus

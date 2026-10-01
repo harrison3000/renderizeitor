@@ -1,5 +1,7 @@
-// rz_test: executável de teste do Renderizeitor (spec 12).
-// Linka o núcleo estaticamente (RZ_STATIC) e usa a mesma API C da DLL.
+// rz_test: executável de teste do Renderizeitor (versão OpenGL).
+// Linka o núcleo estaticamente (RZ_STATIC), usa a mesma API C da DLL e
+// renderiza no modo offscreen (rzCreate com buffer de pixels).
+// Os hashes só são comparáveis na mesma máquina/driver.
 //
 //   rz_test [-w largura] [-h altura] [-n frames] [-e salvar_a_cada]
 //           [-o pasta_saida] [-m heightmap.raw] [-r referencia.txt]
@@ -7,13 +9,12 @@
 //           [-O 0|1 objetos] [-c 0|1 camera segue o veiculo]
 //           [-s passo_de_rotacao]
 //
-// Filtro: 0 nearest, 1 mipmap, 2 mipmap com dither (padrão).
+// Filtro: 0 nearest, 1 mipmap, 2 mipmap com dither (padrão), 3 mipmap linear, 4 trilinear.
 //
 // Sem -m, gera um heightmap procedural determinístico (ilha).
 // Texturas (padrão ligado) usam o atlas e o mapa de blocos procedurais de
 // rz_testdata.h; o atlas também é gravado em atlas.ppm na pasta de saída.
 // Com -r: se o arquivo existe, compara os hashes; senão, cria a referência.
-// Sempre roda antes o teste de cobertura do rasterizador (M0).
 
 #include <cstdio>
 #include <cstdlib>
@@ -22,7 +23,6 @@
 #include <chrono>
 
 #include "renderizeitor.h"
-#include "../src/rz_internal.h"   // só para o teste de cobertura do rasterizador
 #include "rz_testdata.h"
 
 namespace {
@@ -71,78 +71,6 @@ bool loadRaw(const char* path, uint8_t* out) {
     return n == 256 * 256;
 }
 
-// ---------------------------------------------------------------------------
-// Teste de cobertura (M0): malha de triângulos que cobre a viewport inteira,
-// com vértices em subpixel aleatório (alguns exatamente sobre centros de pixel).
-// Cada pixel deve ser pintado exatamente uma vez: nem buraco, nem sobreposição.
-// ---------------------------------------------------------------------------
-
-bool coverageTest(bool textured) {
-    constexpr int32_t W = 97, H = 61, N = 9;   // tamanhos ímpares de propósito
-    static uint32_t pixels[W * H];
-    static uint8_t  count[W * H];
-    std::memset(count, 0, sizeof(count));
-
-    static uint32_t whiteTile[rz::kTileStride];
-    for (uint32_t& t : whiteTile) t = 0xFFFFFFu;
-
-    RzContext* ctx = nullptr;
-    if (rzCreate(W, H, pixels, &ctx) != RZ_OK) return false;
-
-    // Pontos da grade (N+1)x(N+1); bordas presas às bordas da viewport
-    rz::ScreenVertex pts[(N + 1) * (N + 1)];
-    for (int j = 0; j <= N; ++j) {
-        for (int i = 0; i <= N; ++i) {
-            int32_t x = i * W * 16 / N;
-            int32_t y = j * H * 16 / N;
-            if (i > 0 && i < N) {
-                const uint32_t r = rztdHash(i, j, 1u);
-                x += int32_t(r % 61) - 30;
-                if (r & 0x100) x = (x & ~15) + 8;          // em cima de um centro de pixel
-            }
-            if (j > 0 && j < N) {
-                const uint32_t r = rztdHash(i, j, 2u);
-                y += int32_t(r % 41) - 20;
-                if (r & 0x100) y = (y & ~15) + 8;
-            }
-            pts[j * (N + 1) + i] = { x, y, 1.0f };
-        }
-    }
-
-    int triangles = 0;
-    for (int j = 0; j < N; ++j) {
-        for (int i = 0; i < N; ++i) {
-            const rz::ScreenVertex& p00 = pts[j * (N + 1) + i];
-            const rz::ScreenVertex& p01 = pts[j * (N + 1) + i + 1];
-            const rz::ScreenVertex& p10 = pts[(j + 1) * (N + 1) + i];
-            const rz::ScreenVertex& p11 = pts[(j + 1) * (N + 1) + i + 1];
-            // Mesma ordem da malha do terreno (visível de frente)
-            const rz::ScreenVertex* tris[2][3] = { { &p00, &p10, &p11 }, { &p00, &p11, &p01 } };
-            for (auto& t : tris) {
-                for (int k = 0; k < W * H; ++k) { pixels[k] = 0; ctx->depth.data[k] = 0; }
-                if (textured) {
-                    rz::drawTexturedTriangle(ctx, *t[0], *t[1], *t[2], { 0.0f, 0.0f },
-                                             { 0.0f, 16.0f }, { 16.0f, 16.0f }, whiteTile);
-                } else {
-                    rz::drawTriangle(ctx, *t[0], *t[1], *t[2], 0xFFFFFFu);
-                }
-                for (int k = 0; k < W * H; ++k) count[k] += pixels[k] ? 1 : 0;
-                ++triangles;
-            }
-        }
-    }
-    rzDestroy(ctx);
-
-    int holes = 0, overlaps = 0;
-    for (int k = 0; k < W * H; ++k) {
-        if (count[k] == 0) ++holes;
-        if (count[k] > 1) ++overlaps;
-    }
-    std::printf("cobertura (%s): %d triangulos, %dx%d pixels, buracos=%d sobreposicoes=%d -> %s\n",
-                textured ? "textura" : "flat", triangles, W, H, holes, overlaps, (holes || overlaps) ? "FALHOU" : "ok");
-    return holes == 0 && overlaps == 0;
-}
-
 } // namespace
 
 int main(int argc, char** argv) {
@@ -178,8 +106,7 @@ int main(int argc, char** argv) {
         else { std::fprintf(stderr, "opcao desconhecida: %s\n", opt); return 2; }
     }
 
-    bool ok = coverageTest(false);
-    ok = coverageTest(true) && ok;
+    bool ok = true;
 
     char path[1024];
     static uint8_t heightmap[256 * 256];
@@ -228,7 +155,7 @@ int main(int argc, char** argv) {
     float cubeX = 128.0f, cubeY = 0.0f, cubeZ = 128.0f;
     static RztdMesh vehicle;
     int32_t vehicleId = -1;
-    const float heightScale = 0.25f;       // padrão de rzSetTerrainScale, com cellSize = 1
+    const float heightScale = RZTD_HEIGHT_SCALE;   // padrão de rzSetTerrainScale
     auto placeVehicle = [&](int frame) {
         float x, z, heading;
         rztdVehiclePath(float(frame) / 2048.0f, &x, &z, &heading);

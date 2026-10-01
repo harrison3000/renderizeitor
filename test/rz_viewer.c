@@ -1,12 +1,14 @@
-/* rz_viewer: aplicação Win32 que mostra o heightmap girando.
+/* rz_viewer: aplicação Win32 que mostra o terreno e os objetos (versão OpenGL).
  *
  * Escrita em C e linkada contra a DLL (import lib), como o código legado faria.
+ * A DLL cria uma janela filha OpenGL dentro da janela deste programa
+ * (rzCreateWindow) e desenha direto nela.
  *
  *   Seta cima / baixo       sobe / desce a câmera (pitch da órbita; seguindo: altura)
  *   Seta direita / esquerda acelera / freia a rotação (passando de zero, inverte)
  *   PgUp / PgDn             aproxima / afasta a câmera (seguindo: comprimento da corda)
  *   T                       liga / desliga as texturas
- *   F                       filtro: nearest -> mipmap -> mipmap com dither
+ *   F                       filtro: nearest -> mipmap -> mip+dither -> mip linear -> trilinear
  *   O                       mostra / esconde os objetos
  *   C                       câmera segue o veículo / volta ao centro do terreno
  *   Espaço                  para / retoma a rotação
@@ -38,9 +40,7 @@
 #define STEP_MAX        (1 << 25)      /* 128 frames por volta */
 #define ZOOM_SPEED      1.02f          /* fator por frame com a tecla segurada */
 
-static uint32_t*  g_pixels;
 static RzContext* g_ctx;
-static BITMAPINFO g_bmi;
 
 static float   g_pitch  = PITCH_DEFAULT;
 static int32_t g_step   = STEP_DEFAULT;
@@ -70,7 +70,7 @@ static RztdMesh g_vehicle;
 static int32_t  g_vehicleFrame = 0;
 static int32_t  g_follow = 1;
 static const uint8_t* g_heights;
-#define HEIGHT_SCALE 0.25f              /* padrão de rzSetTerrainScale */
+#define HEIGHT_SCALE RZTD_HEIGHT_SCALE   /* padrão de rzSetTerrainScale */
 
 static void placeVehicle(void) {
     float x, z, heading;
@@ -92,12 +92,6 @@ static int loadRaw(const char* path, uint8_t* out) {
 /* Janela                                                                     */
 /* ------------------------------------------------------------------------- */
 
-/* Janela sem redimensionamento: cópia 1:1, sem stretch. */
-static void present(HDC dc) {
-    SetDIBitsToDevice(dc, 0, 0, FB_WIDTH, FB_HEIGHT, 0, 0, 0, FB_HEIGHT,
-                      g_pixels, &g_bmi, DIB_RGB_COLORS);
-}
-
 static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_KEYDOWN:
@@ -116,7 +110,7 @@ static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g_textures = !g_textures;
             rzSetTileMap(g_ctx, g_textures ? g_tileMap : NULL, 256, 256);
         } else if (wp == 'F' && !(lp & (1 << 30))) {
-            g_filter = (g_filter + 1) % 3;
+            g_filter = (g_filter + 1) % 5;
             rzSetTextureFilter(g_ctx, g_filter);
         } else if (wp == 'R') {
             g_pitch = PITCH_DEFAULT;
@@ -128,15 +122,12 @@ static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         return 0;
     case WM_ERASEBKGND:
-        return 1;
-    case WM_PAINT: {
-        PAINTSTRUCT ps;
-        HDC dc = BeginPaint(hwnd, &ps);
-        present(dc);
-        EndPaint(hwnd, &ps);
-        return 0;
-    }
+        return 1;                       /* a área toda é da janela filha OpenGL */
     case WM_DESTROY:
+        if (g_ctx) {                    /* antes da janela filha ser destruída junto */
+            rzDestroy(g_ctx);
+            g_ctx = NULL;
+        }
         PostQuitMessage(0);
         return 0;
     }
@@ -188,8 +179,8 @@ static void updateTitle(HWND hwnd, int32_t renderUs, int32_t fps) {
     int32_t zoom100 = (int32_t)(g_zoom * 100.0f);
     int32_t rope10 = (int32_t)(g_followDist * 10.0f);
     int32_t height10 = (int32_t)(g_followHeight * 10.0f);
-    const char* filter = g_filter == RZ_FILTER_NEAREST ? "nearest"
-                       : g_filter == RZ_FILTER_MIPMAP ? "mipmap" : "mip+dither";
+    static const char* const filterNames[5] = { "nearest", "mipmap", "mip+dither", "mip linear", "trilinear" };
+    const char* filter = filterNames[g_filter];
 
     if (g_follow) {
         wsprintfA(title,
@@ -215,7 +206,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
     WNDCLASSA wc;
     RECT rc;
     HWND hwnd;
-    DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    /* WS_CLIPCHILDREN: o GDI desta janela não pinta por cima da janela filha OpenGL */
+    DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
     LARGE_INTEGER freq, now, next, t0, t1, fpsStart;
     LONGLONG frameTicks;
     int32_t err, running = 1, frames = 0, renderUsSum = 0;
@@ -240,10 +232,24 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         }
     }
 
-    /* Framebuffer do host + renderer */
-    g_pixels = (uint32_t*)malloc(FB_WIDTH * FB_HEIGHT * sizeof(uint32_t));
-    if (!g_pixels) return 1;
-    err = rzCreate(FB_WIDTH, FB_HEIGHT, g_pixels, &g_ctx);
+    /* Janela do "host" */
+    memset(&wc, 0, sizeof(wc));
+    wc.lpfnWndProc   = wndProc;
+    wc.hInstance     = inst;
+    wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+    wc.lpszClassName = "RenderizeitorViewer";
+    RegisterClassA(&wc);
+
+    rc.left = 0; rc.top = 0; rc.right = FB_WIDTH; rc.bottom = FB_HEIGHT;
+    AdjustWindowRect(&rc, style, FALSE);
+    hwnd = CreateWindowA(wc.lpszClassName, "Renderizeitor", style,
+                         CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top,
+                         NULL, NULL, inst, NULL);
+    if (!hwnd) return 1;
+    ShowWindow(hwnd, show);
+
+    /* Renderer: janela filha OpenGL ocupando toda a área cliente */
+    err = rzCreateWindow(hwnd, 0, 0, FB_WIDTH, FB_HEIGHT, &g_ctx);
     if (err == RZ_OK) err = rzSetHeightmap(g_ctx, heightmap, 256, 256);
     if (err == RZ_OK) {
         /* Atlas e mapa de blocos procedurais (no lugar do PCX, por enquanto) */
@@ -270,7 +276,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
     if (err == RZ_OK) {
         static RztdMesh buildings[RZTD_MAX_OBJECTS];
         static uint32_t colors[RZTD_MAX_OBJECTS];
-        const float heightScale = 0.25f;     /* padrão de rzSetTerrainScale */
+        const float heightScale = RZTD_HEIGHT_SCALE;   /* padrão de rzSetTerrainScale */
         int count = rztdGenerateBuildings(heightmap, heightScale, buildings, colors, RZTD_MAX_OBJECTS);
         int i, top = 0;
         for (i = 0; i < count && err == RZ_OK; ++i) {
@@ -295,33 +301,13 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         }
     }
     if (err != RZ_OK) {
-        MessageBoxA(NULL, "Falha ao inicializar o Renderizeitor.", "rz_viewer", MB_ICONERROR);
+        MessageBoxA(hwnd, err == RZ_ERR_GL ? "Falha ao inicializar o OpenGL 3.3."
+                                           : "Falha ao inicializar o Renderizeitor.",
+                    "rz_viewer", MB_ICONERROR);
+        DestroyWindow(hwnd);
         return 1;
     }
 
-    /* DIB 32 bpp top-down (altura negativa) */
-    memset(&g_bmi, 0, sizeof(g_bmi));
-    g_bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
-    g_bmi.bmiHeader.biWidth       = FB_WIDTH;
-    g_bmi.bmiHeader.biHeight      = -FB_HEIGHT;
-    g_bmi.bmiHeader.biPlanes      = 1;
-    g_bmi.bmiHeader.biBitCount    = 32;
-    g_bmi.bmiHeader.biCompression = BI_RGB;
-
-    memset(&wc, 0, sizeof(wc));
-    wc.lpfnWndProc   = wndProc;
-    wc.hInstance     = inst;
-    wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
-    wc.lpszClassName = "RenderizeitorViewer";
-    RegisterClassA(&wc);
-
-    rc.left = 0; rc.top = 0; rc.right = FB_WIDTH; rc.bottom = FB_HEIGHT;
-    AdjustWindowRect(&rc, style, FALSE);
-    hwnd = CreateWindowA(wc.lpszClassName, "Renderizeitor", style,
-                         CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top,
-                         NULL, NULL, inst, NULL);
-    if (!hwnd) return 1;
-    ShowWindow(hwnd, show);
 
     /* Laço com frame rate fixo: a rotação é por frame, então o fps fixo
        mantém a velocidade constante. */
@@ -356,15 +342,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         rzSetRotationStep(g_ctx, g_paused ? 0 : g_step);
 
         QueryPerformanceCounter(&t0);
-        rzRender(g_ctx);
+        rzRender(g_ctx);                /* desenha e apresenta (SwapBuffers) */
         QueryPerformanceCounter(&t1);
         renderUsSum += (int32_t)((t1.QuadPart - t0.QuadPart) * 1000000 / freq.QuadPart);
-
-        {
-            HDC dc = GetDC(hwnd);
-            present(dc);
-            ReleaseDC(hwnd, dc);
-        }
 
         ++frames;
         QueryPerformanceCounter(&now);
@@ -388,7 +368,6 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
     }
 
     timeEndPeriod(1);
-    rzDestroy(g_ctx);
-    free(g_pixels);
+    if (g_ctx) rzDestroy(g_ctx);
     return 0;
 }
