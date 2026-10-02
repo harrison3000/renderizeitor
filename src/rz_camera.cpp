@@ -1,6 +1,6 @@
-// Câmera: órbita em torno do centro do terreno, ou perseguição de um
-// vértice-alvo "na corda" (mesmo comportamento da versão de software).
-// Roda na CPU uma vez por frame e produz a matriz view-projection.
+// Câmera: perseguição de um vértice-alvo "na corda". Sem alvo, visão geral
+// fixa do terreno inteiro (fallback para testes e base de um futuro modo de
+// câmera livre). Roda na CPU uma vez por frame e produz a view-projection.
 
 #include <cmath>
 
@@ -12,7 +12,7 @@ namespace {
 
 // Altura do terreno (mundo) no ponto (x, z) do mundo, bilinear; 0 sem terreno.
 float groundHeight(const RzContext* ctx, float x, float z) {
-    if (!ctx->hasTerrain) return 0.0f;
+    if (!ctx->hasTerrain()) return 0.0f;
     const float invCell = 1.0f / ctx->cellSize;      // uma divisão por frame
     float gx = x * invCell, gz = z * invCell;
     if (gx < 0.0f) gx = 0.0f;
@@ -21,7 +21,7 @@ float groundHeight(const RzContext* ctx, float x, float z) {
     if (gz > 254.999f) gz = 254.999f;
     const int32_t ix = int32_t(gx), iz = int32_t(gz);
     const float fx = gx - float(ix), fz = gz - float(iz);
-    const uint8_t* h = ctx->heights + iz * kGridSize + ix;
+    const uint8_t* h = ctx->heights.data() + iz * kGridSize + ix;
     const float top = float(h[0]) + (float(h[1]) - float(h[0])) * fx;
     const float bot = float(h[kGridSize]) + (float(h[kGridSize + 1]) - float(h[kGridSize])) * fx;
     return (top + (bot - top) * fz) * ctx->heightScale;
@@ -41,11 +41,9 @@ void updateFollowCamera(RzContext* ctx, Vec3 target) {
     const float k = ctx->followStiffness;
 
     if (!ctx->followInitialized) {
-        // Começa atrás do alvo na direção da órbita atual, já na posição de repouso
-        const float yawRad = float(int32_t(ctx->yaw)) * kAngleToRadians;
-        ctx->followEye = { target.x - sinf(yawRad) * rope,
-                           target.y + ctx->followHeight * cs,
-                           target.z + cosf(yawRad) * rope };
+        // Começa no lado +z do alvo (o mesmo da visão geral), já na posição
+        // de repouso; quando o alvo andar, a corda leva a câmera para trás dele.
+        ctx->followEye = { target.x, target.y + ctx->followHeight * cs, target.z + rope };
         ctx->followInitialized = true;
         ctx->followAppliedDistance = ctx->followDistance;
     }
@@ -127,55 +125,49 @@ Mat4 perspective(float focalX, float focalY, float nearPlane, float farPlane, bo
     return p;
 }
 
+// Visão geral: olha para o centro do terreno do lado +z, com inclinação
+// fixa, na distância em que a esfera envolvente (raio R) cabe no FOV.
+void overviewCamera(const RzContext* ctx, Vec3 center, Vec3* eye) {
+    constexpr float degToRad = kPi / 180.0f;
+    const float pitch = kOverviewPitchDegrees * degToRad;
+    // focal = 1 / tan(meio FOV), no eixo de FOV menor: a esfera fica quase
+    // tangente às bordas e os cantos da caixa (mais baixa que a esfera) cabem
+    const float focal = ctx->focalX > ctx->focalY ? ctx->focalX : ctx->focalY;
+    const float d = ctx->terrainRadius * focal;
+    *eye = center + Vec3{ 0.0f, sinf(pitch) * d, cosf(pitch) * d };
+}
+
 } // namespace
 
-// Avança a câmera um frame (rotação da órbita ou perseguição) e devolve a
-// matriz view-projection, já na convenção do OpenGL.
+// Avança a câmera um frame e devolve a matriz view-projection, já na
+// convenção do OpenGL.
 Mat4 updateCamera(RzContext* ctx) {
-    // Rotação: uint32 com wrap natural; reinterpretado como int32 dá −π..π
-    ctx->yaw += ctx->yawStep;
-
     const float cs = ctx->cellSize;
     const float hs = ctx->heightScale;
     const Vec3 terrainCenter = { 127.5f * cs, 127.5f * hs, 127.5f * cs };
 
     const int32_t target = ctx->cameraTargetObject;
-    const bool following = target >= 0 && target < ctx->objectCapacity &&
+    const bool following = target >= 0 && target < int32_t(ctx->objects.size()) &&
                            ctx->objects[target].alive &&
-                           ctx->cameraTargetVertex < ctx->objects[target].vertexCount;
+                           ctx->cameraTargetVertex < ctx->objects[target].vertexCount();
 
-    Mat4 view;
-    Vec3 eye;
-    float focusDist;            // distância da câmera ao ponto observado
+    Vec3 eye, at;
     if (following) {
         // Perseguição: câmera na corda, sempre olhando para o vértice-alvo
-        const Vec3 at = ctx->objects[target].world[ctx->cameraTargetVertex];
+        at = ctx->objects[target].world[ctx->cameraTargetVertex];
         updateFollowCamera(ctx, at);
         eye = ctx->followEye;
-        view = lookAt(eye, at);
-        const Vec3 toAt = at - eye;
-        focusDist = sqrtf(dot(toAt, toAt));
     } else {
-        // Órbita em torno do centro do terreno
         ctx->followInitialized = false;
-        const float yawRad = float(int32_t(ctx->yaw)) * kAngleToRadians;
-        const float sinYaw = sinf(yawRad);
-        const float cosYaw = cosf(yawRad);
-        const float d = ctx->orbitDistance;
-        // Posição da câmera = centro + Ry(−yaw) · Rx(−pitch) · (0, 0, D)
-        eye = terrainCenter + Vec3{ -sinYaw * ctx->cosPitch * d, ctx->sinPitch * d,
-                                    cosYaw * ctx->cosPitch * d };
-        // V = T(0, 0, −D) · Rx(pitch) · Ry(yaw) · T(−centro)
-        view = Mat4::translation(0.0f, 0.0f, -d)
-             * Mat4::rotationX(ctx->sinPitch, ctx->cosPitch)
-             * Mat4::rotationY(sinYaw, cosYaw)
-             * Mat4::translation(-terrainCenter.x, -terrainCenter.y, -terrainCenter.z);
-        focusDist = d;
+        at = terrainCenter;
+        overviewCamera(ctx, at, &eye);
     }
+    const Mat4 view = lookAt(eye, at);
+    const Vec3 toAt = at - eye;
+    const float focusDist = sqrtf(dot(toAt, toAt));
 
     // near/far: o terreno inteiro (esfera de raio R) e o ponto observado ficam
-    // dentro do frustum em profundidade. Na órbita padrão dá near = R e
-    // far = 3R, como na spec.
+    // dentro do frustum em profundidade.
     const Vec3 toTerrain = eye - terrainCenter;
     const float terrainDist = sqrtf(dot(toTerrain, toTerrain));
     const float radius = ctx->terrainRadius;

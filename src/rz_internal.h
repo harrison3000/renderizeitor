@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
+#include <vector>
 
 #include "renderizeitor.h"
 #include "rz_gl.h"
@@ -30,15 +31,14 @@ constexpr int32_t kTriangleCount = kQuadsPerSide * kQuadsPerSide * 2; // 130.050
 constexpr int32_t kPaletteSize   = 766;                         // soma de 3 alturas: 0..765
 
 constexpr uint32_t kBackgroundColor = 0x00202830u;
-constexpr uint32_t kYawStep         = 1u << 22;                 // 1024 frames por volta
 
 constexpr float kPi              = 3.14159265358979f;
-constexpr float kAngleToRadians  = 2.0f * kPi / 4294967296.0f;   // 2π / 2^32
-constexpr float kPitchDegrees    = 35.0f;   // padrão
-constexpr float kPitchMinDegrees = 0.0f;
-constexpr float kPitchMaxDegrees = 89.0f;
 constexpr float kFovYDegrees     = 60.0f;
 constexpr float kAmbient         = 0.3f;
+constexpr float kTexturedShading = 0.35f;   // força da luz sobre o chão texturizado (0 = textura pura)
+
+// Visão geral (sem alvo): terreno inteiro, visto do lado +z, inclinação fixa
+constexpr float kOverviewPitchDegrees = 50.0f;
 
 // Escala do legado: byte 0 = altura 0, byte 255 = 16 tiles (mundo 255 x 255 x 16)
 constexpr float kDefaultCellSize    = 1.0f;
@@ -52,9 +52,6 @@ constexpr float kFollowClearance    = 0.5f;   // altura mínima desejada sobre o
 constexpr float kFollowMinClearance = 0.1f;   // limite duro sobre o chão (tiles)
 constexpr float kFollowClimb        = 0.2f;   // amortecimento ao subir
 
-constexpr float kDistanceMin = 0.02f;   // fator sobre a distância padrão D = 2R
-constexpr float kDistanceMax = 4.0f;
-
 constexpr int32_t kMaxWindowSize = 8192;
 
 // Texturas: blocos 16x16 numa textura array (uma camada por bloco), com
@@ -63,13 +60,6 @@ constexpr int32_t kTileSize      = 16;
 constexpr int32_t kMipLevels     = 5;
 constexpr int32_t kMaxTiles      = 256;                         // índice é um byte
 constexpr uint32_t kMissingTileColor = 0x00FF00FFu;             // bloco fora do atlas
-
-// ---------------------------------------------------------------------------
-// Alocação (trocável no futuro)
-// ---------------------------------------------------------------------------
-
-inline void* rzAlloc(size_t bytes) { return std::malloc(bytes); }
-inline void  rzFree(void* p)       { std::free(p); }
 
 // ---------------------------------------------------------------------------
 // Matemática
@@ -95,9 +85,6 @@ struct Mat4 {
     const float& operator[](int row, int col) const { return e[row * 4 + col]; }
 
     static Mat4 identity();
-    static Mat4 translation(float x, float y, float z);
-    static Mat4 rotationX(float s, float c);
-    static Mat4 rotationY(float s, float c);
 };
 
 Mat4 operator*(const Mat4& a, const Mat4& b);
@@ -125,42 +112,41 @@ static_assert(sizeof(GpuVertex) == 16);
 struct TerrainVertex {
     float    x, y, z;
     uint32_t color;            // cor flat do triângulo (iluminada), 0x00RRGGBB
-    uint8_t  u, v, layer, pad; // canto do quad (0/1) e bloco do atlas
+    uint8_t  u, v, layer;      // canto do quad (0/1) e bloco do atlas
+    uint8_t  light;            // intensidade da luz no triângulo, 0..255 (para o chão texturizado)
 };
 static_assert(sizeof(TerrainVertex) == 20);
 
 struct Object {
-    bool      alive;
-    bool      visible;
-    int32_t   cull;            // RZ_CULL_*
-    uint32_t  baseColor;       // 0x00RRGGBB, provisório até as texturas
+    bool      alive   = false;
+    bool      visible = false;
+    int32_t   cull    = RZ_CULL_NONE;
+    uint32_t  baseColor = 0;   // 0x00RRGGBB, provisório até as texturas
 
-    int32_t   vertexCount;
-    Vec3*     world;           // posições no mundo (float), atualizadas pelo host
+    std::vector<Vec3>     world;          // posições no mundo, atualizadas pelo host
+    std::vector<int32_t>  polygonStart;   // em `indices`
+    std::vector<int32_t>  polygonLength;  // sem o índice de fechamento
+    std::vector<uint16_t> indices;        // cópia dos índices (sem os fechamentos)
+    std::vector<uint32_t> polygonColors;  // cor sombreada por polígono
+    std::vector<ObjectTriangle> triangles; // leque de cada polígono, montado na carga
+    std::vector<GpuVertex> staging;       // triangles.size() * 3, preenchido a cada update
 
-    int32_t   polygonCount;
-    int32_t*  polygonStart;    // em `indices`
-    int32_t*  polygonLength;   // sem o índice de fechamento
-    uint16_t* indices;         // cópia dos índices (sem os fechamentos)
-    uint32_t* polygonColors;   // cor sombreada por polígono
+    GLuint    vao = 0;
+    GLuint    vbo = 0;
 
-    int32_t   triangleCount;
-    ObjectTriangle* triangles; // leque de cada polígono, montado na carga
-    GpuVertex* staging;        // triangleCount * 3, preenchido a cada update
-
-    GLuint    vao;
-    GLuint    vbo;
+    int32_t vertexCount() const   { return int32_t(world.size()); }
+    int32_t triangleCount() const { return int32_t(triangles.size()); }
 };
 
 // Locais de uniforms dos programas
 struct TerrainProgram {
-    GLuint program;
-    GLint  viewProj, atlas, textured, filter;
+    GLuint program = 0;
+    GLint  viewProj = -1, atlas = -1, textured = -1, filter = -1, shading = -1;
 };
 
 struct ObjectProgram {
-    GLuint program;
-    GLint  viewProj;
+    GLuint program = 0;
+    GLint  viewProj = -1;
 };
 
 } // namespace rz
@@ -170,63 +156,58 @@ struct ObjectProgram {
 // ---------------------------------------------------------------------------
 
 struct RzContext {
-    rz::Platform* platform;
-    bool      windowed;        // janela filha (true) ou offscreen com cópia (false)
-    uint32_t* hostPixels;      // offscreen: buffer RGBQUAD do host
-    int32_t   width;
-    int32_t   height;
+    rz::Platform* platform = nullptr;
+    bool      windowed   = false;     // janela filha (true) ou offscreen com cópia (false)
+    uint32_t* hostPixels = nullptr;   // offscreen: buffer RGBQUAD do host (não é nosso)
+    int32_t   width  = 0;
+    int32_t   height = 0;
 
     // Offscreen: FBO com cor e profundidade
-    rz::GLuint fbo, colorRb, depthRb;
+    rz::GLuint fbo = 0, colorRb = 0, depthRb = 0;
 
     rz::TerrainProgram terrainProgram;
     rz::ObjectProgram  objectProgram;
 
     // Projeção
-    float focalX;           // f / aspecto
-    float focalY;           // f = 1 / tan(fov/2)
-    float sinPitch, cosPitch;
+    float focalX = 1.0f;     // f / aspecto
+    float focalY = 1.0f;     // f = 1 / tan(fov/2)
 
     // Terreno
-    bool      hasTerrain;
-    uint8_t*  heights;      // 256x256, cópia na CPU (malha e câmera de perseguição)
-    float     cellSize;
-    float     heightScale;
-    rz::GLuint terrainVao;
-    rz::GLuint terrainVbo;  // 130.050 x 3 TerrainVertex, remontado na carga
+    std::vector<uint8_t> heights;      // 256x256, cópia na CPU (malha e câmera de perseguição)
+    float     cellSize    = rz::kDefaultCellSize;
+    float     heightScale = rz::kDefaultHeightScale;
+    rz::GLuint terrainVao = 0;
+    rz::GLuint terrainVbo = 0;         // 130.050 x 3 TerrainVertex, remontado na carga
+    bool hasTerrain() const { return !heights.empty(); }
 
     // Texturas (opcionais; sem as duas, desenha com as cores flat)
-    rz::GLuint atlasTex;    // array 16x16 x 256 camadas, 5 níveis
-    uint8_t*  tileMap;      // 256x256, cópia na CPU (bloco de cada quad)
-    bool      hasAtlas;
-    bool      hasTileMap;
-    int32_t   textureFilter;  // RZ_FILTER_*
+    rz::GLuint atlasTex = 0;           // array 16x16 x 256 camadas, 5 níveis
+    std::vector<uint8_t> tileMap;      // 256x256, cópia na CPU (bloco de cada quad)
+    bool      hasAtlas   = false;
+    bool      hasTileMap = false;
+    int32_t   textureFilter = RZ_FILTER_MIP_DITHER;
 
     // Câmera
-    float distanceFactor;   // 1 = padrão
-    float terrainRadius;    // R: raio da esfera envolvente do terreno
-    float orbitDistance;    // D = 2R · fator
-    float nearPlane;        // calculados a cada frame pela posição da câmera
-    float farPlane;
-    uint32_t yaw;           // 2^32 = uma volta
-    uint32_t yawStep;       // somado a cada frame (wrap natural; negativo = sentido inverso)
+    float terrainRadius = 0.0f;   // R: raio da esfera envolvente do terreno
+    float nearPlane = 0.0f;       // calculados a cada frame pela posição da câmera
+    float farPlane  = 0.0f;
 
     // Alvo da câmera: vértice de um objeto (câmera de perseguição), ou nenhum
-    int32_t cameraTargetObject;
-    int32_t cameraTargetVertex;
+    // (visão geral fixa do terreno)
+    int32_t cameraTargetObject = -1;
+    int32_t cameraTargetVertex = 0;
 
     // Câmera de perseguição ("na corda"); estado avança a cada rzRender
-    float    followDistance;
-    float    followHeight;
-    float    followStiffness;
-    bool     followInitialized;
-    float    followAppliedDistance;   // corda com que followEye foi calculado
-    rz::Vec3 followEye;
+    float    followDistance  = rz::kFollowDistance;
+    float    followHeight    = rz::kFollowHeight;
+    float    followStiffness = rz::kFollowStiffness;
+    bool     followInitialized = false;
+    float    followAppliedDistance = 0.0f;   // corda com que followEye foi calculado
+    rz::Vec3 followEye = { 0.0f, 0.0f, 0.0f };
 
-    // Objetos (id = índice no array; slots livres são reaproveitados)
-    rz::Object* objects;
-    int32_t     objectCapacity;
-    int32_t     objectAxes;     // RZ_AXES_*
+    // Objetos (id = índice no vetor; slots livres são reaproveitados)
+    std::vector<rz::Object> objects;
+    int32_t objectAxes = RZ_AXES_Z_UP;
 };
 
 namespace rz {

@@ -5,9 +5,8 @@
 //
 //   rz_test [-w largura] [-h altura] [-n frames] [-e salvar_a_cada]
 //           [-o pasta_saida] [-m heightmap.raw] [-r referencia.txt]
-//           [-t 0|1 texturas] [-f 0|1|2 filtro] [-z distancia] [-p pitch]
-//           [-O 0|1 objetos] [-c 0|1 camera segue o veiculo]
-//           [-s passo_de_rotacao]
+//           [-t 0|1 texturas] [-f 0..4 filtro]
+//           [-O 0|1 objetos] [-c 0|1 camera segue o veiculo (0: visão geral)]
 //
 // Filtro: 0 nearest, 1 mipmap, 2 mipmap com dither (padrão), 3 mipmap linear, 4 trilinear.
 //
@@ -21,6 +20,7 @@
 #include <cstring>
 #include <cmath>
 #include <chrono>
+#include <vector>
 
 #include "renderizeitor.h"
 #include "rz_testdata.h"
@@ -48,7 +48,7 @@ bool writePpm(const char* path, const uint32_t* pixels, int32_t w, int32_t h) {
     FILE* f = std::fopen(path, "wb");
     if (!f) return false;
     std::fprintf(f, "P6\n%d %d\n255\n", w, h);
-    unsigned char* line = static_cast<unsigned char*>(std::malloc(size_t(w) * 3));
+    std::vector<unsigned char> line(size_t(w) * 3);
     for (int32_t y = 0; y < h; ++y) {
         for (int32_t x = 0; x < w; ++x) {
             const uint32_t p = pixels[y * w + x];
@@ -56,9 +56,8 @@ bool writePpm(const char* path, const uint32_t* pixels, int32_t w, int32_t h) {
             line[x * 3 + 1] = (p >> 8) & 0xFF;
             line[x * 3 + 2] = p & 0xFF;
         }
-        std::fwrite(line, 1, size_t(w) * 3, f);
+        std::fwrite(line.data(), 1, line.size(), f);
     }
-    std::free(line);
     std::fclose(f);
     return true;
 }
@@ -82,9 +81,6 @@ int main(int argc, char** argv) {
     int objects = 1;
     int follow = 1;
     int filter = RZ_FILTER_MIP_DITHER;
-    int32_t step = 0;
-    bool hasStep = false;
-    float distance = 1.0f, pitch = 35.0f;
 
     for (int i = 1; i + 1 < argc; i += 2) {
         const char* opt = argv[i];
@@ -100,9 +96,6 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(opt, "-O")) objects = std::atoi(val);
         else if (!std::strcmp(opt, "-c")) follow = std::atoi(val);
         else if (!std::strcmp(opt, "-f")) filter = std::atoi(val);
-        else if (!std::strcmp(opt, "-s")) { step = std::atoi(val); hasStep = true; }
-        else if (!std::strcmp(opt, "-z")) distance = std::strtof(val, nullptr);
-        else if (!std::strcmp(opt, "-p")) pitch = std::strtof(val, nullptr);
         else { std::fprintf(stderr, "opcao desconhecida: %s\n", opt); return 2; }
     }
 
@@ -116,15 +109,12 @@ int main(int argc, char** argv) {
         rztdGenerateHeightmap(heightmap);
     }
 
-    uint32_t* pixels = static_cast<uint32_t*>(std::malloc(size_t(width) * size_t(height) * 4));
+    std::vector<uint32_t> pixels(static_cast<size_t>(width) * height);
     RzContext* ctx = nullptr;
-    int32_t err = rzCreate(width, height, pixels, &ctx);
+    int32_t err = rzCreate(width, height, pixels.data(), &ctx);
     if (err != RZ_OK) { std::fprintf(stderr, "rzCreate falhou: %d\n", err); return 1; }
     err = rzSetHeightmap(ctx, heightmap, 256, 256);
     if (err != RZ_OK) { std::fprintf(stderr, "rzSetHeightmap falhou: %d\n", err); return 1; }
-    rzSetCameraDistance(ctx, distance);
-    rzSetCameraPitch(ctx, pitch);
-    if (hasStep) rzSetRotationStep(ctx, step);
     if (rzSetTextureFilter(ctx, filter) != RZ_OK) { std::fprintf(stderr, "filtro invalido: %d\n", filter); return 1; }
 
     if (textures) {
@@ -192,7 +182,7 @@ int main(int argc, char** argv) {
         std::printf("objetos: 1 veiculo + %d construcoes + 1 cubo\n", count);
     }
 
-    uint32_t* hashes = static_cast<uint32_t*>(std::malloc(size_t(frames) * 4));
+    std::vector<uint32_t> hashes(static_cast<size_t>(frames));
     double totalMs = 0.0;
     for (int f = 0; f < frames; ++f) {
         if (cubeId >= 0) {
@@ -208,10 +198,10 @@ int main(int argc, char** argv) {
         const auto t1 = std::chrono::steady_clock::now();
         totalMs += std::chrono::duration<double, std::milli>(t1 - t0).count();
 
-        hashes[f] = fnv1a(pixels, width * height);
+        hashes[f] = fnv1a(pixels.data(), width * height);
         if (saveEvery > 0 && (f % saveEvery == 0 || f == frames - 1)) {
             std::snprintf(path, sizeof(path), "%s/frame_%04d.ppm", outDir, f);
-            if (!writePpm(path, pixels, width, height)) std::fprintf(stderr, "falha ao gravar %s\n", path);
+            if (!writePpm(path, pixels.data(), width, height)) std::fprintf(stderr, "falha ao gravar %s\n", path);
         }
     }
     std::printf("%d frames %dx%d, media %.2f ms/frame\n", frames, width, height, totalMs / frames);
@@ -245,7 +235,5 @@ int main(int argc, char** argv) {
     }
 
     rzDestroy(ctx);
-    std::free(hashes);
-    std::free(pixels);
     return ok ? 0 : 1;
 }

@@ -4,7 +4,7 @@
 
 Renderizeitor é um renderizador 3D em OpenGL 3.3 core, escrito em C++23 no estilo "C com classes". É distribuído como DLL de 32 bits com interface C, para ser conectado a um código legado em C compilado com MinGW.
 
-Ele renderiza um terreno a partir de um heightmap 256×256, com texturas por bloco vindas de um atlas paletizado. Também desenha objetos poligonais que o host atualiza, e a câmera pode orbitar o terreno ou perseguir um vértice-alvo.
+Ele renderiza um terreno a partir de um heightmap 256×256, com texturas por bloco vindas de um atlas paletizado. Também desenha objetos poligonais que o host atualiza, e a câmera persegue um vértice-alvo.
 
 Há dois modos de saída:
 
@@ -28,10 +28,9 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 ## 3. Dependências e estilo
 
 - **Sem bibliotecas de terceiros, sem headers de GL do sistema.** `rz_gl.h/.cpp` declara o subconjunto do GL 3.3 usado e o carrega por X-macro. No Win32, os ponteiros usam `__stdcall` (`RZ_GLAPI`), e as funções do GL 1.1 vêm de `opengl32.dll` via `GetProcAddress`.
-- **Da std, só:**
-  - `<cstdint>`, `<cstring>`, `<cmath>` e `<bit>`;
-  - `<cstdlib>`, apenas para `malloc` e `free`, via `rzAlloc`/`rzFree`.
-- **O que não se usa:** containers, streams, strings e exceções.
+- **Std liberada quando simplifica o código**, desde que linke estática (`-static-libstdc++`). Containers como `std::vector` são o caso principal: buffers do terreno, do atlas e dos objetos, e o contexto inteiro (`new RzContext`, com os padrões nos inicializadores dos membros).
+- **Sem exceções** (`-fno-exceptions`): uma falha de alocação aborta o programa em vez de virar `RZ_ERR_NO_MEMORY`. A chance é baixíssima e isso foi aceito.
+- **O que não se usa:** streams e RTTI.
 - **Estilo "C com classes":**
   - sem herança virtual nem templates elaborados;
   - `operator[](row, col)` com dois índices em `Mat4`;
@@ -45,7 +44,7 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 - **Chamadas:** `__cdecl`, nomes sem decoração e nenhum struct passado por valor. As funções devolvem `int32_t` com um código `RZ_*`.
 - **Memória:** nunca troca de dono na fronteira. A DLL libera o que alocou em `rzDestroy`.
 - **Thread:** o contexto GL pertence à thread que chamou `rzCreate*`. Todas as chamadas do contexto devem vir dela, e no modo janela ela é a thread do loop de mensagens do pai.
-- **Alocação:** só nas funções de carga (heightmap, atlas, mapa de blocos, criação de objetos). `rzRender` e `rzUpdateObjectVertices` não alocam.
+- **Alocação:** só nas funções de carga (heightmap, atlas, mapa de blocos, criação de objetos). `rzRender` e `rzUpdateObjectVertices` não alocam (os vetores já têm o tamanho final).
 
 ### 4.2 Funções
 
@@ -55,7 +54,7 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 | Terreno | `rzSetHeightmap` (256×256); `rzSetTerrainScale(cellSize, heightScale)` |
 | Texturas | `rzSetTileAtlas(indices, w, h, paletteRGB)`; `rzSetTileMap` (256×256, NULL desliga as texturas); `rzSetTextureFilter` |
 | Objetos | `rzSetObjectAxes`, `rzCreateObject`, `rzUpdateObjectVertices`, `rzDestroyObject`, `rzSetObjectColor`, `rzSetObjectVisible`, `rzSetObjectCulling` |
-| Câmera | `rzSetCameraPitch`, `rzSetCameraDistance`, `rzSetRotationStep`, `rzSetCameraTarget(id, vertex)`, `rzSetCameraFollow(distance, height, stiffness)` |
+| Câmera | `rzSetCameraTarget(id, vertex)`, `rzSetCameraFollow(distance, height, stiffness)` |
 | Frame | `rzRender` |
 
 Erros:
@@ -64,7 +63,7 @@ Erros:
 |---|---|
 | `RZ_ERR_INVALID_ARG` | Argumento inválido |
 | `RZ_ERR_SIZE` | Tamanho fora do suportado |
-| `RZ_ERR_NO_MEMORY` | Falha de alocação |
+| `RZ_ERR_NO_MEMORY` | Reservado: hoje uma falha de alocação aborta |
 | `RZ_ERR_GL` | Sem OpenGL 3.3, ou falha de contexto, shader ou janela |
 
 Limites:
@@ -131,7 +130,7 @@ Limites:
 ### 7.3 Texturas
 
 - **Atlas:** blocos de 16×16 em grade, numerados da esquerda para a direita e de cima para baixo. Só os 256 primeiros são usados.
-- **Mapa de blocos:** diz qual bloco cobre cada quad, com o bloco inteiro esticado sobre o quad. A textura é pura, sem a iluminação do terreno.
+- **Mapa de blocos:** diz qual bloco cobre cada quad, com o bloco inteiro esticado sobre o quad. A textura recebe um sombreamento leve: a mesma luz flat do triângulo, atenuada para `mix(1, luz, 0.35)` (`kTexturedShading`). Com a luz mínima (ambient 0,3), a textura escurece até ~76%.
 - **Na GPU:** `GL_TEXTURE_2D_ARRAY` 16×16×256 com 5 níveis (16, 8, 4, 2, 1), gerados na CPU por média 2×2 arredondada. Um bloco fora do atlas sai magenta.
 - **Filtros:** a ampliação é sempre nearest; o filtro muda só a redução.
 
@@ -150,19 +149,18 @@ Limites:
 - **Cor:** provisória por objeto, com sombreamento flat por polígono pela normal de Newell. A luz é de dois lados enquanto o winding do legado for desconhecido.
 - **Na GPU:** um VBO por objeto, reenviado em `rzUpdateObjectVertices`, e um `glDrawArrays` por objeto visível.
 - **Culling:** por objeto, com `RZ_CULL_NONE` (padrão), `RZ_CULL_CW` ou `RZ_CULL_CCW`.
-- **Ids:** são índices num array; os slots livres são reaproveitados.
+- **Ids:** são índices num `std::vector`; os slots livres são reaproveitados.
 
 ## 9. Câmera
 
 Tudo na CPU, uma vez por `rzRender`, gerando a matriz view-projection. A projeção é perspectiva, com FOV vertical de 60° e profundidade no estilo GL.
 
-### 9.1 Órbita (padrão, sem alvo)
+O modo normal é a perseguição (9.2): o host sempre define um alvo.
 
-- **Centro:** o centro do terreno.
-- **Yaw:** um `uint32_t` em que 2^32 é uma volta. Avança `rotationStep` por frame (padrão `1 << 22`, 1024 frames por volta), com wrap natural.
-- **Pitch:** 35° por padrão, limitado a [0, 89].
-- **Distância:** `D = 2R · fator`, com R o raio da esfera envolvente do terreno e o fator em [0.02, 4].
-- **Planos:** `near = D − R` e `far = D + R`. O near é limitado a no máximo metade da distância ao foco e a no mínimo 0.002·R.
+### 9.1 Visão geral (fallback, sem alvo)
+
+- **Quando:** sem alvo (o padrão, `id < 0`) ou com o objeto-alvo destruído. Serve para testes, como fallback e como base de um futuro modo de câmera livre.
+- **Enquadramento:** olha para o centro do terreno pelo lado +z, com inclinação fixa de 50° (`kOverviewPitchDegrees`), na distância `R · focal` (R é o raio da esfera envolvente, e focal é o do eixo de FOV menor).
 
 ### 9.2 Perseguição "na corda" (`rzSetCameraTarget(id, vertex)`)
 
@@ -175,7 +173,12 @@ Tudo na CPU, uma vez por `rzRender`, gerando a matriz view-projection. A projeç
 - **Suavidade:** os dois movimentos são amortecidos por `stiffness` (padrão 0.08).
 - **Chão:** a altura desejada respeita uma folga de 0,5 tile sobre o terreno, com piso duro de 0,1. A subida é amortecida e mais rápida que a descida.
 - **Mudança na corda:** a distância horizontal muda na hora, na mesma proporção, para o zoom responder no mesmo frame.
-- **Saída:** `id < 0`, ou o objeto destruído, volta à órbita.
+- **Início:** a câmera começa já em repouso, no lado +z do alvo. Quando o alvo anda, a corda a leva para trás dele.
+- **Saída:** `id < 0`, ou o objeto destruído, vai para a visão geral. Ao voltar a um alvo, a câmera recomeça do lado +z.
+
+### 9.3 Planos near/far (os dois modos)
+
+`near = dist(câmera, centro) − R` e `far = dist(câmera, centro) + R`. O near é limitado a no máximo metade da distância ao ponto observado e a no mínimo 0.002·R.
 
 ## 10. Frame (`rzRender`)
 
@@ -191,7 +194,7 @@ Sem heightmap, só limpa e apresenta.
 
 - **`test/rz_test.cpp`:**
   - linka o núcleo estático (`RZ_STATIC`) e renderiza offscreen;
-  - grava `.ppm`;
+  - grava `.ppm`; `-c 0` testa a visão geral;
   - registra hashes FNV-1a por frame. Eles só são comparáveis na mesma máquina e driver, então não há regressão bit a bit entre GPUs.
 - **`test/rz_testdata.h`:** dados procedurais.
   - Ilha, atlas e mapa de blocos.
@@ -203,7 +206,7 @@ Sem heightmap, só limpa e apresenta.
   | Tecla | Ação |
   |---|---|
   | WASD | Dirige o carro |
-  | C | Câmera segue o carro |
+  | C | Câmera segue o carro / visão geral |
   | O | Liga/desliga os objetos |
   | T | Liga/desliga as texturas |
   | F | Alterna o filtro |
@@ -221,4 +224,4 @@ Sem heightmap, só limpa e apresenta.
 - **Desempenho em CPU fraca:** no Allwinner D1, via llvmpipe, os 130 mil triângulos pequenos dominam. O próximo passo seria descarte de blocos do terreno fora do frustum e LOD por blocos.
 - **Escolha da diagonal do quad pela altura dos cantos**, de forma determinística.
 - **Winding dos polígonos do legado:** ainda desconhecido; define o culling e a luz de um lado só.
-- **Valores provisórios:** paleta, direção da luz, ambient, pitch, FOV, passo de rotação, cor de fundo e cor dos objetos.
+- **Valores provisórios:** paleta, direção da luz, ambient, força do sombreamento das texturas, FOV, inclinação da visão geral, cor de fundo e cor dos objetos.

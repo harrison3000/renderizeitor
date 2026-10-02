@@ -71,8 +71,10 @@ bool createRenderer(RzContext* ctx) {
     t.atlas    = glGetUniformLocation(t.program, "uAtlas");
     t.textured = glGetUniformLocation(t.program, "uTextured");
     t.filter   = glGetUniformLocation(t.program, "uFilter");
+    t.shading  = glGetUniformLocation(t.program, "uShading");
     glUseProgram(t.program);
     glUniform1i(t.atlas, kUnitAtlas);
+    glUniform1f(t.shading, kTexturedShading);
 
     ObjectProgram& o = ctx->objectProgram;
     o.program = linkProgram(kObjectVertexShader, kObjectFragmentShader);
@@ -92,7 +94,7 @@ bool createRenderer(RzContext* ctx) {
     glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride,
                           reinterpret_cast<void*>(offsetof(TerrainVertex, color)));
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(2, 3, GL_UNSIGNED_BYTE, GL_FALSE, stride,
+    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride,
                           reinterpret_cast<void*>(offsetof(TerrainVertex, u)));
     glEnableVertexAttribArray(2);
     glBindVertexArray(0);
@@ -157,7 +159,7 @@ void renderFrame(RzContext* ctx) {
     glDepthFunc(GL_LESS);
     glFrontFace(frontFaceWinding(ctx));
 
-    if (ctx->hasTerrain) {
+    if (ctx->hasTerrain()) {
         const TerrainProgram& t = ctx->terrainProgram;
         const bool textured = ctx->hasAtlas && ctx->hasTileMap;
         glUseProgram(t.program);

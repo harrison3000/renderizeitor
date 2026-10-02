@@ -31,30 +31,11 @@ int32_t createContext(RzContext** outCtx, Platform* platform, bool windowed,
         return RZ_ERR_GL;
     }
 
-    RzContext* ctx = static_cast<RzContext*>(rzAlloc(sizeof(RzContext)));
-    if (!ctx) {
-        platformDestroy(platform);
-        return RZ_ERR_NO_MEMORY;
-    }
-    std::memset(ctx, 0, sizeof(RzContext));
+    RzContext* ctx = new RzContext;     // padrões nos inicializadores dos membros
     ctx->platform   = platform;
     ctx->windowed   = windowed;
     ctx->hostPixels = static_cast<uint32_t*>(pixels);
     setSize(ctx, width, height);
-
-    constexpr float degToRad = kPi / 180.0f;
-    ctx->sinPitch = sinf(kPitchDegrees * degToRad);
-    ctx->cosPitch = cosf(kPitchDegrees * degToRad);
-    ctx->yawStep  = kYawStep;
-    ctx->cellSize    = kDefaultCellSize;
-    ctx->heightScale = kDefaultHeightScale;
-    ctx->distanceFactor = 1.0f;
-    ctx->textureFilter  = RZ_FILTER_MIP_DITHER;
-    ctx->cameraTargetObject = -1;
-    ctx->followDistance  = kFollowDistance;
-    ctx->followHeight    = kFollowHeight;
-    ctx->followStiffness = kFollowStiffness;
-    ctx->objectAxes = RZ_AXES_Z_UP;
     updateTerrainBounds(ctx);
 
     if (!createRenderer(ctx)) {
@@ -106,11 +87,8 @@ RZ_API RZ_ENTRY void RZ_CALL rzDestroy(RzContext* ctx) {
         destroyRenderer(ctx);
     }
     platformDestroy(ctx->platform);
-    rzFree(ctx->heights);
-    rzFree(ctx->tileMap);
-    rzFree(ctx->objects);
     // ctx->hostPixels pertence ao host: nunca é liberado aqui.
-    rzFree(ctx);
+    delete ctx;
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzSetHeightmap(RzContext* ctx, const uint8_t* data,
@@ -119,15 +97,9 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetHeightmap(RzContext* ctx, const uint8_t* da
     if (width != kGridSize || height != kGridSize) return RZ_ERR_SIZE;
     if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
 
-    if (!ctx->heights) {
-        ctx->heights = static_cast<uint8_t*>(rzAlloc(size_t(kVertexCount)));
-        if (!ctx->heights) return RZ_ERR_NO_MEMORY;
-    }
-    std::memcpy(ctx->heights, data, size_t(kVertexCount));
+    ctx->heights.assign(data, data + kVertexCount);
     updateTerrainBounds(ctx);
-    if (!buildTerrainMesh(ctx)) return RZ_ERR_NO_MEMORY;
-    ctx->hasTerrain = true;
-    return RZ_OK;
+    return buildTerrainMesh(ctx) ? RZ_OK : RZ_ERR_GL;
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzSetTerrainScale(RzContext* ctx,
@@ -137,9 +109,9 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetTerrainScale(RzContext* ctx,
     ctx->cellSize    = cellSize;
     ctx->heightScale = heightScale;
     updateTerrainBounds(ctx);
-    if (ctx->hasTerrain) {          // posições e iluminação dependem da escala
+    if (ctx->hasTerrain()) {          // posições e iluminação dependem da escala
         if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
-        if (!buildTerrainMesh(ctx)) return RZ_ERR_NO_MEMORY;
+        if (!buildTerrainMesh(ctx)) return RZ_ERR_GL;
     }
     return RZ_OK;
 }
@@ -156,9 +128,8 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetTileAtlas(RzContext* ctx, const uint8_t* in
 
     // 256 blocos x (256 + 64 + 16 + 4 + 1) texels, por nível; temporário da carga
     constexpr int32_t kTexels = kMaxTiles * 341;
-    uint32_t* tiles = static_cast<uint32_t*>(rzAlloc(size_t(kTexels) * sizeof(uint32_t)));
-    if (!tiles) return RZ_ERR_NO_MEMORY;
-    buildAtlasLevels(tiles, indices, width, height, paletteRGB);
+    std::vector<uint32_t> tiles(kTexels);
+    buildAtlasLevels(tiles.data(), indices, width, height, paletteRGB);
 
     if (!ctx->atlasTex) glGenTextures(1, &ctx->atlasTex);
     glBindTexture(GL_TEXTURE_2D_ARRAY, ctx->atlasTex);
@@ -167,9 +138,8 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetTileAtlas(RzContext* ctx, const uint8_t* in
     for (int32_t level = 0; level < kMipLevels; ++level) {
         const int32_t side = kTileSize >> level;
         glTexImage3D(GL_TEXTURE_2D_ARRAY, level, GL_RGBA8, side, side, kMaxTiles, 0,
-                     GL_BGRA, GL_UNSIGNED_BYTE, tiles + kMaxTiles * kLevelOffset[level]);
+                     GL_BGRA, GL_UNSIGNED_BYTE, tiles.data() + kMaxTiles * kLevelOffset[level]);
     }
-    rzFree(tiles);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_LEVEL, kMipLevels - 1);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
@@ -188,14 +158,10 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetTileMap(RzContext* ctx, const uint8_t* data
     }
     if (width != kGridSize || height != kGridSize) return RZ_ERR_SIZE;
 
-    if (!ctx->tileMap) {
-        ctx->tileMap = static_cast<uint8_t*>(rzAlloc(size_t(kVertexCount)));
-        if (!ctx->tileMap) return RZ_ERR_NO_MEMORY;
-    }
-    std::memcpy(ctx->tileMap, data, size_t(kVertexCount));
-    if (ctx->hasTerrain) {          // o bloco vai no vértice
+    ctx->tileMap.assign(data, data + kVertexCount);
+    if (ctx->hasTerrain()) {          // o bloco vai no vértice
         if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
-        if (!buildTerrainMesh(ctx)) return RZ_ERR_NO_MEMORY;
+        if (!buildTerrainMesh(ctx)) return RZ_ERR_GL;
     }
     ctx->hasTileMap = true;
     return RZ_OK;
@@ -210,24 +176,14 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetTextureFilter(RzContext* ctx, int32_t filte
     return RZ_OK;
 }
 
-RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCameraDistance(RzContext* ctx, float factor) {
-    if (!ctx) return RZ_ERR_INVALID_ARG;
-    if (!(factor == factor)) return RZ_ERR_INVALID_ARG;     // NaN
-    if (factor < kDistanceMin) factor = kDistanceMin;
-    if (factor > kDistanceMax) factor = kDistanceMax;
-    ctx->distanceFactor = factor;
-    updateTerrainBounds(ctx);
-    return RZ_OK;
-}
-
 RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCameraTarget(RzContext* ctx, int32_t id, int32_t vertex) {
     if (!ctx) return RZ_ERR_INVALID_ARG;
     if (id < 0) {
         ctx->cameraTargetObject = -1;
         return RZ_OK;
     }
-    if (id >= ctx->objectCapacity || !ctx->objects[id].alive ||
-        vertex < 0 || vertex >= ctx->objects[id].vertexCount) {
+    if (id >= int32_t(ctx->objects.size()) || !ctx->objects[id].alive ||
+        vertex < 0 || vertex >= ctx->objects[id].vertexCount()) {
         return RZ_ERR_INVALID_ARG;
     }
     if (id != ctx->cameraTargetObject) ctx->followInitialized = false;   // reposiciona atrás do novo alvo
@@ -244,23 +200,6 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCameraFollow(RzContext* ctx, float distance
     ctx->followDistance  = distance;
     ctx->followHeight    = height;
     ctx->followStiffness = stiffness;
-    return RZ_OK;
-}
-
-RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCameraPitch(RzContext* ctx, float pitchDegrees) {
-    if (!ctx) return RZ_ERR_INVALID_ARG;
-    if (!(pitchDegrees == pitchDegrees)) return RZ_ERR_INVALID_ARG;     // NaN
-    if (pitchDegrees < kPitchMinDegrees) pitchDegrees = kPitchMinDegrees;
-    if (pitchDegrees > kPitchMaxDegrees) pitchDegrees = kPitchMaxDegrees;
-    constexpr float degToRad = kPi / 180.0f;
-    ctx->sinPitch = sinf(pitchDegrees * degToRad);
-    ctx->cosPitch = cosf(pitchDegrees * degToRad);
-    return RZ_OK;
-}
-
-RZ_API RZ_ENTRY int32_t RZ_CALL rzSetRotationStep(RzContext* ctx, int32_t step) {
-    if (!ctx) return RZ_ERR_INVALID_ARG;
-    ctx->yawStep = uint32_t(step);
     return RZ_OK;
 }
 

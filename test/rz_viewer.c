@@ -6,15 +6,13 @@
  *
  *   W / S                   acelera / freia e dá ré no carro
  *   A / D                   vira o carro para a esquerda / direita
- *   Seta cima / baixo       sobe / desce a câmera (pitch da órbita; seguindo: altura)
- *   Seta direita / esquerda acelera / freia a rotação (passando de zero, inverte)
- *   PgUp / PgDn             aproxima / afasta a câmera (seguindo: comprimento da corda)
+ *   Seta cima / baixo       sobe / desce a câmera (altura acima do carro)
+ *   PgUp / PgDn             aproxima / afasta a câmera (comprimento da corda)
  *   T                       liga / desliga as texturas
  *   F                       filtro: nearest -> mipmap -> mip+dither -> mip linear -> trilinear
  *   O                       mostra / esconde os objetos
- *   C                       câmera segue o veículo / volta ao centro do terreno
- *   Espaço                  para / retoma a rotação
- *   R                       volta aos valores iniciais
+ *   C                       câmera segue o veículo / visão geral do terreno
+ *   R                       volta a câmera aos valores iniciais
  *   Esc                     sai
  *
  * Uso: rz_viewer.exe [heightmap.raw]   (256x256, 1 byte por ponto)
@@ -35,19 +33,9 @@
 #define FB_HEIGHT  720
 #define TARGET_FPS 60
 
-#define PITCH_DEFAULT   35.0f
-#define PITCH_SPEED     0.75f          /* graus por frame com a tecla segurada */
-#define STEP_DEFAULT    (1 << 22)      /* 1024 frames por volta */
-#define STEP_ACCEL      (1 << 17)      /* variação do passo por frame */
-#define STEP_MAX        (1 << 25)      /* 128 frames por volta */
 #define ZOOM_SPEED      1.02f          /* fator por frame com a tecla segurada */
 
 static RzContext* g_ctx;
-
-static float   g_pitch  = PITCH_DEFAULT;
-static int32_t g_step   = STEP_DEFAULT;
-static int32_t g_paused = 0;
-static float   g_zoom   = 1.0f;
 
 /* Câmera de perseguição */
 #define FOLLOW_DIST_DEFAULT   3.0f      /* na escala do carro (~0,85 tile) */
@@ -137,9 +125,7 @@ static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_KEYDOWN:
         if (wp == VK_ESCAPE) {
             DestroyWindow(hwnd);
-        } else if (wp == VK_SPACE && !(lp & (1 << 30))) {   /* ignora auto-repeat */
-            g_paused = !g_paused;
-        } else if (wp == 'C' && !(lp & (1 << 30))) {
+        } else if (wp == 'C' && !(lp & (1 << 30))) {     /* ignora auto-repeat */
             g_follow = !g_follow;
             rzSetCameraTarget(g_ctx, g_follow ? g_vehicleId : -1, RZTD_VEHICLE_TARGET);
         } else if (wp == 'O' && !(lp & (1 << 30))) {
@@ -153,12 +139,8 @@ static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g_filter = (g_filter + 1) % 5;
             rzSetTextureFilter(g_ctx, g_filter);
         } else if (wp == 'R') {
-            g_pitch = PITCH_DEFAULT;
-            g_step = STEP_DEFAULT;
-            g_zoom = 1.0f;
             g_followDist = FOLLOW_DIST_DEFAULT;
             g_followHeight = FOLLOW_HEIGHT_DEFAULT;
-            g_paused = 0;
         }
         return 0;
     case WM_ERASEBKGND:
@@ -178,47 +160,25 @@ static int keyDown(int vk) {
     return (GetAsyncKeyState(vk) & 0x8000) != 0;
 }
 
-/* Lê as setas (seguradas) uma vez por frame. */
+/* Lê as teclas da câmera (seguradas) uma vez por frame. */
 static void handleInput(HWND hwnd) {
     if (GetForegroundWindow() != hwnd) return;
-
-    if (g_follow) {
-        if (keyDown(VK_UP))    g_followHeight += 0.03f;
-        if (keyDown(VK_DOWN))  g_followHeight -= 0.03f;
-        if (keyDown(VK_PRIOR)) g_followDist /= ZOOM_SPEED;
-        if (keyDown(VK_NEXT))  g_followDist *= ZOOM_SPEED;
-        if (g_followHeight < -0.5f) g_followHeight = -0.5f;
-        if (g_followHeight > 20.0f) g_followHeight = 20.0f;
-        if (g_followDist < 1.0f)    g_followDist = 1.0f;
-        if (g_followDist > 40.0f)   g_followDist = 40.0f;
-    } else {
-        if (keyDown(VK_UP))   g_pitch += PITCH_SPEED;
-        if (keyDown(VK_DOWN)) g_pitch -= PITCH_SPEED;
-        if (g_pitch < 0.0f)  g_pitch = 0.0f;
-        if (g_pitch > 89.0f) g_pitch = 89.0f;
-
-        if (keyDown(VK_PRIOR)) g_zoom /= ZOOM_SPEED;     /* Page Up: aproxima */
-        if (keyDown(VK_NEXT))  g_zoom *= ZOOM_SPEED;     /* Page Down: afasta */
-        if (g_zoom < 0.02f) g_zoom = 0.02f;
-        if (g_zoom > 4.0f)  g_zoom = 4.0f;
-    }
-
-    if (keyDown(VK_RIGHT)) g_step += STEP_ACCEL;
-    if (keyDown(VK_LEFT))  g_step -= STEP_ACCEL;
-    if (g_step >  STEP_MAX) g_step =  STEP_MAX;
-    if (g_step < -STEP_MAX) g_step = -STEP_MAX;
+    if (keyDown(VK_UP))    g_followHeight += 0.03f;
+    if (keyDown(VK_DOWN))  g_followHeight -= 0.03f;
+    if (keyDown(VK_PRIOR)) g_followDist /= ZOOM_SPEED;     /* Page Up: aproxima */
+    if (keyDown(VK_NEXT))  g_followDist *= ZOOM_SPEED;     /* Page Down: afasta */
+    if (g_followHeight < -0.5f) g_followHeight = -0.5f;
+    if (g_followHeight > 20.0f) g_followHeight = 20.0f;
+    if (g_followDist < 1.0f)    g_followDist = 1.0f;
+    if (g_followDist > 40.0f)   g_followDist = 40.0f;
 }
 
 static void updateTitle(HWND hwnd, int32_t renderUs, int32_t fps) {
     char title[256];
     /* Só inteiros: wsprintf não formata float. */
-    int32_t pitch10 = (int32_t)(g_pitch * 10.0f);
-    /* voltas por segundo × 100 = passo · fps · 100 / 2^32 */
-    int64_t rps100 = ((int64_t)g_step * TARGET_FPS * 100) / 4294967296LL;
-    int32_t absRps = (int32_t)(rps100 < 0 ? -rps100 : rps100);
-    int32_t zoom100 = (int32_t)(g_zoom * 100.0f);
     int32_t rope10 = (int32_t)(g_followDist * 10.0f);
     int32_t height10 = (int32_t)(g_followHeight * 10.0f);
+    int32_t absHeight10 = height10 < 0 ? -height10 : height10;
     static const char* const filterNames[5] = { "nearest", "mipmap", "mip+dither", "mip linear", "trilinear" };
     const char* filter = filterNames[g_filter];
 
@@ -227,16 +187,10 @@ static void updateTitle(HWND hwnd, int32_t renderUs, int32_t fps) {
                   "Renderizeitor  |  %d fps  |  render %d.%02d ms  |  seguindo: corda %d.%d  altura %s%d.%d  |  %s",
                   fps, renderUs / 1000, (renderUs % 1000) / 10,
                   rope10 / 10, rope10 % 10,
-                  height10 < 0 ? "-" : "", (height10 < 0 ? -height10 : height10) / 10,
-                  (height10 < 0 ? -height10 : height10) % 10, filter);
+                  height10 < 0 ? "-" : "", absHeight10 / 10, absHeight10 % 10, filter);
     } else {
-        wsprintfA(title,
-                  "Renderizeitor  |  %d fps  |  render %d.%02d ms  |  pitch %d.%d  |  dist %d.%02d  |  rotacao %s%d.%02d voltas/s  |  %s%s",
-                  fps, renderUs / 1000, (renderUs % 1000) / 10,
-                  pitch10 / 10, pitch10 % 10,
-                  zoom100 / 100, zoom100 % 100,
-                  rps100 < 0 ? "-" : "", absRps / 100, absRps % 100,
-                  filter, g_paused ? " (pausado)" : "");
+        wsprintfA(title, "Renderizeitor  |  %d fps  |  render %d.%02d ms  |  visao geral  |  %s",
+                  fps, renderUs / 1000, (renderUs % 1000) / 10, filter);
     }
     SetWindowTextA(hwnd, title);
 }
@@ -351,8 +305,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
     }
 
 
-    /* Laço com frame rate fixo: a rotação é por frame, então o fps fixo
-       mantém a velocidade constante. */
+    /* Laço com frame rate fixo: o carro e a câmera andam por frame, então o
+       fps fixo mantém a velocidade constante. */
     timeBeginPeriod(1);
     QueryPerformanceFrequency(&freq);
     frameTicks = freq.QuadPart / TARGET_FPS;
@@ -378,10 +332,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         g_cubeAngle += 0.03f;
         rztdSpinningCube(&g_cube, g_cubePos[0], g_cubePos[1], g_cubePos[2], 0.6f, g_cubeAngle);
         rzUpdateObjectVertices(g_ctx, g_cubeId, g_cube.vertices);
-        rzSetCameraPitch(g_ctx, g_pitch);
-        rzSetCameraDistance(g_ctx, g_zoom);
         rzSetCameraFollow(g_ctx, g_followDist, g_followHeight, 0.08f);
-        rzSetRotationStep(g_ctx, g_paused ? 0 : g_step);
 
         QueryPerformanceCounter(&t0);
         rzRender(g_ctx);                /* desenha e apresenta (SwapBuffers) */

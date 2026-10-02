@@ -17,27 +17,21 @@ constexpr uint32_t kDefaultObjectColor = 0x00B0A090u;       // provisória
 constexpr float    kFixed824ToFloat = 1.0f / 16777216.0f;   // 2^-24
 
 bool validId(const RzContext* ctx, int32_t id) {
-    return ctx && id >= 0 && id < ctx->objectCapacity && ctx->objects[id].alive;
+    return ctx && id >= 0 && id < int32_t(ctx->objects.size()) && ctx->objects[id].alive;
 }
 
+// Libera os recursos de GPU e esvazia o slot (fica livre para reuso).
 void freeObject(Object& o) {
     if (o.vbo) glDeleteBuffers(1, &o.vbo);
     if (o.vao) glDeleteVertexArrays(1, &o.vao);
-    rzFree(o.world);
-    rzFree(o.polygonStart);
-    rzFree(o.polygonLength);
-    rzFree(o.indices);
-    rzFree(o.polygonColors);
-    rzFree(o.triangles);
-    rzFree(o.staging);
-    std::memset(&o, 0, sizeof(Object));
+    o = Object{};
 }
 
 // 8.24 -> mundo (y para cima no renderer), conforme a convenção de eixos.
 void loadPositions(const RzContext* ctx, Object& o, const uint32_t* vertices) {
     const float scale = ctx->cellSize * kFixed824ToFloat;
     const bool zUp = ctx->objectAxes == RZ_AXES_Z_UP;
-    for (int32_t i = 0; i < o.vertexCount; ++i) {
+    for (int32_t i = 0; i < o.vertexCount(); ++i) {
         const float a = float(vertices[i * 3 + 0]) * scale;
         const float b = float(vertices[i * 3 + 1]) * scale;
         const float c = float(vertices[i * 3 + 2]) * scale;
@@ -48,8 +42,8 @@ void loadPositions(const RzContext* ctx, Object& o, const uint32_t* vertices) {
 // Normal de Newell de cada polígono e cor sombreada (pelos dois lados, enquanto
 // o winding do legado não é conhecido).
 void computePolygonColors(Object& o) {
-    for (int32_t p = 0; p < o.polygonCount; ++p) {
-        const uint16_t* idx = o.indices + o.polygonStart[p];
+    for (size_t p = 0; p < o.polygonStart.size(); ++p) {
+        const uint16_t* idx = o.indices.data() + o.polygonStart[p];
         const int32_t n = o.polygonLength[p];
         Vec3 normal = { 0.0f, 0.0f, 0.0f };
         for (int32_t i = 0; i < n; ++i) {
@@ -65,9 +59,8 @@ void computePolygonColors(Object& o) {
 
 // Monta os vértices dos triângulos e reenvia o vertex buffer inteiro.
 void uploadObject(Object& o) {
-    GpuVertex* v = o.staging;
-    for (int32_t t = 0; t < o.triangleCount; ++t) {
-        const ObjectTriangle& tri = o.triangles[t];
+    GpuVertex* v = o.staging.data();
+    for (const ObjectTriangle& tri : o.triangles) {
         const uint32_t color = o.polygonColors[tri.polygon];
         const uint16_t corners[3] = { tri.a, tri.b, tri.c };
         for (uint16_t index : corners) {
@@ -76,8 +69,8 @@ void uploadObject(Object& o) {
         }
     }
     glBindBuffer(GL_ARRAY_BUFFER, o.vbo);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(o.triangleCount) * 3 * GLsizeiptr(sizeof(GpuVertex)),
-                    o.staging);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(o.staging.size() * sizeof(GpuVertex)),
+                    o.staging.data());
 }
 
 // Primeira passada sobre os índices: conta polígonos, vértices e triângulos,
@@ -113,8 +106,7 @@ namespace rz {
 // Culling pela ordem na tela (glFrontFace já define frente = anti-horário visual).
 void drawObjects(RzContext* ctx, const Mat4& viewProj, bool /*flipped*/) {
     bool programBound = false;
-    for (int32_t id = 0; id < ctx->objectCapacity; ++id) {
-        const Object& o = ctx->objects[id];
+    for (const Object& o : ctx->objects) {
         if (!o.alive || !o.visible) continue;
         if (!programBound) {
             glUseProgram(ctx->objectProgram.program);
@@ -128,17 +120,15 @@ void drawObjects(RzContext* ctx, const Mat4& viewProj, bool /*flipped*/) {
             glCullFace(o.cull == RZ_CULL_CW ? GL_BACK : GL_FRONT);
         }
         glBindVertexArray(o.vao);
-        glDrawArrays(GL_TRIANGLES, 0, o.triangleCount * 3);
+        glDrawArrays(GL_TRIANGLES, 0, o.triangleCount() * 3);
     }
 }
 
 void destroyAllObjects(RzContext* ctx) {
-    for (int32_t id = 0; id < ctx->objectCapacity; ++id) {
-        if (ctx->objects[id].alive) freeObject(ctx->objects[id]);
+    for (Object& o : ctx->objects) {
+        if (o.alive) freeObject(o);
     }
-    rzFree(ctx->objects);
-    ctx->objects = nullptr;
-    ctx->objectCapacity = 0;
+    ctx->objects.clear();
 }
 
 } // namespace rz
@@ -166,54 +156,35 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateObject(RzContext* ctx,
     if (triangles == 0) return RZ_ERR_INVALID_ARG;
     if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
 
-    // Slot livre, ou cresce o array (fase de carga)
+    // Slot livre, ou um novo no fim (fase de carga)
     int32_t id = 0;
-    while (id < ctx->objectCapacity && ctx->objects[id].alive) ++id;
-    if (id == ctx->objectCapacity) {
-        const int32_t newCapacity = ctx->objectCapacity ? ctx->objectCapacity * 2 : 16;
-        Object* grown = static_cast<Object*>(rzAlloc(size_t(newCapacity) * sizeof(Object)));
-        if (!grown) return RZ_ERR_NO_MEMORY;
-        std::memset(grown, 0, size_t(newCapacity) * sizeof(Object));
-        if (ctx->objects) std::memcpy(grown, ctx->objects, size_t(ctx->objectCapacity) * sizeof(Object));
-        rzFree(ctx->objects);
-        ctx->objects = grown;
-        ctx->objectCapacity = newCapacity;
-    }
+    while (id < int32_t(ctx->objects.size()) && ctx->objects[id].alive) ++id;
+    if (id == int32_t(ctx->objects.size())) ctx->objects.emplace_back();
 
     Object& o = ctx->objects[id];
-    std::memset(&o, 0, sizeof(Object));
-    o.vertexCount   = vertexCount;
-    o.polygonCount  = polygons;
-    o.triangleCount = triangles;
-    o.world         = static_cast<Vec3*>(rzAlloc(size_t(vertexCount) * sizeof(Vec3)));
-    o.polygonStart  = static_cast<int32_t*>(rzAlloc(size_t(polygons) * sizeof(int32_t)));
-    o.polygonLength = static_cast<int32_t*>(rzAlloc(size_t(polygons) * sizeof(int32_t)));
-    o.indices       = static_cast<uint16_t*>(rzAlloc(size_t(kept) * sizeof(uint16_t)));
-    o.polygonColors = static_cast<uint32_t*>(rzAlloc(size_t(polygons) * sizeof(uint32_t)));
-    o.triangles     = static_cast<ObjectTriangle*>(rzAlloc(size_t(triangles) * sizeof(ObjectTriangle)));
-    o.staging       = static_cast<GpuVertex*>(rzAlloc(size_t(triangles) * 3 * sizeof(GpuVertex)));
-    if (!o.world || !o.polygonStart || !o.polygonLength || !o.indices ||
-        !o.polygonColors || !o.triangles || !o.staging) {
-        freeObject(o);
-        return RZ_ERR_NO_MEMORY;
-    }
+    o.world.resize(size_t(vertexCount));
+    o.polygonStart.reserve(size_t(polygons));
+    o.polygonLength.reserve(size_t(polygons));
+    o.indices.reserve(size_t(kept));
+    o.polygonColors.resize(size_t(polygons));
+    o.triangles.reserve(size_t(triangles));
+    o.staging.resize(size_t(triangles) * 3);
 
     // Segunda passada: copia os índices sem os fechamentos e monta os leques
-    int32_t pos = 0, p = 0, k = 0, t = 0;
+    int32_t pos = 0;
     while (pos < indexCount) {
         const uint16_t first = indices[pos];
         int32_t end = pos + 1;
         while (indices[end] != first) ++end;
         const int32_t n = end - pos;
         if (n >= 3) {
-            o.polygonStart[p]  = k;
-            o.polygonLength[p] = n;
-            for (int32_t i = 0; i < n; ++i) o.indices[k + i] = indices[pos + i];
+            const uint16_t polygon = uint16_t(o.polygonStart.size());
+            o.polygonStart.push_back(int32_t(o.indices.size()));
+            o.polygonLength.push_back(n);
+            o.indices.insert(o.indices.end(), indices + pos, indices + end);
             for (int32_t i = 1; i + 1 < n; ++i) {
-                o.triangles[t++] = { indices[pos], indices[pos + i], indices[pos + i + 1], uint16_t(p) };
+                o.triangles.push_back({ indices[pos], indices[pos + i], indices[pos + i + 1], polygon });
             }
-            k += n;
-            ++p;
         }
         pos = end + 1;
     }

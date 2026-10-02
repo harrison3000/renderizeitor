@@ -26,7 +26,7 @@ typedef struct RzContext RzContext;
 #define RZ_OK               0
 #define RZ_ERR_INVALID_ARG  1   /* ponteiro nulo ou parâmetro fora de faixa */
 #define RZ_ERR_SIZE         2   /* dimensão acima do limite ou não suportada */
-#define RZ_ERR_NO_MEMORY    3   /* falha de alocação */
+#define RZ_ERR_NO_MEMORY    3   /* reservado (falha de alocação; hoje aborta) */
 #define RZ_ERR_GL           4   /* OpenGL 3.3 indisponível, ou falha de contexto/shader/janela */
 
 /* Limite do modo offscreen (rzCreate). */
@@ -145,16 +145,11 @@ RZ_API int32_t RZ_CALL rzSetObjectCulling(RzContext* ctx, int32_t id, int32_t cu
 
 /* ------------------------------------------------------------------------ */
 
-/* Controle de câmera pelo host.
-   pitchDegrees: elevação da órbita em graus, limitada a [0, 89]. Padrão 35. */
-RZ_API int32_t RZ_CALL rzSetCameraPitch(RzContext* ctx, float pitchDegrees);
-
-/* Alvo da câmera: com um alvo, a câmera passa a perseguir o vértice `vertex`
-   do objeto `id` (ver rzSetCameraFollow), sempre olhando para ele e
-   acompanhando rzUpdateObjectVertices. O vértice não precisa fazer parte de
-   nenhum polígono. id < 0 volta à órbita em torno do centro do terreno
-   (padrão), onde valem pitch, distância e rotação; se o objeto for destruído,
-   a câmera também volta à órbita. */
+/* Câmera. Com um alvo, persegue o vértice `vertex` do objeto `id` (ver
+   rzSetCameraFollow), sempre olhando para ele e acompanhando
+   rzUpdateObjectVertices; o vértice não precisa fazer parte de nenhum
+   polígono. Sem alvo (id < 0, o padrão, ou objeto destruído), mostra uma
+   visão geral fixa do terreno inteiro: só para testes e fallback. */
 RZ_API int32_t RZ_CALL rzSetCameraTarget(RzContext* ctx, int32_t id, int32_t vertex);
 
 /* Câmera de perseguição, como se puxada por uma corda:
@@ -165,14 +160,6 @@ RZ_API int32_t RZ_CALL rzSetCameraTarget(RzContext* ctx, int32_t id, int32_t ver
              rzRender, em (0, 1] (padrão 0.08): menor = mais suave e atrasada. */
 RZ_API int32_t RZ_CALL rzSetCameraFollow(RzContext* ctx, float distance, float height,
                                          float stiffness);
-
-/* Distância da câmera ao centro, como fator da distância padrão (que enquadra
-   o terreno inteiro). Limitada a [0.02, 4]. Padrão 1. */
-RZ_API int32_t RZ_CALL rzSetCameraDistance(RzContext* ctx, float factor);
-
-/* Passo de rotação somado ao yaw a cada rzRender (2^32 = uma volta).
-   Negativo gira ao contrário, 0 para. Padrão 1 << 22 (1024 frames por volta). */
-RZ_API int32_t RZ_CALL rzSetRotationStep(RzContext* ctx, int32_t step);
 
 /* Avança a câmera e renderiza o frame: offscreen, copia para o buffer do host;
    janela, apresenta (SwapBuffers). Não aloca. */

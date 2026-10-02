@@ -4,21 +4,24 @@
 namespace rz {
 
 // Terreno: malha montada na CPU na carga (rz_terrain.cpp), um vértice por
-// canto de triângulo, com a cor flat do triângulo e (u, v, bloco).
+// canto de triângulo, com a cor flat do triângulo e (u, v, bloco, luz).
 constexpr const char* kTerrainVertexShader = R"GLSL(#version 330 core
 layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec4 aColor;      // B, G, R, 0 normalizados
-layout(location = 2) in vec3 aUvLayer;    // u, v em {0, 1}; bloco 0..255
+layout(location = 2) in vec4 aUvLayer;    // u, v em {0, 1}; bloco 0..255; luz 0..255
 uniform mat4 uViewProj;
+uniform float uShading;                   // força da luz sobre a textura
 
-flat out vec3 vColor;
-flat out int  vLayer;
+flat out vec3  vColor;
+flat out int   vLayer;
+flat out float vLight;
 out vec2 vUV;
 
 void main() {
     vColor = aColor.bgr;
     vUV    = aUvLayer.xy;
     vLayer = int(aUvLayer.z);
+    vLight = mix(1.0, aUvLayer.w / 255.0, uShading);
     gl_Position = uViewProj * vec4(aPosition, 1.0);
 }
 )GLSL";
@@ -27,10 +30,13 @@ void main() {
 // linear entre níveis, 4 trilinear. 0, 1, 3 e 4 são só estado do sampler; o
 // dither (2) escolhe o nível no shader: lod = log2 da maior derivada de uv em
 // texels, e o nível = floor(lod + limiar de Bayer 4x4) — o mesmo do software.
+// Com textura, a cor é multiplicada por um sombreamento leve (vLight), a mesma
+// luz flat do triângulo atenuada por uShading.
 // A saída tem alfa 0: no modo offscreen ele vira o byte reservado do RGBQUAD.
 constexpr const char* kTerrainFragmentShader = R"GLSL(#version 330 core
-flat in vec3 vColor;
-flat in int  vLayer;
+flat in vec3  vColor;
+flat in int   vLayer;
+flat in float vLight;
 in vec2 vUV;
 
 uniform sampler2DArray uAtlas;
@@ -48,6 +54,7 @@ void main() {
         return;
     }
     vec3 uvw = vec3(vUV, float(vLayer));
+    vec3 texel;
     if (uFilter == 2) {
         vec2 t  = vUV * 16.0;
         vec2 dx = dFdx(t);
@@ -57,10 +64,11 @@ void main() {
         ivec2 p = ivec2(gl_FragCoord.xy) & 3;
         float threshold = (kBayer[p.y * 4 + p.x] + 0.5) / 16.0;
         float level = min(floor(lod + threshold), 4.0);
-        fragColor = vec4(textureLod(uAtlas, uvw, level).rgb, 0.0);
+        texel = textureLod(uAtlas, uvw, level).rgb;
     } else {
-        fragColor = vec4(texture(uAtlas, uvw).rgb, 0.0);
+        texel = texture(uAtlas, uvw).rgb;
     }
+    fragColor = vec4(texel * vLight, 0.0);
 }
 )GLSL";
 

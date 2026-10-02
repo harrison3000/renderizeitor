@@ -18,7 +18,7 @@ struct PaletteBand {
     Rgb   from, to;     // gradiente dentro da faixa
 };
 
-// Valores provisórios (spec 8.3).
+// Valores provisórios (spec 7.2).
 constexpr PaletteBand kBands[] = {
     {   0.0f,  40.0f, {  22.0f,  52.0f, 120.0f }, {  45.0f,  95.0f, 170.0f } },  // água
     {  41.0f,  60.0f, { 194.0f, 178.0f, 128.0f }, { 212.0f, 196.0f, 146.0f } },  // areia
@@ -98,30 +98,29 @@ void buildPalette(uint32_t* palette) {
     }
 }
 
-// Malha do terreno (spec 8.2), um vértice por canto de triângulo:
+// Malha do terreno (spec 7.1), um vértice por canto de triângulo:
 //   A = (c, r), (c, r+1), (c+1, r+1)      B = (c, r), (c+1, r+1), (c+1, r)
 // Cor flat: paleta pela soma das 3 alturas, iluminada pela normal da face.
 // u ao longo da coluna, v ao longo da linha; bloco do quad pelo mapa de blocos.
 // Remontada em rzSetHeightmap, rzSetTerrainScale e rzSetTileMap (carga).
 bool buildTerrainMesh(RzContext* ctx) {
     constexpr int32_t kCount = kTriangleCount * 3;
-    TerrainVertex* mesh = static_cast<TerrainVertex*>(rzAlloc(size_t(kCount) * sizeof(TerrainVertex)));
-    if (!mesh) return false;
+    std::vector<TerrainVertex> mesh(kCount);
 
     uint32_t palette[kPaletteSize];
     buildPalette(palette);
     const Vec3 light = lightDirection();
-    const uint8_t* h = ctx->heights;
+    const uint8_t* h = ctx->heights.data();
     const float cs = ctx->cellSize;
     const float hs = ctx->heightScale;
 
     struct Corner { int32_t dc, dr; };
     constexpr Corner kCorners[2][3] = { { { 0, 0 }, { 0, 1 }, { 1, 1 } },     // A
                                         { { 0, 0 }, { 1, 1 }, { 1, 0 } } };   // B
-    TerrainVertex* v = mesh;
+    TerrainVertex* v = mesh.data();
     for (int32_t r = 0; r < kQuadsPerSide; ++r) {
         for (int32_t c = 0; c < kQuadsPerSide; ++c) {
-            const uint8_t layer = ctx->tileMap ? ctx->tileMap[r * kGridSize + c] : 0;
+            const uint8_t layer = ctx->tileMap.empty() ? 0 : ctx->tileMap[r * kGridSize + c];
             for (const auto& tri : kCorners) {
                 Vec3 p[3];
                 int32_t sum = 0;
@@ -136,31 +135,30 @@ bool buildTerrainMesh(RzContext* ctx) {
                 float ndotl = len2 > 0.0f ? dot(n, light) / sqrtf(len2) : 0.0f;
                 if (ndotl < 0.0f) ndotl = 0.0f;
                 const float intensity = kAmbient + (1.0f - kAmbient) * ndotl;
+                const uint8_t light = uint8_t(intensity * 255.0f + 0.5f);
                 const uint32_t base = palette[sum];
                 const uint32_t color = packColor(float((base >> 16) & 0xFF) * intensity,
                                                  float((base >> 8) & 0xFF) * intensity,
                                                  float(base & 0xFF) * intensity);
                 for (int32_t k = 0; k < 3; ++k) {
                     *v++ = { p[k].x, p[k].y, p[k].z, color,
-                             uint8_t(tri[k].dc), uint8_t(tri[k].dr), layer, 0 };
+                             uint8_t(tri[k].dc), uint8_t(tri[k].dr), layer, light };
                 }
             }
         }
     }
 
     glBindBuffer(GL_ARRAY_BUFFER, ctx->terrainVbo);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(kCount) * GLsizeiptr(sizeof(TerrainVertex)), mesh);
-    rzFree(mesh);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(kCount) * GLsizeiptr(sizeof(TerrainVertex)), mesh.data());
     return glGetError() == GL_NO_ERROR;
 }
 
-// Esfera envolvente: raio = meia diagonal da caixa do terreno (spec 9.3).
-// A distância da órbita é D = 2R · fator; near e far saem da câmera a cada frame.
+// Esfera envolvente: raio = meia diagonal da caixa do terreno. Usada pela
+// visão geral e pelos planos near/far.
 void updateTerrainBounds(RzContext* ctx) {
     const float hx = 127.5f * ctx->cellSize;
     const float hy = 127.5f * ctx->heightScale;
     ctx->terrainRadius = sqrtf(hx * hx + hy * hy + hx * hx);
-    ctx->orbitDistance = 2.0f * ctx->terrainRadius * ctx->distanceFactor;
 }
 
 // Atlas paletizado (como vem de um PCX 8 bits) -> 256 blocos 16x16 em
