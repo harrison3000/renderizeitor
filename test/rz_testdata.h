@@ -2,14 +2,16 @@
  * Header-only, compila como C e como C++.
  *
  *   rztdGenerateHeightmap : ilha 256x256 (value noise + queda radial)
- *   rztdGenerateAtlas     : imagem paletizada 256x256 com 16x16 blocos de 16x16,
- *                           no formato que um PCX de 8 bits forneceria
+ *   rztdGenerateAtlas     : imagem paletizada 256x256 com 16x16 blocos de 16x16
+ *   rztdWritePcx          : grava uma imagem paletizada como PCX de 8 bits (RLE),
+ *                           para alimentar rzLoadTileAtlas
  *   rztdGenerateTileMap   : bloco de cada quad, escolhido pela altura
  */
 #ifndef RZ_TESTDATA_H
 #define RZ_TESTDATA_H
 
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <math.h>
 
@@ -159,6 +161,63 @@ static void rztdGenerateAtlas(uint8_t* indices, uint8_t* paletteRGB) {
 }
 
 /* Bloco de cada quad pela média das 4 alturas; variação aleatória por quad. */
+static void rztdPutU16(uint8_t* p, int v) {
+    p[0] = (uint8_t)(v & 0xFF);
+    p[1] = (uint8_t)((v >> 8) & 0xFF);
+}
+
+/* Grava indices (width*height, linha 0 em cima) + paleta (256 x RGB) como PCX
+   ZSoft versão 5: 8 bits, 1 plano, RLE por linha e paleta VGA no fim.
+   Devolve 1 se gravou tudo. */
+static int rztdWritePcx(const char* path, const uint8_t* indices, int width, int height,
+                        const uint8_t* paletteRGB) {
+    uint8_t header[128];
+    int bytesPerLine = (width + 1) & ~1;   /* o formato pede número par */
+    int ok = 1, y;
+    FILE* f = fopen(path, "wb");
+    if (!f) return 0;
+
+    memset(header, 0, sizeof(header));
+    header[0] = 0x0A;               /* ZSoft */
+    header[1] = 5;                  /* versão com paleta de 256 cores */
+    header[2] = 1;                  /* RLE */
+    header[3] = 8;                  /* bits por pixel */
+    rztdPutU16(header + 8, width - 1);
+    rztdPutU16(header + 10, height - 1);
+    rztdPutU16(header + 12, 72);
+    rztdPutU16(header + 14, 72);
+    header[65] = 1;                 /* planos */
+    rztdPutU16(header + 66, bytesPerLine);
+    rztdPutU16(header + 68, 1);     /* paleta colorida */
+    ok &= fwrite(header, 1, sizeof(header), f) == sizeof(header);
+
+    for (y = 0; y < height && ok; ++y) {
+        const uint8_t* row = indices + y * width;
+        int x = 0;
+        while (x < bytesPerLine) {
+            uint8_t v = x < width ? row[x] : 0;
+            uint8_t run[2];
+            int n = 1;
+            while (x + n < bytesPerLine && n < 63 && (x + n < width ? row[x + n] : 0) == v) ++n;
+            if (n > 1 || v >= 0xC0) {
+                run[0] = (uint8_t)(0xC0 | n);
+                run[1] = v;
+                ok &= fwrite(run, 1, 2, f) == 2;
+            } else {
+                ok &= fwrite(&v, 1, 1, f) == 1;
+            }
+            x += n;
+        }
+    }
+    if (ok) {
+        uint8_t marker = 0x0C;
+        ok &= fwrite(&marker, 1, 1, f) == 1;
+        ok &= fwrite(paletteRGB, 1, 768, f) == 768;
+    }
+    if (fclose(f) != 0) ok = 0;
+    return ok;
+}
+
 static void rztdGenerateTileMap(const uint8_t* heights, uint8_t* tileMap) {
     int r, c;
     memset(tileMap, 0, 256 * 256);

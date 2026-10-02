@@ -28,6 +28,8 @@ typedef struct RzContext RzContext;
 #define RZ_ERR_SIZE         2   /* dimensão acima do limite ou não suportada */
 #define RZ_ERR_NO_MEMORY    3   /* reservado (falha de alocação; hoje aborta) */
 #define RZ_ERR_GL           4   /* OpenGL 3.3 indisponível, ou falha de contexto/shader/janela */
+#define RZ_ERR_FILE         5   /* arquivo não abriu ou não pôde ser lido */
+#define RZ_ERR_FORMAT       6   /* arquivo em formato não suportado ou corrompido */
 
 /* Limite do modo offscreen (rzCreate). */
 #define RZ_MAX_WIDTH   1920
@@ -70,14 +72,16 @@ RZ_API int32_t RZ_CALL rzSetHeightmap(RzContext* ctx, const uint8_t* data,
 RZ_API int32_t RZ_CALL rzSetTerrainScale(RzContext* ctx,
                                          float cellSize, float heightScale);
 
-/* Atlas de texturas: imagem paletizada de 8 bits (como a de um PCX), com
-   blocos de 16x16 dispostos em grade, numerados da esquerda para a direita e
-   de cima para baixo. width e height múltiplos de 16 (até 4096); só os 256
-   primeiros blocos são usados.
-   indices: width*height bytes, linha 0 em cima. paletteRGB: 256 x (R, G, B). */
-RZ_API int32_t RZ_CALL rzSetTileAtlas(RzContext* ctx, const uint8_t* indices,
-                                      int32_t width, int32_t height,
-                                      const uint8_t* paletteRGB);
+/* Atlas de texturas: lê um arquivo PCX de 8 bits (1 plano, paleta VGA de 256
+   cores no fim do arquivo). A imagem precisa ter pelo menos 256x256; se for
+   maior, só o canto superior esquerdo (256x256) é usado e o resto é ignorado.
+   O atlas tem 16 x 16 blocos de 16x16, numerados da esquerda para a direita e
+   de cima para baixo (bloco 0 no canto superior esquerdo).
+   pcxPath: caminho no código de página ANSI do sistema (fopen).
+   Retornos: RZ_ERR_FILE (não abriu/leu), RZ_ERR_FORMAT (não é PCX de 8 bits
+   com paleta, ou está truncado), RZ_ERR_SIZE (menor que 256x256).
+   Em caso de erro, o atlas anterior (se houver) continua valendo. */
+RZ_API int32_t RZ_CALL rzLoadTileAtlas(RzContext* ctx, const char* pcxPath);
 
 /* Mapa de blocos: 256x256 bytes, data[row*256 + col] = bloco do quad (col, row).
    A última linha e a última coluna (255) não têm quad e são ignoradas.

@@ -161,13 +161,12 @@ void updateTerrainBounds(RzContext* ctx) {
     ctx->terrainRadius = sqrtf(hx * hx + hy * hy + hx * hx);
 }
 
-// Atlas paletizado (como vem de um PCX 8 bits) -> 256 blocos 16x16 em
-// 0x00RRGGBB com os 5 níveis de mipmap, organizados por nível para subir com
+// Atlas paletizado 256x256 (canto do PCX) -> 256 blocos 16x16 em 0x00RRGGBB
+// com os 5 níveis de mipmap, organizados por nível para subir com
 // glTexImage3D: nível L começa em tiles + 256 · kLevelOffset[L].
-// Blocos que não existem na imagem ficam magenta.
-void buildAtlasLevels(uint32_t* tiles, const uint8_t* indices, int32_t width, int32_t height,
-                      const uint8_t* paletteRGB) {
+void buildAtlasLevels(uint32_t* tiles, const uint8_t* indices, const uint8_t* paletteRGB) {
     constexpr int32_t kLevelOffset[kMipLevels] = { 0, 256, 320, 336, 340 };   // texels por bloco
+    constexpr int32_t kTilesPerRow = kAtlasSize / kTileSize;
 
     uint32_t pal[256];
     for (int i = 0; i < 256; ++i) {
@@ -176,20 +175,13 @@ void buildAtlasLevels(uint32_t* tiles, const uint8_t* indices, int32_t width, in
                |  uint32_t(paletteRGB[i * 3 + 2]);
     }
 
-    const int32_t tilesPerRow = width / kTileSize;
-    const int32_t tileCount   = tilesPerRow * (height / kTileSize);
-
     for (int32_t t = 0; t < kMaxTiles; ++t) {
         uint32_t* level0 = tiles + t * 256;
-        if (t >= tileCount) {
-            for (int32_t i = 0; i < 256; ++i) level0[i] = kMissingTileColor;
-        } else {
-            const int32_t tx = (t % tilesPerRow) * kTileSize;
-            const int32_t ty = (t / tilesPerRow) * kTileSize;
-            for (int32_t y = 0; y < kTileSize; ++y) {
-                const uint8_t* src = indices + (ty + y) * width + tx;
-                for (int32_t x = 0; x < kTileSize; ++x) level0[y * kTileSize + x] = pal[src[x]];
-            }
+        const int32_t tx = (t % kTilesPerRow) * kTileSize;
+        const int32_t ty = (t / kTilesPerRow) * kTileSize;
+        for (int32_t y = 0; y < kTileSize; ++y) {
+            const uint8_t* src = indices + (ty + y) * kAtlasSize + tx;
+            for (int32_t x = 0; x < kTileSize; ++x) level0[y * kTileSize + x] = pal[src[x]];
         }
         for (int32_t level = 1; level < kMipLevels; ++level) {
             const int32_t side = kTileSize >> level;

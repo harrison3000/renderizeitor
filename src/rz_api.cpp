@@ -116,20 +116,20 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetTerrainScale(RzContext* ctx,
     return RZ_OK;
 }
 
-RZ_API RZ_ENTRY int32_t RZ_CALL rzSetTileAtlas(RzContext* ctx, const uint8_t* indices,
-                                               int32_t width, int32_t height,
-                                               const uint8_t* paletteRGB) {
-    if (!ctx || !indices || !paletteRGB) return RZ_ERR_INVALID_ARG;
-    if (width < kTileSize || height < kTileSize || width > 4096 || height > 4096 ||
-        (width % kTileSize) != 0 || (height % kTileSize) != 0) {
-        return RZ_ERR_SIZE;
-    }
+RZ_API RZ_ENTRY int32_t RZ_CALL rzLoadTileAtlas(RzContext* ctx, const char* pcxPath) {
+    if (!ctx || !pcxPath) return RZ_ERR_INVALID_ARG;
+
+    // Lê tudo antes de mexer na textura: se o arquivo falhar, o atlas anterior fica.
+    std::vector<uint8_t> indices(size_t(kAtlasSize) * kAtlasSize);
+    uint8_t paletteRGB[768];
+    const int32_t err = loadPcxAtlas(pcxPath, indices.data(), paletteRGB);
+    if (err != RZ_OK) return err;
     if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
 
     // 256 blocos x (256 + 64 + 16 + 4 + 1) texels, por nível; temporário da carga
     constexpr int32_t kTexels = kMaxTiles * 341;
     std::vector<uint32_t> tiles(kTexels);
-    buildAtlasLevels(tiles.data(), indices, width, height, paletteRGB);
+    buildAtlasLevels(tiles.data(), indices.data(), paletteRGB);
 
     if (!ctx->atlasTex) glGenTextures(1, &ctx->atlasTex);
     glBindTexture(GL_TEXTURE_2D_ARRAY, ctx->atlasTex);

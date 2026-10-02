@@ -19,6 +19,7 @@ rz_test
 *.pgm
 *.png
 out/
+/atlas.pcx
 # reference_hashes.txt deve ser gerado na máquina alvo; descomente para não versionar
 reference_hashes.txt
 

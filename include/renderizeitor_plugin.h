@@ -31,6 +31,8 @@ typedef struct RzContext RzContext;
 #define RZ_ERR_SIZE         2
 #define RZ_ERR_NO_MEMORY    3
 #define RZ_ERR_GL           4
+#define RZ_ERR_FILE         5
+#define RZ_ERR_FORMAT       6
 
 /* Limite do modo offscreen (rzCreate) */
 #define RZ_MAX_WIDTH   1920
@@ -61,8 +63,7 @@ typedef struct RzContext RzContext;
     X(void,    rzDestroy,       (RzContext* ctx))                                                    \
     X(int32_t, rzSetHeightmap,  (RzContext* ctx, const uint8_t* data, int32_t width, int32_t height)) \
     X(int32_t, rzSetTerrainScale, (RzContext* ctx, float cellSize, float heightScale))               \
-    X(int32_t, rzSetTileAtlas,  (RzContext* ctx, const uint8_t* indices, int32_t width,              \
-                               int32_t height, const uint8_t* paletteRGB))                         \
+    X(int32_t, rzLoadTileAtlas, (RzContext* ctx, const char* pcxPath))                               \
     X(int32_t, rzSetTileMap,    (RzContext* ctx, const uint8_t* data, int32_t width, int32_t height)) \
     X(int32_t, rzSetTextureFilter, (RzContext* ctx, int32_t filter))                                 \
     X(int32_t, rzSetObjectAxes, (RzContext* ctx, int32_t axes))                                      \

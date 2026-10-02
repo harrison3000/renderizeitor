@@ -15,8 +15,11 @@
  *   R                       volta a câmera aos valores iniciais
  *   Esc                     sai
  *
- * Uso: rz_viewer.exe [heightmap.raw]   (256x256, 1 byte por ponto)
- * Sem argumento, gera a mesma ilha procedural do rz_test.
+ * Uso: rz_viewer.exe [heightmap.raw] [atlas.pcx]   (em qualquer ordem)
+ *   heightmap.raw : 256x256, 1 byte por ponto; sem ele, gera a ilha do rz_test
+ *   atlas.pcx     : PCX de 8 bits, pelo menos 256x256 (só o canto 256x256 é
+ *                   usado); sem ele, grava o atlas procedural em
+ *                   %TEMP%\rz_atlas_teste.pcx e carrega de lá
  */
 
 #define WIN32_LEAN_AND_MEAN
@@ -205,24 +208,39 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
     LARGE_INTEGER freq, now, next, t0, t1, fpsStart;
     LONGLONG frameTicks;
     int32_t err, running = 1, frames = 0, renderUsSum = 0;
-    char path[MAX_PATH];
+    char pcxPath[MAX_PATH];
+    const char* rawPath = NULL;
+    int i;
     (void)prev;
+    (void)cmdLine;
 
-    /* Heightmap: argumento opcional (aspas removidas) ou procedural */
-    lstrcpynA(path, cmdLine ? cmdLine : "", MAX_PATH);
-    {
-        char* p = path;
-        size_t len;
-        while (*p == ' ' || *p == '"') ++p;
-        len = strlen(p);
-        while (len > 0 && (p[len - 1] == ' ' || p[len - 1] == '"')) p[--len] = 0;
-        if (len > 0) {
-            if (!loadRaw(p, heightmap)) {
-                MessageBoxA(NULL, "Falha ao ler o heightmap (256x256 bytes).", "rz_viewer", MB_ICONERROR);
-                return 1;
-            }
-        } else {
-            rztdGenerateHeightmap(heightmap);
+    /* Argumentos (já separados pelo runtime): .pcx é o atlas, o resto é o heightmap */
+    pcxPath[0] = 0;
+    for (i = 1; i < __argc; ++i) {
+        const char* a = __argv[i];
+        size_t len = strlen(a);
+        if (len > 4 && lstrcmpiA(a + len - 4, ".pcx") == 0) lstrcpynA(pcxPath, a, MAX_PATH);
+        else rawPath = a;
+    }
+    if (rawPath) {
+        if (!loadRaw(rawPath, heightmap)) {
+            MessageBoxA(NULL, "Falha ao ler o heightmap (256x256 bytes).", "rz_viewer", MB_ICONERROR);
+            return 1;
+        }
+    } else {
+        rztdGenerateHeightmap(heightmap);
+    }
+    if (!pcxPath[0]) {
+        /* Sem atlas: grava o procedural num PCX temporário */
+        static uint8_t atlas[RZTD_ATLAS_SIZE * RZTD_ATLAS_SIZE];
+        static uint8_t palette[768];
+        DWORD n = GetTempPathA(MAX_PATH, pcxPath);
+        if (n == 0 || n + 20 >= MAX_PATH) lstrcpyA(pcxPath, ".\\");
+        lstrcatA(pcxPath, "rz_atlas_teste.pcx");
+        rztdGenerateAtlas(atlas, palette);
+        if (!rztdWritePcx(pcxPath, atlas, RZTD_ATLAS_SIZE, RZTD_ATLAS_SIZE, palette)) {
+            MessageBoxA(NULL, "Falha ao gravar o atlas de teste.", "rz_viewer", MB_ICONERROR);
+            return 1;
         }
     }
 
@@ -246,12 +264,14 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
     err = rzCreateWindow(hwnd, 0, 0, FB_WIDTH, FB_HEIGHT, &g_ctx);
     if (err == RZ_OK) err = rzSetHeightmap(g_ctx, heightmap, 256, 256);
     if (err == RZ_OK) {
-        /* Atlas e mapa de blocos procedurais (no lugar do PCX, por enquanto) */
-        static uint8_t atlas[RZTD_ATLAS_SIZE * RZTD_ATLAS_SIZE];
-        static uint8_t palette[768];
-        rztdGenerateAtlas(atlas, palette);
+        /* Atlas do PCX; mapa de blocos procedural */
+        err = rzLoadTileAtlas(g_ctx, pcxPath);
+        if (err != RZ_OK) {
+            char msg[MAX_PATH + 64];
+            wsprintfA(msg, "rzLoadTileAtlas falhou (erro %d):\n%s", (int)err, pcxPath);
+            MessageBoxA(hwnd, msg, "rz_viewer", MB_ICONERROR);
+        }
         rztdGenerateTileMap(heightmap, g_tileMap);
-        err = rzSetTileAtlas(g_ctx, atlas, RZTD_ATLAS_SIZE, RZTD_ATLAS_SIZE, palette);
         if (err == RZ_OK) err = rzSetTileMap(g_ctx, g_tileMap, 256, 256);
     }
     if (err == RZ_OK) {

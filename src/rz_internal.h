@@ -59,7 +59,7 @@ constexpr int32_t kMaxWindowSize = 8192;
 constexpr int32_t kTileSize      = 16;
 constexpr int32_t kMipLevels     = 5;
 constexpr int32_t kMaxTiles      = 256;                         // índice é um byte
-constexpr uint32_t kMissingTileColor = 0x00FF00FFu;             // bloco fora do atlas
+constexpr int32_t kAtlasSize     = 256;                         // atlas: 16 x 16 blocos de 16x16
 
 // ---------------------------------------------------------------------------
 // Matemática
@@ -216,10 +216,13 @@ namespace rz {
 void buildPalette(uint32_t* palette);
 void updateTerrainBounds(RzContext* ctx);
 bool buildTerrainMesh(RzContext* ctx);
-void buildAtlasLevels(uint32_t* tiles, const uint8_t* indices, int32_t width, int32_t height,
-                      const uint8_t* paletteRGB);
+void buildAtlasLevels(uint32_t* tiles, const uint8_t* indices, const uint8_t* paletteRGB);
 uint32_t shadeFlat(uint32_t base, Vec3 normal, bool twoSided);
 Vec3 lightDirection();
+
+// rz_pcx.cpp: lê o canto 256x256 de um PCX de 8 bits (indices: 256*256 bytes,
+// paletteRGB: 768 bytes). Devolve RZ_OK, RZ_ERR_FILE, RZ_ERR_FORMAT ou RZ_ERR_SIZE.
+int32_t loadPcxAtlas(const char* path, uint8_t* indices, uint8_t* paletteRGB);
 
 // rz_camera.cpp: avança a câmera um frame e devolve view-projection (convenção GL)
 Mat4 updateCamera(RzContext* ctx);

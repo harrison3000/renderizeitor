@@ -5,14 +5,15 @@
 //
 //   rz_test [-w largura] [-h altura] [-n frames] [-e salvar_a_cada]
 //           [-o pasta_saida] [-m heightmap.raw] [-r referencia.txt]
-//           [-t 0|1 texturas] [-f 0..4 filtro]
+//           [-t 0|1 texturas] [-a atlas.pcx] [-f 0..4 filtro]
 //           [-O 0|1 objetos] [-c 0|1 camera segue o veiculo (0: visão geral)]
 //
 // Filtro: 0 nearest, 1 mipmap, 2 mipmap com dither (padrão), 3 mipmap linear, 4 trilinear.
 //
 // Sem -m, gera um heightmap procedural determinístico (ilha).
-// Texturas (padrão ligado) usam o atlas e o mapa de blocos procedurais de
-// rz_testdata.h; o atlas também é gravado em atlas.ppm na pasta de saída.
+// Texturas (padrão ligado): sem -a, o atlas procedural de rz_testdata.h é
+// gravado em atlas.pcx na pasta de saída e carregado de lá (rzLoadTileAtlas);
+// também vai para atlas.ppm, para conferência. O mapa de blocos é procedural.
 // Com -r: se o arquivo existe, compara os hashes; senão, cria a referência.
 
 #include <cstdio>
@@ -77,6 +78,7 @@ int main(int argc, char** argv) {
     const char* outDir = ".";
     const char* rawPath = nullptr;
     const char* refPath = nullptr;
+    const char* pcxPath = nullptr;
     int textures = 1;
     int objects = 1;
     int follow = 1;
@@ -93,6 +95,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(opt, "-m")) rawPath = val;
         else if (!std::strcmp(opt, "-r")) refPath = val;
         else if (!std::strcmp(opt, "-t")) textures = std::atoi(val);
+        else if (!std::strcmp(opt, "-a")) pcxPath = val;
         else if (!std::strcmp(opt, "-O")) objects = std::atoi(val);
         else if (!std::strcmp(opt, "-c")) follow = std::atoi(val);
         else if (!std::strcmp(opt, "-f")) filter = std::atoi(val);
@@ -118,23 +121,33 @@ int main(int argc, char** argv) {
     if (rzSetTextureFilter(ctx, filter) != RZ_OK) { std::fprintf(stderr, "filtro invalido: %d\n", filter); return 1; }
 
     if (textures) {
-        static uint8_t atlas[RZTD_ATLAS_SIZE * RZTD_ATLAS_SIZE];
-        static uint8_t palette[768];
         static uint8_t tileMap[256 * 256];
-        rztdGenerateAtlas(atlas, palette);
         rztdGenerateTileMap(heightmap, tileMap);
-        err = rzSetTileAtlas(ctx, atlas, RZTD_ATLAS_SIZE, RZTD_ATLAS_SIZE, palette);
-        if (err == RZ_OK) err = rzSetTileMap(ctx, tileMap, 256, 256);
-        if (err != RZ_OK) { std::fprintf(stderr, "texturas falharam: %d\n", err); return 1; }
+        if (!pcxPath) {
+            static uint8_t atlas[RZTD_ATLAS_SIZE * RZTD_ATLAS_SIZE];
+            static uint8_t palette[768];
+            rztdGenerateAtlas(atlas, palette);
+            std::snprintf(path, sizeof(path), "%s/atlas.pcx", outDir);
+            if (!rztdWritePcx(path, atlas, RZTD_ATLAS_SIZE, RZTD_ATLAS_SIZE, palette)) {
+                std::fprintf(stderr, "falha ao gravar %s\n", path);
+                return 1;
+            }
 
-        // Atlas em RGB para conferência
-        static uint32_t atlasRgb[RZTD_ATLAS_SIZE * RZTD_ATLAS_SIZE];
-        for (int i = 0; i < RZTD_ATLAS_SIZE * RZTD_ATLAS_SIZE; ++i) {
-            const uint8_t* p = palette + atlas[i] * 3;
-            atlasRgb[i] = (uint32_t(p[0]) << 16) | (uint32_t(p[1]) << 8) | p[2];
+            // Atlas em RGB para conferência
+            static uint32_t atlasRgb[RZTD_ATLAS_SIZE * RZTD_ATLAS_SIZE];
+            for (int i = 0; i < RZTD_ATLAS_SIZE * RZTD_ATLAS_SIZE; ++i) {
+                const uint8_t* p = palette + atlas[i] * 3;
+                atlasRgb[i] = (uint32_t(p[0]) << 16) | (uint32_t(p[1]) << 8) | p[2];
+            }
+            char ppmPath[1024];
+            std::snprintf(ppmPath, sizeof(ppmPath), "%s/atlas.ppm", outDir);
+            writePpm(ppmPath, atlasRgb, RZTD_ATLAS_SIZE, RZTD_ATLAS_SIZE);
+            pcxPath = path;
         }
-        std::snprintf(path, sizeof(path), "%s/atlas.ppm", outDir);
-        writePpm(path, atlasRgb, RZTD_ATLAS_SIZE, RZTD_ATLAS_SIZE);
+        err = rzLoadTileAtlas(ctx, pcxPath);
+        if (err != RZ_OK) { std::fprintf(stderr, "rzLoadTileAtlas(%s) falhou: %d\n", pcxPath, err); return 1; }
+        err = rzSetTileMap(ctx, tileMap, 256, 256);
+        if (err != RZ_OK) { std::fprintf(stderr, "rzSetTileMap falhou: %d\n", err); return 1; }
     }
 
     // Objetos: casas e torres paradas, e um cubo que o "host" gira a cada frame

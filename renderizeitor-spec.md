@@ -53,7 +53,7 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 |---|---|
 | Contexto | `rzCreate(w, h, pixels)` offscreen; `rzCreateWindow(hwndPai, x, y, w, h)` janela filha; `rzSetViewport` (só no modo janela); `rzDestroy` |
 | Terreno | `rzSetHeightmap` (256×256); `rzSetTerrainScale(cellSize, heightScale)` |
-| Texturas | `rzSetTileAtlas(indices, w, h, paletteRGB)`; `rzSetTileMap` (256×256, NULL desliga as texturas); `rzSetTextureFilter` |
+| Texturas | `rzLoadTileAtlas(caminhoPcx)`; `rzSetTileMap` (256×256, NULL desliga as texturas); `rzSetTextureFilter` |
 | Objetos | `rzSetObjectAxes`, `rzCreateObject`, `rzUpdateObjectVertices`, `rzDestroyObject`, `rzSetObjectColor`, `rzSetObjectVisible`, `rzSetObjectCulling` |
 | Câmera | `rzSetCameraTarget(id, vertex)`, `rzSetCameraFollow(distance, height, stiffness)` |
 | Frame | `rzRender` |
@@ -66,12 +66,14 @@ Erros:
 | `RZ_ERR_SIZE` | Tamanho fora do suportado |
 | `RZ_ERR_NO_MEMORY` | Reservado: hoje uma falha de alocação aborta |
 | `RZ_ERR_GL` | Sem OpenGL 3.3, ou falha de contexto, shader ou janela |
+| `RZ_ERR_FILE` | Arquivo não abriu ou não pôde ser lido |
+| `RZ_ERR_FORMAT` | Arquivo em formato não suportado ou corrompido |
 
 Limites:
 
 - **Offscreen:** até 1920×1080.
 - **Janela:** até 8192 por lado.
-- **Atlas:** até 4096 por lado, em múltiplos de 16.
+- **Atlas:** PCX de pelo menos 256×256; de um maior, só o canto 256×256 é usado.
 
 ## 5. Saída
 
@@ -130,9 +132,13 @@ Limites:
 
 ### 7.3 Texturas
 
-- **Atlas:** blocos de 16×16 em grade, numerados da esquerda para a direita e de cima para baixo. Só os 256 primeiros são usados.
+- **Atlas:** lido de um PCX por `rzLoadTileAtlas` (`src/rz_pcx.cpp`).
+  - Formato aceito: ZSoft com 8 bits por pixel, 1 plano, RLE (ou sem compressão) e paleta VGA de 256 cores no fim do arquivo (marcador `0x0C`). Uma sequência RLE pode atravessar o fim da linha.
+  - Usa só o canto superior esquerdo de 256×256: 16 × 16 blocos de 16×16, numerados da esquerda para a direita e de cima para baixo.
+  - O arquivo é lido e validado inteiro antes de tocar na textura; se der erro, o atlas anterior continua.
+  - Futuro: texturas high-res em PNG.
 - **Mapa de blocos:** diz qual bloco cobre cada quad, com o bloco inteiro esticado sobre o quad. A textura recebe um sombreamento leve: a mesma luz flat do triângulo, atenuada para `mix(1, luz, 0.35)` (`kTexturedShading`). Com a luz mínima (ambient 0,3), a textura escurece até ~76%.
-- **Na GPU:** `GL_TEXTURE_2D_ARRAY` 16×16×256 com 5 níveis (16, 8, 4, 2, 1), gerados na CPU por média 2×2 arredondada. Um bloco fora do atlas sai magenta.
+- **Na GPU:** `GL_TEXTURE_2D_ARRAY` 16×16×256 com 5 níveis (16, 8, 4, 2, 1), gerados na CPU por média 2×2 arredondada.
 - **Filtros:** a ampliação é sempre nearest; o filtro muda só a redução.
 
   | Filtro | Redução |
@@ -196,13 +202,14 @@ Sem heightmap, só limpa e apresenta.
 - **`test/rz_test.cpp`:**
   - linka o núcleo estático (`RZ_STATIC`) e renderiza offscreen;
   - grava `.ppm`; `-c 0` testa a visão geral;
+  - `-a atlas.pcx` usa um atlas próprio; sem ele, grava o procedural em `atlas.pcx` na pasta de saída e carrega de lá;
   - registra hashes FNV-1a por frame. Eles só são comparáveis na mesma máquina e driver, então não há regressão bit a bit entre GPUs.
 - **`test/rz_testdata.h`:** dados procedurais.
-  - Ilha, atlas e mapa de blocos.
+  - Ilha, atlas e mapa de blocos; `rztdWritePcx` grava o atlas como PCX para o teste passar por `rzLoadTileAtlas`.
   - Casas e torres.
   - Um veículo de ~0,85 tile que segue o terreno.
   - Percurso automático.
-- **`test/rz_viewer.c`:** aplicação Win32 que usa `rzCreateWindow`.
+- **`test/rz_viewer.c`:** aplicação Win32 que usa `rzCreateWindow`. Uso: `rz_viewer.exe [heightmap.raw] [atlas.pcx]`, em qualquer ordem; sem PCX, grava o atlas procedural em `%TEMP%\rz_atlas_teste.pcx`.
 
   | Tecla | Ação |
   |---|---|
