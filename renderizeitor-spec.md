@@ -41,6 +41,7 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 ### 4.1 Regras
 
 - **Header:** `include/renderizeitor.h` compila como C puro e é a referência completa da API.
+- **Carga dinâmica (plugin):** `include/renderizeitor_plugin.h` é só header, em C, e independente do `renderizeitor.h` (repete as constantes e o tipo do contexto). `rzPluginLoad(&rz, "renderizeitor.dll")` faz `LoadLibrary` e resolve todas as exportações numa struct `RzPlugin`, e o host chama `rz.rzRender(ctx)` etc., sem linkar com a import library. `rzPluginUnload` descarrega. Ao adicionar uma função à API, acrescente-a também em `RZ_PLUGIN_FUNCTIONS`.
 - **Chamadas:** `__cdecl`, nomes sem decoração e nenhum struct passado por valor. As funções devolvem `int32_t` com um código `RZ_*`.
 - **Memória:** nunca troca de dono na fronteira. A DLL libera o que alocou em `rzDestroy`.
 - **Thread:** o contexto GL pertence à thread que chamou `rzCreate*`. Todas as chamadas do contexto devem vir dela, e no modo janela ela é a thread do loop de mensagens do pai.
