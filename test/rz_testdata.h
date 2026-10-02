@@ -507,4 +507,24 @@ static void rztdVehiclePath(float t, float* x, float* z, float* heading) {
     *heading = atan2f(dz, dx);
 }
 
+/* Cria no renderer um objeto a partir de uma malha de teste, como o legado
+   faria: rzCreateObject (só a quantidade), um rzAddObjectPolygon por polígono
+   (com o índice de fechamento) e rzUpdateObjectVertices. Só existe quando
+   renderizeitor.h foi incluído antes. */
+#ifdef RENDERIZEITOR_H
+static int32_t rztdCreateObject(RzContext* ctx, const RztdMesh* m, int32_t* outId) {
+    int32_t err = rzCreateObject(ctx, m->vertexCount, outId);
+    int pos = 0;
+    while (err == RZ_OK && pos < m->indexCount) {
+        int end = pos + 1;
+        while (end < m->indexCount && m->indices[end] != m->indices[pos]) ++end;
+        if (end >= m->indexCount) return RZ_ERR_INVALID_ARG;   /* malha sem fechamento */
+        err = rzAddObjectPolygon(ctx, *outId, m->indices + pos, end - pos + 1);
+        pos = end + 1;
+    }
+    if (err == RZ_OK) err = rzUpdateObjectVertices(ctx, *outId, m->vertices);
+    return err;
+}
+#endif
+
 #endif

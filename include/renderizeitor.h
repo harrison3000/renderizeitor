@@ -107,10 +107,12 @@ RZ_API int32_t RZ_CALL rzSetTextureFilter(RzContext* ctx, int32_t filter);
    ponto fixo 8.24 sem sinal, coordenadas absolutas no mundo: 1.0 = 1 tile.
    A ordem dos eixos é definida por rzSetObjectAxes (padrão RZ_AXES_Z_UP, como no legado).
 
-   Polígonos: índices (uint16_t) concatenados; cada polígono termina com uma
-   cópia do seu primeiro índice, por exemplo  0 1 2 3 0  4 5 6 4 ...
-   Polígonos convexos, triangulados em leque na carga. Menos de 3 vértices:
-   ignorado. */
+   Montagem de um objeto (fase de carga):
+     1. rzCreateObject(ctx, vertexCount, &id)       só a quantidade de vértices
+     2. rzAddObjectPolygon(ctx, id, indices, n)     uma vez por polígono
+     3. rzUpdateObjectVertices(ctx, id, vertices)   posições (e a cada frame)
+   Os passos 2 e 3 podem vir em qualquer ordem e se repetir; o objeto só é
+   desenhado depois da primeira rzUpdateObjectVertices. */
 
 #define RZ_AXES_Y_UP  0   /* (x, y, z) = (coluna, altura, linha) */
 #define RZ_AXES_Z_UP  1   /* (x, y, z) = (coluna, linha, altura) */
@@ -119,14 +121,22 @@ RZ_API int32_t RZ_CALL rzSetTextureFilter(RzContext* ctx, int32_t filter);
    carregadas não são reconvertidas). */
 RZ_API int32_t RZ_CALL rzSetObjectAxes(RzContext* ctx, int32_t axes);
 
-/* Cria um objeto (fase de carga: aloca). Devolve o id em outId. */
-RZ_API int32_t RZ_CALL rzCreateObject(RzContext* ctx,
-                                      const uint32_t* vertices, int32_t vertexCount,
-                                      const uint16_t* indices, int32_t indexCount,
-                                      int32_t* outId);
+/* Cria um objeto vazio com vertexCount vértices (1 a 65536), ainda sem
+   polígonos e sem posições (fase de carga: aloca). Devolve o id em outId. */
+RZ_API int32_t RZ_CALL rzCreateObject(RzContext* ctx, int32_t vertexCount, int32_t* outId);
 
-/* Novas posições dos vértices (mesma quantidade e topologia). Copia e
-   recalcula a iluminação; não aloca. */
+/* Acrescenta um polígono convexo ao objeto (fase de carga: aloca). Pode ser
+   chamada quantas vezes for preciso; os índices são copiados.
+   indices: count índices de vértices do objeto. Se o último repetir o
+   primeiro (fechamento, como no legado: 0 1 2 3 0), ele é descartado.
+   Triangulado em leque. Com menos de 3 vértices, é ignorado (RZ_OK).
+   Erros: RZ_ERR_INVALID_ARG (índice fora do objeto; nada é acrescentado),
+   RZ_ERR_SIZE (mais de 65535 polígonos no objeto). */
+RZ_API int32_t RZ_CALL rzAddObjectPolygon(RzContext* ctx, int32_t id,
+                                          const uint16_t* indices, int32_t count);
+
+/* Posições de todos os vértices (vertexCount * 3 uint32_t). Copia e recalcula
+   a iluminação; não aloca. */
 RZ_API int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t id,
                                               const uint32_t* vertices);
 

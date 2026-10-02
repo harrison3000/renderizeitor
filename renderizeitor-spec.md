@@ -45,7 +45,7 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 - **Chamadas:** `__cdecl`, nomes sem decoração e nenhum struct passado por valor. As funções devolvem `int32_t` com um código `RZ_*`.
 - **Memória:** nunca troca de dono na fronteira. A DLL libera o que alocou em `rzDestroy`.
 - **Thread:** o contexto GL pertence à thread que chamou `rzCreate*`. Todas as chamadas do contexto devem vir dela, e no modo janela ela é a thread do loop de mensagens do pai.
-- **Alocação:** só nas funções de carga (heightmap, atlas, mapa de blocos, criação de objetos). `rzRender` e `rzUpdateObjectVertices` não alocam (os vetores já têm o tamanho final).
+- **Alocação:** só nas funções de carga (heightmap, atlas, mapa de blocos, `rzCreateObject`, `rzAddObjectPolygon`). `rzRender` e `rzUpdateObjectVertices` não alocam (os vetores já têm o tamanho final).
 
 ### 4.2 Funções
 
@@ -54,7 +54,7 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 | Contexto | `rzCreate(w, h, pixels)` offscreen; `rzCreateWindow(hwndPai, x, y, w, h)` janela filha; `rzSetViewport` (só no modo janela); `rzDestroy` |
 | Terreno | `rzSetHeightmap` (256×256); `rzSetTerrainScale(cellSize, heightScale)` |
 | Texturas | `rzLoadTileAtlas(caminhoPcx)`; `rzSetTileMap` (256×256, NULL desliga as texturas); `rzSetTextureFilter` |
-| Objetos | `rzSetObjectAxes`, `rzCreateObject`, `rzUpdateObjectVertices`, `rzDestroyObject`, `rzSetObjectColor`, `rzSetObjectVisible`, `rzSetObjectCulling` |
+| Objetos | `rzSetObjectAxes`, `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count)`, `rzUpdateObjectVertices`, `rzDestroyObject`, `rzSetObjectColor`, `rzSetObjectVisible`, `rzSetObjectCulling` |
 | Câmera | `rzSetCameraTarget(id, vertex)`, `rzSetCameraFollow(distance, height, stiffness)` |
 | Frame | `rzRender` |
 
@@ -152,9 +152,10 @@ Limites:
 ## 8. Objetos
 
 - **Vértices:** `uint32` em ponto fixo 8.24 sem sinal, em coordenadas absolutas do mundo (1.0 = 1 tile), três por vértice.
-- **Polígonos:** convexos, com os índices `uint16` concatenados. Cada polígono termina repetindo o primeiro índice; com menos de 3 vértices, é ignorado. São triangulados em leque na carga.
+- **Montagem:** `rzCreateObject` recebe só a quantidade de vértices; cada polígono entra com uma chamada a `rzAddObjectPolygon`, que copia os índices (a lista é do chamador). As posições chegam por `rzUpdateObjectVertices`, antes ou depois dos polígonos; o objeto só é desenhado (e só serve de alvo da câmera) depois da primeira.
+- **Polígonos:** convexos, índices `uint16`. Se o último índice repetir o primeiro (fechamento do legado), ele é descartado. Com menos de 3 vértices, o polígono é ignorado; com índice fora do objeto, dá `RZ_ERR_INVALID_ARG` e nada é acrescentado. Até 65535 polígonos por objeto. Triangulados em leque.
 - **Cor:** provisória por objeto, com sombreamento flat por polígono pela normal de Newell. A luz é de dois lados enquanto o winding do legado for desconhecido.
-- **Na GPU:** um VBO por objeto, reenviado em `rzUpdateObjectVertices`, e um `glDrawArrays` por objeto visível.
+- **Na GPU:** um VBO por objeto, realocado a cada `rzAddObjectPolygon`. Update, cor e polígono novo só marcam o objeto como alterado; o VBO é reenviado (sem alocar) no `rzRender` seguinte. Um `glDrawArrays` por objeto visível.
 - **Culling:** por objeto, com `RZ_CULL_NONE` (padrão), `RZ_CULL_CW` ou `RZ_CULL_CCW`.
 - **Ids:** são índices num `std::vector`; os slots livres são reaproveitados.
 

@@ -167,8 +167,7 @@ int main(int argc, char** argv) {
     if (objects) {
         // Primeiro objeto: o veículo, que anda e é o alvo da câmera
         placeVehicle(0);
-        err = rzCreateObject(ctx, vehicle.vertices, vehicle.vertexCount,
-                             vehicle.indices, vehicle.indexCount, &vehicleId);
+        err = rztdCreateObject(ctx, &vehicle, &vehicleId);
         if (err != RZ_OK) { std::fprintf(stderr, "rzCreateObject (veiculo) falhou: %d\n", err); return 1; }
         rzSetObjectColor(ctx, vehicleId, 0x003070E0u);
         rzSetObjectCulling(ctx, vehicleId, RZ_CULL_CW);
@@ -178,8 +177,7 @@ int main(int argc, char** argv) {
                                                 RZTD_MAX_OBJECTS);
         for (int i = 0; i < count; ++i) {
             int32_t id;
-            err = rzCreateObject(ctx, buildings[i].vertices, buildings[i].vertexCount,
-                                 buildings[i].indices, buildings[i].indexCount, &id);
+            err = rztdCreateObject(ctx, &buildings[i], &id);
             if (err != RZ_OK) { std::fprintf(stderr, "rzCreateObject falhou: %d\n", err); return 1; }
             rzSetObjectColor(ctx, id, buildingColors[i]);
             rzSetObjectCulling(ctx, id, RZ_CULL_CW);
@@ -188,7 +186,7 @@ int main(int argc, char** argv) {
         for (int i = 0; i < 256 * 256; ++i) if (heightmap[i] > top) top = heightmap[i];
         cubeY = float(top) * heightScale + 2.0f;
         rztdSpinningCube(&cube, cubeX, cubeY, cubeZ, 0.6f, 0.0f);
-        err = rzCreateObject(ctx, cube.vertices, cube.vertexCount, cube.indices, cube.indexCount, &cubeId);
+        err = rztdCreateObject(ctx, &cube, &cubeId);
         if (err != RZ_OK) { std::fprintf(stderr, "rzCreateObject (cubo) falhou: %d\n", err); return 1; }
         rzSetObjectColor(ctx, cubeId, 0x00E04030u);
         rzSetObjectCulling(ctx, cubeId, RZ_CULL_CW);

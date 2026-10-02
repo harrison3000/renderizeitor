@@ -148,7 +148,7 @@ Mat4 updateCamera(RzContext* ctx) {
 
     const int32_t target = ctx->cameraTargetObject;
     const bool following = target >= 0 && target < int32_t(ctx->objects.size()) &&
-                           ctx->objects[target].alive &&
+                           ctx->objects[target].alive && ctx->objects[target].positioned &&
                            ctx->cameraTargetVertex < ctx->objects[target].vertexCount();
 
     Vec3 eye, at;

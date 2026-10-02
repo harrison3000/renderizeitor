@@ -280,8 +280,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         rztdVehiclePath(0.0f, &g_carX, &g_carZ, &g_carHeading);
         g_carSpeed = 0.0f;
         placeVehicle();
-        err = rzCreateObject(g_ctx, g_vehicle.vertices, g_vehicle.vertexCount,
-                             g_vehicle.indices, g_vehicle.indexCount, &g_vehicleId);
+        err = rztdCreateObject(g_ctx, &g_vehicle, &g_vehicleId);
         if (err == RZ_OK) {
             rzSetObjectColor(g_ctx, g_vehicleId, 0x003070E0u);
             rzSetObjectCulling(g_ctx, g_vehicleId, RZ_CULL_CW);
@@ -297,8 +296,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         int i, top = 0;
         for (i = 0; i < count && err == RZ_OK; ++i) {
             int32_t id;
-            err = rzCreateObject(g_ctx, buildings[i].vertices, buildings[i].vertexCount,
-                                 buildings[i].indices, buildings[i].indexCount, &id);
+            err = rztdCreateObject(g_ctx, &buildings[i], &id);
             if (err == RZ_OK) {
                 rzSetObjectColor(g_ctx, id, colors[i]);
                 rzSetObjectCulling(g_ctx, id, RZ_CULL_CW);
@@ -308,8 +306,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         for (i = 0; i < 256 * 256; ++i) if (heightmap[i] > top) top = heightmap[i];
         g_cubePos[0] = 128.0f; g_cubePos[1] = (float)top * heightScale + 2.0f; g_cubePos[2] = 128.0f;
         rztdSpinningCube(&g_cube, g_cubePos[0], g_cubePos[1], g_cubePos[2], 0.6f, 0.0f);
-        if (err == RZ_OK) err = rzCreateObject(g_ctx, g_cube.vertices, g_cube.vertexCount,
-                                               g_cube.indices, g_cube.indexCount, &g_cubeId);
+        if (err == RZ_OK) err = rztdCreateObject(g_ctx, &g_cube, &g_cubeId);
         if (err == RZ_OK) {
             rzSetObjectColor(g_ctx, g_cubeId, 0x00E04030u);
             rzSetObjectCulling(g_ctx, g_cubeId, RZ_CULL_CW);

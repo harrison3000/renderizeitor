@@ -1,10 +1,12 @@
 // Objetos: malhas de polígonos convexos em coordenadas absolutas do mundo.
 //
-// Carga (rzCreateObject): valida os índices, triangula cada polígono em leque,
-// aloca os buffers na CPU e cria o vertex buffer na GPU.
-// Update (rzUpdateObjectVertices): converte as posições 8.24 para float,
-// recalcula a cor sombreada de cada polígono e reenvia o vertex buffer.
-// Frame (drawObjects): um glDrawArrays por objeto visível.
+// Carga: rzCreateObject cria o objeto vazio (vértices, VAO e VBO);
+// rzAddObjectPolygon valida e copia um polígono, triangula em leque, cresce os
+// buffers da CPU e realoca o VBO.
+// Update (rzUpdateObjectVertices): converte as posições 8.24 para float e
+// recalcula a cor sombreada de cada polígono.
+// Frame (drawObjects): reenvia o VBO dos objetos alterados (sem alocar) e faz
+// um glDrawArrays por objeto visível.
 
 #include "rz_internal.h"
 
@@ -39,25 +41,28 @@ void loadPositions(const RzContext* ctx, Object& o, const uint32_t* vertices) {
     }
 }
 
-// Normal de Newell de cada polígono e cor sombreada (pelos dois lados, enquanto
-// o winding do legado não é conhecido).
-void computePolygonColors(Object& o) {
-    for (size_t p = 0; p < o.polygonStart.size(); ++p) {
-        const uint16_t* idx = o.indices.data() + o.polygonStart[p];
-        const int32_t n = o.polygonLength[p];
-        Vec3 normal = { 0.0f, 0.0f, 0.0f };
-        for (int32_t i = 0; i < n; ++i) {
-            const Vec3 cur  = o.world[idx[i]];
-            const Vec3 next = o.world[idx[i + 1 == n ? 0 : i + 1]];
-            normal.x += (cur.y - next.y) * (cur.z + next.z);
-            normal.y += (cur.z - next.z) * (cur.x + next.x);
-            normal.z += (cur.x - next.x) * (cur.y + next.y);
-        }
-        o.polygonColors[p] = shadeFlat(o.baseColor, normal, true);
+// Normal de Newell do polígono e cor sombreada (pelos dois lados, enquanto o
+// winding do legado não é conhecido).
+uint32_t polygonColor(const Object& o, size_t p) {
+    const uint16_t* idx = o.indices.data() + o.polygonStart[p];
+    const int32_t n = o.polygonLength[p];
+    Vec3 normal = { 0.0f, 0.0f, 0.0f };
+    for (int32_t i = 0; i < n; ++i) {
+        const Vec3 cur  = o.world[idx[i]];
+        const Vec3 next = o.world[idx[i + 1 == n ? 0 : i + 1]];
+        normal.x += (cur.y - next.y) * (cur.z + next.z);
+        normal.y += (cur.z - next.z) * (cur.x + next.x);
+        normal.z += (cur.x - next.x) * (cur.y + next.y);
     }
+    return shadeFlat(o.baseColor, normal, true);
 }
 
-// Monta os vértices dos triângulos e reenvia o vertex buffer inteiro.
+void computePolygonColors(Object& o) {
+    for (size_t p = 0; p < o.polygonStart.size(); ++p) o.polygonColors[p] = polygonColor(o, p);
+}
+
+// Monta os vértices dos triângulos e reenvia o vertex buffer inteiro (que já
+// tem o tamanho certo: é realocado em rzAddObjectPolygon).
 void uploadObject(Object& o) {
     GpuVertex* v = o.staging.data();
     for (const ObjectTriangle& tri : o.triangles) {
@@ -73,32 +78,6 @@ void uploadObject(Object& o) {
                     o.staging.data());
 }
 
-// Primeira passada sobre os índices: conta polígonos, vértices e triângulos,
-// e valida o fechamento e o intervalo dos índices.
-int32_t scanPolygons(const uint16_t* indices, int32_t indexCount, int32_t vertexCount,
-                     int32_t* polygons, int32_t* kept, int32_t* triangles) {
-    *polygons = 0; *kept = 0; *triangles = 0;
-    int32_t pos = 0;
-    while (pos < indexCount) {
-        const uint16_t first = indices[pos];
-        int32_t end = pos + 1;
-        while (end < indexCount && indices[end] != first) ++end;
-        if (end >= indexCount) return RZ_ERR_INVALID_ARG;       // polígono sem fechamento
-        for (int32_t i = pos; i < end; ++i) {
-            if (indices[i] >= vertexCount) return RZ_ERR_INVALID_ARG;
-        }
-        const int32_t n = end - pos;
-        if (n >= 3) {
-            ++*polygons;
-            *kept += n;
-            *triangles += n - 2;
-        }
-        pos = end + 1;
-    }
-    if (*polygons > 65535) return RZ_ERR_SIZE;
-    return RZ_OK;
-}
-
 } // namespace
 
 namespace rz {
@@ -106,8 +85,8 @@ namespace rz {
 // Culling pela ordem na tela (glFrontFace já define frente = anti-horário visual).
 void drawObjects(RzContext* ctx, const Mat4& viewProj, bool /*flipped*/) {
     bool programBound = false;
-    for (const Object& o : ctx->objects) {
-        if (!o.alive || !o.visible) continue;
+    for (Object& o : ctx->objects) {
+        if (!o.alive || !o.visible || !o.positioned || o.triangles.empty()) continue;
         if (!programBound) {
             glUseProgram(ctx->objectProgram.program);
             glUniformMatrix4fv(ctx->objectProgram.viewProj, 1, GL_TRUE, viewProj.e);
@@ -118,6 +97,10 @@ void drawObjects(RzContext* ctx, const Mat4& viewProj, bool /*flipped*/) {
         } else {
             glEnable(GL_CULL_FACE);
             glCullFace(o.cull == RZ_CULL_CW ? GL_BACK : GL_FRONT);
+        }
+        if (o.gpuDirty) {
+            uploadObject(o);
+            o.gpuDirty = false;
         }
         glBindVertexArray(o.vao);
         glDrawArrays(GL_TRIANGLES, 0, o.triangleCount() * 3);
@@ -141,19 +124,11 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetObjectAxes(RzContext* ctx, int32_t axes) {
     return RZ_OK;
 }
 
-RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateObject(RzContext* ctx,
-                                               const uint32_t* vertices, int32_t vertexCount,
-                                               const uint16_t* indices, int32_t indexCount,
-                                               int32_t* outId) {
-    if (!ctx || !vertices || !indices || !outId) return RZ_ERR_INVALID_ARG;
+RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateObject(RzContext* ctx, int32_t vertexCount, int32_t* outId) {
+    if (!ctx || !outId) return RZ_ERR_INVALID_ARG;
     *outId = -1;
-    if (vertexCount < 3 || indexCount < 4) return RZ_ERR_INVALID_ARG;
+    if (vertexCount < 1) return RZ_ERR_INVALID_ARG;
     if (vertexCount > kMaxObjectVertices) return RZ_ERR_SIZE;
-
-    int32_t polygons, kept, triangles;
-    const int32_t err = scanPolygons(indices, indexCount, vertexCount, &polygons, &kept, &triangles);
-    if (err != RZ_OK) return err;
-    if (triangles == 0) return RZ_ERR_INVALID_ARG;
     if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
 
     // Slot livre, ou um novo no fim (fase de carga)
@@ -162,40 +137,13 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateObject(RzContext* ctx,
     if (id == int32_t(ctx->objects.size())) ctx->objects.emplace_back();
 
     Object& o = ctx->objects[id];
-    o.world.resize(size_t(vertexCount));
-    o.polygonStart.reserve(size_t(polygons));
-    o.polygonLength.reserve(size_t(polygons));
-    o.indices.reserve(size_t(kept));
-    o.polygonColors.resize(size_t(polygons));
-    o.triangles.reserve(size_t(triangles));
-    o.staging.resize(size_t(triangles) * 3);
+    o.world.assign(size_t(vertexCount), Vec3{ 0.0f, 0.0f, 0.0f });
 
-    // Segunda passada: copia os índices sem os fechamentos e monta os leques
-    int32_t pos = 0;
-    while (pos < indexCount) {
-        const uint16_t first = indices[pos];
-        int32_t end = pos + 1;
-        while (indices[end] != first) ++end;
-        const int32_t n = end - pos;
-        if (n >= 3) {
-            const uint16_t polygon = uint16_t(o.polygonStart.size());
-            o.polygonStart.push_back(int32_t(o.indices.size()));
-            o.polygonLength.push_back(n);
-            o.indices.insert(o.indices.end(), indices + pos, indices + end);
-            for (int32_t i = 1; i + 1 < n; ++i) {
-                o.triangles.push_back({ indices[pos], indices[pos + i], indices[pos + i + 1], polygon });
-            }
-        }
-        pos = end + 1;
-    }
-
-    // Vertex buffer: posição (vec3) + cor (4 bytes normalizados)
+    // Vertex buffer (vazio até o primeiro polígono): posição (vec3) + cor (4 bytes normalizados)
     glGenVertexArrays(1, &o.vao);
     glGenBuffers(1, &o.vbo);
     glBindVertexArray(o.vao);
     glBindBuffer(GL_ARRAY_BUFFER, o.vbo);
-    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(triangles) * 3 * GLsizeiptr(sizeof(GpuVertex)),
-                 nullptr, GL_DYNAMIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(GpuVertex), reinterpret_cast<void*>(0));
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(GpuVertex),
@@ -203,13 +151,12 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateObject(RzContext* ctx,
     glEnableVertexAttribArray(1);
     glBindVertexArray(0);
 
-    o.alive     = true;
-    o.visible   = true;
-    o.cull      = RZ_CULL_NONE;
-    o.baseColor = kDefaultObjectColor;
-    loadPositions(ctx, o, vertices);
-    computePolygonColors(o);
-    uploadObject(o);
+    o.alive      = true;
+    o.visible    = true;
+    o.positioned = false;
+    o.gpuDirty   = false;
+    o.cull       = RZ_CULL_NONE;
+    o.baseColor  = kDefaultObjectColor;
 
     if (glGetError() != GL_NO_ERROR) {
         freeObject(o);
@@ -219,14 +166,47 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateObject(RzContext* ctx,
     return RZ_OK;
 }
 
+RZ_API RZ_ENTRY int32_t RZ_CALL rzAddObjectPolygon(RzContext* ctx, int32_t id,
+                                                   const uint16_t* indices, int32_t count) {
+    if (!validId(ctx, id) || !indices || count < 0) return RZ_ERR_INVALID_ARG;
+    Object& o = ctx->objects[id];
+
+    int32_t n = count;
+    if (n > 1 && indices[n - 1] == indices[0]) --n;          // fechamento do legado
+    for (int32_t i = 0; i < n; ++i) {
+        if (indices[i] >= o.vertexCount()) return RZ_ERR_INVALID_ARG;
+    }
+    if (n < 3) return RZ_OK;                                  // degenerado: ignorado
+    if (o.polygonStart.size() >= 65535) return RZ_ERR_SIZE;  // polígono do triângulo é uint16
+    if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
+
+    // Cópia dos índices e leque (fase de carga: os vetores crescem aqui)
+    const uint16_t polygon = uint16_t(o.polygonStart.size());
+    o.polygonStart.push_back(int32_t(o.indices.size()));
+    o.polygonLength.push_back(n);
+    o.indices.insert(o.indices.end(), indices, indices + n);
+    for (int32_t i = 1; i + 1 < n; ++i) {
+        o.triangles.push_back({ indices[0], indices[i], indices[i + 1], polygon });
+    }
+    o.polygonColors.push_back(polygonColor(o, polygon));
+    o.staging.resize(o.triangles.size() * 3);
+
+    // VBO com o novo tamanho; o conteúdo vai no próximo frame
+    glBindBuffer(GL_ARRAY_BUFFER, o.vbo);
+    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(o.staging.size() * sizeof(GpuVertex)),
+                 nullptr, GL_DYNAMIC_DRAW);
+    o.gpuDirty = true;
+    return glGetError() == GL_NO_ERROR ? RZ_OK : RZ_ERR_GL;
+}
+
 RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t id,
                                                        const uint32_t* vertices) {
     if (!validId(ctx, id) || !vertices) return RZ_ERR_INVALID_ARG;
-    if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
     Object& o = ctx->objects[id];
     loadPositions(ctx, o, vertices);
     computePolygonColors(o);
-    uploadObject(o);
+    o.positioned = true;
+    o.gpuDirty   = true;
     return RZ_OK;
 }
 
@@ -239,11 +219,10 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzDestroyObject(RzContext* ctx, int32_t id) {
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzSetObjectColor(RzContext* ctx, int32_t id, uint32_t rgb) {
     if (!validId(ctx, id)) return RZ_ERR_INVALID_ARG;
-    if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
     Object& o = ctx->objects[id];
     o.baseColor = rgb & 0x00FFFFFFu;
     computePolygonColors(o);
-    uploadObject(o);
+    o.gpuDirty = true;
     return RZ_OK;
 }
 

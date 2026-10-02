@@ -120,16 +120,18 @@ static_assert(sizeof(TerrainVertex) == 20);
 struct Object {
     bool      alive   = false;
     bool      visible = false;
+    bool      positioned = false;   // já recebeu rzUpdateObjectVertices
+    bool      gpuDirty   = false;   // staging/VBO desatualizado: reenviar no próximo frame
     int32_t   cull    = RZ_CULL_NONE;
     uint32_t  baseColor = 0;   // 0x00RRGGBB, provisório até as texturas
 
     std::vector<Vec3>     world;          // posições no mundo, atualizadas pelo host
     std::vector<int32_t>  polygonStart;   // em `indices`
     std::vector<int32_t>  polygonLength;  // sem o índice de fechamento
-    std::vector<uint16_t> indices;        // cópia dos índices (sem os fechamentos)
+    std::vector<uint16_t> indices;        // cópia dos índices dos polígonos (sem os fechamentos)
     std::vector<uint32_t> polygonColors;  // cor sombreada por polígono
     std::vector<ObjectTriangle> triangles; // leque de cada polígono, montado na carga
-    std::vector<GpuVertex> staging;       // triangles.size() * 3, preenchido a cada update
+    std::vector<GpuVertex> staging;       // triangles.size() * 3, preenchido no envio
 
     GLuint    vao = 0;
     GLuint    vbo = 0;
