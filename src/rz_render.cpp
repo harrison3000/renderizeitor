@@ -63,6 +63,23 @@ GLenum frontFaceWinding(const RzContext* ctx) {
 
 } // namespace
 
+void initFogUniforms(GLuint program, FogUniforms& u) {
+    u.on    = glGetUniformLocation(program, "uFogOn");
+    u.start = glGetUniformLocation(program, "uFogStart");
+    u.end   = glGetUniformLocation(program, "uFogEnd");
+    u.color = glGetUniformLocation(program, "uFogColor");
+    u.eye   = glGetUniformLocation(program, "uEye");
+}
+
+// Neblina do frame: liga só seguindo um alvo; cor = fundo
+void bindFog(const RzContext* ctx, const FogUniforms& u) {
+    glUniform1i(u.on, ctx->fogOn ? 1 : 0);
+    glUniform1f(u.start, kFogStart * ctx->cellSize);
+    glUniform1f(u.end, kFogEnd * ctx->cellSize);
+    glUniform3f(u.color, ctx->backgroundR, ctx->backgroundG, ctx->backgroundB);
+    glUniform3f(u.eye, ctx->eyePos.x, ctx->eyePos.y, ctx->eyePos.z);
+}
+
 bool createRenderer(RzContext* ctx) {
     TerrainProgram& t = ctx->terrainProgram;
     t.program = linkProgram(kTerrainVertexShader, kTerrainFragmentShader);
@@ -80,6 +97,7 @@ bool createRenderer(RzContext* ctx) {
     glUniform1f(t.ambient, kAmbient);
     glUniform1f(shadowDim, kShadowTexturedDim);
     initShadowUniforms(t.program, t.shadow);
+    initFogUniforms(t.program, t.fog);
 
     ObjectProgram& o = ctx->objectProgram;
     o.program = linkProgram(kObjectVertexShader, kObjectFragmentShader);
@@ -94,6 +112,7 @@ bool createRenderer(RzContext* ctx) {
     glUniform1i(o.texture, kUnitAtlas);
     glUniform1f(o.ambient, kAmbient);
     initShadowUniforms(o.program, o.shadow);
+    initFogUniforms(o.program, o.fog);
     if (!createFallbackTexture(ctx)) return false;
 
     DepthProgram& d = ctx->depthProgram;
@@ -195,6 +214,7 @@ void renderFrame(RzContext* ctx) {
         glUseProgram(t.program);
         glUniformMatrix4fv(t.viewProj, 1, GL_TRUE, viewProj.e);
         bindShadowMaps(ctx, t.shadow);
+        bindFog(ctx, t.fog);
         glUniform1i(t.textured, textured ? 1 : 0);
         glUniform1i(t.filter, ctx->textureFilter);
         glActiveTexture(GL_TEXTURE0 + GLenum(kUnitAtlas));

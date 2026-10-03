@@ -48,6 +48,21 @@ void loadPositions(const RzContext* ctx, Object& o, const uint32_t* vertices) {
         const float up  = float(vertices[i * 3 + 2]) * scale;
         o.world[i] = Vec3{ col, up, row };
     }
+
+    // Esfera envolvente (centro da caixa dos vértices, raio máximo): corte por
+    // distância (neblina) e caixa do mapa de sombra do alvo
+    Vec3 lo = o.world[0], hi = o.world[0];
+    for (const Vec3& v : o.world) {
+        lo = { fminf(lo.x, v.x), fminf(lo.y, v.y), fminf(lo.z, v.z) };
+        hi = { fmaxf(hi.x, v.x), fmaxf(hi.y, v.y), fmaxf(hi.z, v.z) };
+    }
+    o.center = { (lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f };
+    float r2 = 0.0f;
+    for (const Vec3& v : o.world) {
+        const Vec3 d = v - o.center;
+        r2 = fmaxf(r2, dot(d, d));
+    }
+    o.radius = sqrtf(r2);
 }
 
 // Luz flat do polígono, de um lado só: só a luz, em cinza, que o shader
@@ -145,10 +160,20 @@ static bool drawable(const Object& o) {
     return o.alive && o.positioned && !o.triangles.empty();
 }
 
+// Fora do alcance: a esfera inteira além da neblina (+ margem para sombras
+// longas). Sem neblina (visão geral), tudo está no alcance.
+bool objectInRange(const RzContext* ctx, const Object& o) {
+    if (!ctx->fogOn) return true;
+    const Vec3 d = o.center - ctx->eyePos;
+    const float reach = (kFogEnd + kFogCullMargin) * ctx->cellSize + o.radius;
+    return dot(d, d) <= reach * reach;
+}
+
 // Reenvia os VBOs alterados, antes dos dois passes do frame (sem alocar).
+// Os fora do alcance ficam para quando entrarem (gpuDirty continua).
 void prepareObjects(RzContext* ctx) {
     for (Object& o : ctx->objects) {
-        if (!drawable(o)) continue;
+        if (!drawable(o) || !objectInRange(ctx, o)) continue;
         const int32_t side = o.texture ? o.textureSize : ctx->fallbackSize;
         if (o.gpuDirty || o.uploadedSide != side) {   // textura trocada: UVs das cores mudam
             uploadObject(o, side);
@@ -160,12 +185,13 @@ void prepareObjects(RzContext* ctx) {
 
 // Passe da sombra: só a geometria (o programa de profundidade já está ligado).
 // onlyId >= 0: só esse objeto; skipId >= 0: todos menos ele.
-// (Os que ficam fora da caixa do mapa são cortados pelo clipping; descartá-los
-// antes pela esfera envolvente seria a otimização.)
+// Os além da neblina ficam de fora; os que só saem da caixa do mapa são
+// cortados pelo clipping.
 void drawObjectsDepth(RzContext* ctx, int32_t onlyId, int32_t skipId) {
     for (int32_t id = 0; id < int32_t(ctx->objects.size()); ++id) {
         const Object& o = ctx->objects[id];
         if (!drawable(o) || (onlyId >= 0 && id != onlyId) || id == skipId) continue;
+        if (!objectInRange(ctx, o)) continue;
         glBindVertexArray(o.vao);
         glDrawArrays(GL_TRIANGLES, 0, o.triangleCount() * 3);
     }
@@ -177,7 +203,7 @@ void drawObjectsDepth(RzContext* ctx, int32_t onlyId, int32_t skipId) {
 void drawObjects(RzContext* ctx, const Mat4& viewProj) {
     bool programBound = false;
     for (Object& o : ctx->objects) {
-        if (!drawable(o)) continue;
+        if (!drawable(o) || !objectInRange(ctx, o)) continue;
         const ObjectProgram& prog = ctx->objectProgram;
         if (!programBound) {
             glEnable(GL_CULL_FACE);
@@ -186,6 +212,7 @@ void drawObjects(RzContext* ctx, const Mat4& viewProj) {
             glUniformMatrix4fv(prog.viewProj, 1, GL_TRUE, viewProj.e);
             glUniform1i(prog.filter, ctx->textureFilter);
             bindShadowMaps(ctx, prog.shadow);           // deixa a unidade 0 ativa
+            bindFog(ctx, prog.fog);
             programBound = true;
         }
         // Textura própria ou fallback

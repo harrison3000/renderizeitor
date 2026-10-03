@@ -195,7 +195,16 @@ O modo normal é a perseguição (9.2): o host sempre define um alvo.
 
 ### 9.3 Planos near/far (os dois modos)
 
-`near = dist(câmera, centro) − R` e `far = dist(câmera, centro) + R`. O near é limitado a no máximo metade da distância ao ponto observado e a no mínimo 0.002·R.
+`near = dist(câmera, centro) − R` e `far = dist(câmera, centro) + R`. O near é limitado a no máximo metade da distância ao ponto observado e a no mínimo 0.002·R. Seguindo um alvo (com neblina), o far fica em no máximo 80 tiles × 1,02.
+
+### 9.4 Neblina por distância
+
+Sem API por enquanto (constantes `kFogStart`, `kFogEnd` em `rz_internal.h`).
+
+- **Faixa:** limpa até 40 tiles; de 40 a 80, `smoothstep`; além de 80, só a cor de fundo (`rzSetBackgroundColor`). (Primeiro foi 80–130; 40–80 ficou melhor nos testes do usuário.)
+- **Distância:** 3D, do pixel até o olho, calculada por pixel nos dois shaders (terreno e objetos).
+- **Só seguindo um alvo.** Na visão geral não há neblina (a câmera fica longe demais).
+- **Cortes:** pixel só de neblina sai direto, sem textura nem sombra (as derivadas da textura são calculadas antes desse desvio; a leitura usa `textureGrad`). Objetos com a esfera envolvente toda além de 80 + 10 tiles não são enviados nem desenhados, na tela e nas sombras.
 
 ## 10. Frame (`rzRender`)
 
@@ -218,18 +227,18 @@ Sem API por enquanto: tudo fixo em constantes (`rz_internal.h`); o código fica 
 | Mapa | Projeta | Caixa | Tamanho | Refeito |
 |---|---|---|---|---|
 | 0 terreno | só o terreno | terreno inteiro | 4096 (~0,09 tile/texel) | só quando o terreno muda (`buildTerrainMesh` marca `terrainShadowDirty`) |
-| 1 próximos | objetos, **menos o alvo da câmera** | 60 × 60 tiles em volta do foco | 2048 (~0,03 tile/texel) | todo frame |
+| 1 próximos | objetos, **menos o alvo da câmera** | 96 × 96 tiles, centrada 32 tiles à frente do olho (até o fim da neblina) | 2048 (~0,047 tile/texel) | todo frame |
 | 2 alvo | só o objeto seguido | esfera do objeto + 0,25 tile, lado em passos de 0,25 tile | 256 (~0,008 tile/texel num carro) | todo frame (desligado na visão geral) |
 
 Tamanhos limitados a `GL_MAX_TEXTURE_SIZE` (o GL 3.3 só garante 1024). As resoluções são próximas de propósito: o mapa 2 bem mais nítido que os outros destoava. Memória: ~64 + 16 + 0,25 MB.
 
 - **Combinação:** iluminado = mínimo dos três; fora da caixa de um mapa, ele não sombreia. O alvo fica fora do mapa 1 para a sombra grossa dele não vazar em volta da fina do mapa 2.
 - **Quem recebe:** terreno e objetos, dos três mapas (o carro entra na sombra do morro pelo mapa 0).
-- **Fora de alcance:** objetos além da caixa do mapa 1 não projetam sombra. Na visão geral, o mapa 1 cobre o terreno inteiro.
+- **Fora de alcance:** objetos fora da caixa do mapa 1 ou além da neblina não projetam sombra. Na visão geral, o mapa 1 cobre o terreno inteiro.
 - **Ressalva:** o mapa 1 não inclui o terreno; o relevo perto do carro faz sombra só pela resolução do mapa 0. Se ficar serrilhado demais, dá para desenhar no mapa 1 o pedaço de terreno da caixa (comentário em `rz_shadow.cpp`).
 - **Profundidade:** os três cobrem a esfera do terreno com folga (receptores dentro da faixa), 24 bits, `sampler2DShadow` com PCF 2×2 (`GL_LINEAR`), `glPolygonOffset(2, 4)`, sem culling. As caixas andam em passos inteiros de texels, para a sombra não tremer.
 - **Efeito:** na sombra, a luz flat cai para o ambiente (0,3) nas cores flat do terreno e nos objetos; no chão texturizado, a cor é multiplicada por 0,6 (`kShadowTexturedDim`).
-- **Custo (llvmpipe, `rz_test` 800×450, 120 frames):** ~37 ms/frame; redesenhando o terreno no mapa de sombra todo frame (como na primeira versão), ~61 ms. Na tela, 2 ou 3 leituras de sombra por pixel.
+- **Custo (llvmpipe, `rz_test` 800×450, 120 frames):** ~40 ms/frame com a neblina (~37 sem ela, com a caixa do mapa 1 menor); redesenhando o terreno no mapa de sombra todo frame, ~61 ms.
 
 ## 11. Testes
 
@@ -261,7 +270,7 @@ Tamanhos limitados a `GL_MAX_TEXTURE_SIZE` (o GL 3.3 só garante 1024). As resol
 
 - **`rzUpdateHeightmap(ctx, data, x, y, w, h)`:** atualizaria só a região alterada da malha (`glBufferSubData` dos quads com col em [x−1, x+w−1] e row em [y−1, y+h−1], limitados a [0, 254]).
 - **Sombras:** APIs de configuração (tamanho do mapa, caixa, força) e otimizações (só redesenhar quando a luz/caixa muda, terreno simplificado no passe da sombra, cascatas). Iluminação por pixel.
-- **Distance fog:** quando entrar, rever as regras do mapa de sombra 1 (objetos próximos): tamanho e posição da caixa em função da distância da neblina.
+- **Terreno em blocos:** reorganizar a malha em blocos (ex.: 16×16 quads) e desenhar só os que estão dentro da neblina e do campo de visão; o maior ganho possível no llvmpipe.
 - **Overlay/HUD:** para o legado desenhar por cima da janela GL.
 - **Desempenho em CPU fraca:** no Allwinner D1, via llvmpipe, os 130 mil triângulos pequenos dominam. O próximo passo seria descarte de blocos do terreno fora do frustum e LOD por blocos.
 - **Escolha da diagonal do quad pela altura dos cantos**, de forma determinística.

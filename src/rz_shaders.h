@@ -17,6 +17,7 @@ flat out int   vLayer;
 flat out float vLight;                    // luz flat do triângulo, 0..1
 out vec2 vUV;
 out vec3 vShadow0, vShadow1, vShadow2;
+out vec3 vWorld;                          // para a neblina
 
 void main() {
     vColor = aColor.bgr;
@@ -27,6 +28,7 @@ void main() {
     vShadow0 = (uShadowMatrix[0] * world).xyz * 0.5 + 0.5;
     vShadow1 = (uShadowMatrix[1] * world).xyz * 0.5 + 0.5;
     vShadow2 = (uShadowMatrix[2] * world).xyz * 0.5 + 0.5;
+    vWorld = aPosition;
     gl_Position = uViewProj * world;
 }
 )GLSL";
@@ -45,6 +47,14 @@ flat in int   vLayer;
 flat in float vLight;
 in vec2 vUV;
 in vec3 vShadow0, vShadow1, vShadow2;
+in vec3 vWorld;
+
+// Neblina: smoothstep da distância ao olho entre uFogStart e uFogEnd, na cor
+// uFogColor (a de fundo). Desligada na visão geral.
+uniform int   uFogOn;
+uniform float uFogStart, uFogEnd;
+uniform vec3  uFogColor;
+uniform vec3  uEye;
 
 uniform sampler2DArray  uAtlas;
 uniform sampler2DShadow uShadow0, uShadow1, uShadow2;
@@ -72,22 +82,36 @@ float shadowTerm() {
     return lit;
 }
 
+// Fator de neblina (0 limpo, 1 só neblina)
+float fogFactor() {
+    if (uFogOn == 0) return 0.0;
+    return smoothstep(uFogStart, uFogEnd, length(vWorld - uEye));
+}
+
 const float kBayer[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0,
                                    3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
 
 void main() {
+    // Derivadas antes de qualquer desvio: a neblina sai cedo em parte dos pixels
+    vec2 dUVx = dFdx(vUV), dUVy = dFdy(vUV);
+    float fog = fogFactor();
+    if (fog >= 1.0) {                        // só neblina: nem textura nem sombra
+        fragColor = vec4(uFogColor, 0.0);
+        return;
+    }
     float lit   = shadowTerm();
     float light = mix(min(uAmbient, vLight), vLight, lit);
+    vec3 color;
     if (uTextured == 0) {
-        fragColor = vec4(vColor * (light / max(vLight, 0.001)), 0.0);
+        color = vColor * (light / max(vLight, 0.001));
+        fragColor = vec4(mix(color, uFogColor, fog), 0.0);
         return;
     }
     vec3 uvw = vec3(vUV, float(vLayer));
     vec3 texel;
     if (uFilter == 2) {
-        vec2 t  = vUV * 16.0;
-        vec2 dx = dFdx(t);
-        vec2 dy = dFdy(t);
+        vec2 dx = dUVx * 16.0;
+        vec2 dy = dUVy * 16.0;
         float rho2 = max(dot(dx, dx), dot(dy, dy));
         float lod = clamp(0.5 * log2(max(rho2, 1e-12)), 0.0, 4.0);
         ivec2 p = ivec2(gl_FragCoord.xy) & 3;
@@ -95,9 +119,10 @@ void main() {
         float level = min(floor(lod + threshold), 4.0);
         texel = textureLod(uAtlas, uvw, level).rgb;
     } else {
-        texel = texture(uAtlas, uvw).rgb;
+        texel = textureGrad(uAtlas, uvw, dUVx, dUVy).rgb;
     }
-    fragColor = vec4(texel * mix(1.0, vLight, uShading) * mix(uShadowDim, 1.0, lit), 0.0);
+    color = texel * mix(1.0, vLight, uShading) * mix(uShadowDim, 1.0, lit);
+    fragColor = vec4(mix(color, uFogColor, fog), 0.0);
 }
 )GLSL";
 
@@ -113,6 +138,7 @@ uniform mat4 uShadowMatrix[3];            // luz: terreno, objetos próximos, al
 flat out float vLight;
 out vec2 vUV;
 out vec3 vShadow0, vShadow1, vShadow2;
+out vec3 vWorld;                          // para a neblina
 void main() {
     vLight = aColor.b;                     // cinza: os três canais são iguais
     vUV = aUV;
@@ -120,6 +146,7 @@ void main() {
     vShadow0 = (uShadowMatrix[0] * world).xyz * 0.5 + 0.5;
     vShadow1 = (uShadowMatrix[1] * world).xyz * 0.5 + 0.5;
     vShadow2 = (uShadowMatrix[2] * world).xyz * 0.5 + 0.5;
+    vWorld = aPosition;
     gl_Position = uViewProj * world;
 }
 )GLSL";
@@ -130,6 +157,14 @@ constexpr const char* kObjectFragmentShader = R"GLSL(#version 330 core
 flat in float vLight;
 in vec2 vUV;
 in vec3 vShadow0, vShadow1, vShadow2;
+in vec3 vWorld;
+
+// Neblina: smoothstep da distância ao olho entre uFogStart e uFogEnd, na cor
+// uFogColor (a de fundo). Desligada na visão geral.
+uniform int   uFogOn;
+uniform float uFogStart, uFogEnd;
+uniform vec3  uFogColor;
+uniform vec3  uEye;
 
 uniform sampler2D       uTexture;
 uniform sampler2DShadow uShadow0, uShadow1, uShadow2;
@@ -156,15 +191,27 @@ float shadowTerm() {
     return lit;
 }
 
+// Fator de neblina (0 limpo, 1 só neblina)
+float fogFactor() {
+    if (uFogOn == 0) return 0.0;
+    return smoothstep(uFogStart, uFogEnd, length(vWorld - uEye));
+}
+
 const float kBayer[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0,
                                    3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
 
 void main() {
+    // Derivadas antes de qualquer desvio: a neblina sai cedo em parte dos pixels
+    vec2 dUVx = dFdx(vUV), dUVy = dFdy(vUV);
+    float fog = fogFactor();
+    if (fog >= 1.0) {
+        fragColor = vec4(uFogColor, 0.0);
+        return;
+    }
     vec3 texel;
     if (uFilter == 2) {
-        vec2 t  = vUV * uTexSize;
-        vec2 dx = dFdx(t);
-        vec2 dy = dFdy(t);
+        vec2 dx = dUVx * uTexSize;
+        vec2 dy = dUVy * uTexSize;
         float rho2 = max(dot(dx, dx), dot(dy, dy));
         float lod = clamp(0.5 * log2(max(rho2, 1e-12)), 0.0, uMaxLevel);
         ivec2 p = ivec2(gl_FragCoord.xy) & 3;
@@ -172,10 +219,11 @@ void main() {
         float level = min(floor(lod + threshold), uMaxLevel);
         texel = textureLod(uTexture, vUV, level).rgb;
     } else {
-        texel = texture(uTexture, vUV).rgb;
+        texel = textureGrad(uTexture, vUV, dUVx, dUVy).rgb;
     }
     float lit = shadowTerm();
-    fragColor = vec4(texel * mix(min(uAmbient, vLight), vLight, lit), 0.0);
+    vec3 color = texel * mix(min(uAmbient, vLight), vLight, lit);
+    fragColor = vec4(mix(color, uFogColor, fog), 0.0);
 }
 )GLSL";
 

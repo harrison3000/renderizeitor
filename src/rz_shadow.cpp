@@ -5,9 +5,11 @@
 //               quando o terreno muda (terrainShadowDirty, marcado por
 //               buildTerrainMesh). Sombra do relevo em qualquer distância e
 //               sobre os objetos (carro entrando na sombra do morro).
-//   1 próximos  objetos numa caixa em volta do foco da câmera, MENOS o alvo da
-//               câmera (senão a sombra grossa dele vaza em volta da fina do
-//               mapa 2); refeito todo frame (só objetos: barato).
+//   1 próximos  objetos numa caixa à frente do olho (kShadowNearAhead), que
+//               cobre a parte visível antes da neblina, MENOS o alvo da câmera
+//               (senão a sombra grossa dele vaza em volta da fina do mapa 2);
+//               refeito todo frame (só objetos: barato). Objetos além da
+//               neblina não entram (objectInRange).
 //   2 alvo      só o objeto que a câmera segue, numa caixa ajustada à esfera
 //               envolvente dele; a mais alta resolução; refeito todo frame.
 //
@@ -86,23 +88,6 @@ ShadowBox snappedBox(const Mat4& view, Vec3 p, float half, int32_t size) {
     return { cx, cy, half };
 }
 
-// Esfera envolvente do objeto (centro da caixa dos vértices, raio máximo)
-void objectSphere(const Object& o, Vec3* center, float* radius) {
-    Vec3 lo = o.world[0], hi = o.world[0];
-    for (const Vec3& v : o.world) {
-        lo = { fminf(lo.x, v.x), fminf(lo.y, v.y), fminf(lo.z, v.z) };
-        hi = { fmaxf(hi.x, v.x), fmaxf(hi.y, v.y), fmaxf(hi.z, v.z) };
-    }
-    const Vec3 c = { (lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f };
-    float r2 = 0.0f;
-    for (const Vec3& v : o.world) {
-        const Vec3 d = v - c;
-        r2 = fmaxf(r2, dot(d, d));
-    }
-    *center = c;
-    *radius = sqrtf(r2);
-}
-
 void beginPass(const RzContext* ctx, int32_t map, const Mat4& matrix) {
     glBindFramebuffer(GL_FRAMEBUFFER, ctx->shadowFbo[map]);
     glViewport(0, 0, ctx->shadowSize[map], ctx->shadowSize[map]);
@@ -178,9 +163,8 @@ void renderShadowMaps(RzContext* ctx) {
 
     ctx->shadowTargetOn = following;
     if (following) {
-        Vec3 center;
-        float r;
-        objectSphere(ctx->objects[target], &center, &r);
+        const Vec3  center = ctx->objects[target].center;
+        const float r      = ctx->objects[target].radius;
         // lado arredondado para cima em passos fixos: estável com o objeto girando
         const float step = kShadowTargetStep * ctx->cellSize;
         const float half = ceilf((r + kShadowTargetMargin * ctx->cellSize) / step) * step;

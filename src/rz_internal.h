@@ -61,6 +61,15 @@ constexpr float kFollowLookY        = 0.1f;
 
 constexpr int32_t kMaxWindowSize = 8192;
 
+// Neblina por distância (só seguindo um alvo; a visão geral fica sem): limpa
+// até kFogStart, some na cor de fundo em kFogEnd (tiles, distância 3D ao olho,
+// curva smoothstep). Além de kFogEnd nada é desenhado.
+constexpr float kFogStart = 40.0f;
+constexpr float kFogEnd   = 80.0f;
+constexpr float kFogCullMargin = 10.0f;   // tiles: objetos além de kFogEnd + raio + margem
+                                          // não entram nem na tela nem nas sombras
+                                          // (a margem cobre sombras longas para dentro)
+
 // Sombras: três shadow maps da luz direcional (detalhes em rz_shadow.cpp):
 // 0 terreno inteiro (só o terreno), 1 objetos próximos, 2 objeto seguido.
 constexpr int32_t kShadowMaps           = 3;
@@ -68,7 +77,9 @@ constexpr int32_t kShadowMaps           = 3;
 // Resoluções parecidas entre os mapas, para a sombra do alvo não destoar das outras.
 constexpr int32_t kShadowTerrainSize    = 4096;   // ~0,09 tile/texel
 constexpr int32_t kShadowNearSize       = 2048;
-constexpr float   kShadowNearHalfExtent = 30.0f;  // tiles: 60 x 60 em volta do foco, ~0,03 tile/texel
+constexpr float   kShadowNearHalfExtent = 48.0f;  // tiles: 96 x 96, ~0,047 tile/texel
+constexpr float   kShadowNearAhead      = 32.0f;  // centro da caixa: 32 tiles à frente do olho
+                                                  // (cobre de ~16 atrás a ~80 à frente: até o fim da neblina)
 constexpr int32_t kShadowTargetSize     = 256;
 constexpr float   kShadowTargetMargin   = 0.25f;  // tiles além da esfera do objeto seguido
 constexpr float   kShadowTargetStep     = 0.25f;  // passo da meia-largura da caixa do alvo
@@ -155,6 +166,8 @@ struct Object {
     bool      positioned = false;   // já recebeu rzUpdateObjectVertices
     bool      gpuDirty   = false;   // staging/VBO desatualizado: reenviar no próximo frame
     int32_t   uploadedSide = 0;     // lado da textura usado no último envio (UV das cores)
+    Vec3      center = { 0.0f, 0.0f, 0.0f };   // esfera envolvente (refeita em cada update)
+    float     radius = 0.0f;
 
     std::vector<Vec3>     world;          // posições no mundo, atualizadas pelo host
     std::vector<int32_t>  polygonStart;   // em `indices`
@@ -176,6 +189,10 @@ struct Object {
 };
 
 // Locais de uniforms dos programas
+struct FogUniforms {
+    GLint on = -1, start = -1, end = -1, color = -1, eye = -1;
+};
+
 struct ShadowUniforms {
     GLint matrices = -1, targetOn = -1;
     GLint maps[kShadowMaps] = { -1, -1, -1 };
@@ -185,12 +202,14 @@ struct TerrainProgram {
     GLuint program = 0;
     GLint  viewProj = -1, atlas = -1, textured = -1, filter = -1, shading = -1, ambient = -1;
     ShadowUniforms shadow;
+    FogUniforms    fog;
 };
 
 struct ObjectProgram {
     GLuint program = 0;
     GLint  viewProj = -1, texture = -1, filter = -1, texSize = -1, maxLevel = -1, ambient = -1;
     ShadowUniforms shadow;
+    FogUniforms    fog;
 };
 
 struct DepthProgram {
@@ -238,6 +257,10 @@ struct RzContext {
     bool       terrainShadowDirty = true;            // mapa 0 precisa ser refeito
     bool       shadowTargetOn = false;               // mapa 2 em uso (câmera seguindo)
     rz::Vec3   shadowFocus = { 0.0f, 0.0f, 0.0f };   // centro da caixa do mapa 1 (do frame)
+
+    // Do frame (updateCamera): olho e neblina
+    rz::Vec3   eyePos = { 0.0f, 0.0f, 0.0f };
+    bool       fogOn = false;                        // seguindo um alvo
     bool       shadowWholeTerrain = true;           // visão geral: mapa 1 = terreno inteiro
 
     // Projeção
@@ -317,6 +340,10 @@ void renderShadowMaps(RzContext* ctx);
 void initShadowUniforms(GLuint program, ShadowUniforms& u);
 void bindShadowMaps(const RzContext* ctx, const ShadowUniforms& u);
 
+// rz_render.cpp: neblina (programa já em uso)
+void initFogUniforms(GLuint program, FogUniforms& u);
+void bindFog(const RzContext* ctx, const FogUniforms& u);
+
 // rz_render.cpp
 bool createRenderer(RzContext* ctx);
 void destroyRenderer(RzContext* ctx);
@@ -332,6 +359,7 @@ int32_t mipLevels(int32_t side);   // log2(side) + 1
 void   swatchUV(int32_t paletteIndex, int32_t side, float* u, float* v);   // centro do bloco
 
 // rz_object.cpp
+bool objectInRange(const RzContext* ctx, const Object& o);   // não está todo além da neblina
 void prepareObjects(RzContext* ctx);          // reenvia os VBOs alterados
 // passe da sombra (programa já ligado): onlyId >= 0 desenha só ele; skipId >= 0 pula ele
 void drawObjectsDepth(RzContext* ctx, int32_t onlyId, int32_t skipId);
