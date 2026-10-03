@@ -80,6 +80,13 @@ bool createRenderer(RzContext* ctx) {
     o.program = linkProgram(kObjectVertexShader, kObjectFragmentShader);
     if (!o.program) return false;
     o.viewProj = glGetUniformLocation(o.program, "uViewProj");
+    o.texture  = glGetUniformLocation(o.program, "uTexture");
+    o.filter   = glGetUniformLocation(o.program, "uFilter");
+    o.texSize  = glGetUniformLocation(o.program, "uTexSize");
+    o.maxLevel = glGetUniformLocation(o.program, "uMaxLevel");
+    glUseProgram(o.program);
+    glUniform1i(o.texture, 0);
+    if (!createFallbackTexture(ctx)) return false;
 
     // Malha do terreno: buffer de tamanho fixo, preenchido em buildTerrainMesh
     glGenVertexArrays(1, &ctx->terrainVao);
@@ -129,10 +136,16 @@ void destroyRenderer(RzContext* ctx) {
     if (ctx->colorRb) glDeleteRenderbuffers(1, &ctx->colorRb);
     if (ctx->depthRb) glDeleteRenderbuffers(1, &ctx->depthRb);
     if (ctx->atlasTex) glDeleteTextures(1, &ctx->atlasTex);
+    if (ctx->fallbackTex) glDeleteTextures(1, &ctx->fallbackTex);
 }
 
-// Estado do sampler do atlas para o filtro atual. Ampliação sempre nearest.
+// Estado do sampler do atlas e das texturas dos objetos para o filtro atual.
+// Ampliação sempre nearest.
 void applyTextureFilter(RzContext* ctx) {
+    if (ctx->fallbackTex) applyFilter2D(ctx->fallbackTex, ctx->fallbackSize, ctx->textureFilter);
+    for (const Object& o : ctx->objects) {
+        if (o.alive && o.texture) applyFilter2D(o.texture, o.textureSize, ctx->textureFilter);
+    }
     if (!ctx->atlasTex) return;
     GLenum minFilter = GL_NEAREST_MIPMAP_NEAREST;     // mipmap; também o do dither (textureLod)
     switch (ctx->textureFilter) {

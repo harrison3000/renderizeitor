@@ -54,7 +54,7 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 | Contexto | `rzCreate(w, h, pixels)` offscreen; `rzCreateWindow(hwndPai, x, y, w, h)` janela filha; `rzSetViewport` (só no modo janela); `rzDestroy` |
 | Terreno | `rzSetHeightmap` (256×256); `rzSetTerrainScale(cellSize, heightScale)` |
 | Texturas | `rzLoadTileAtlas(caminhoPcx)`; `rzSetTileMap` (256×256, NULL desliga as texturas); `rzSetTextureFilter` |
-| Objetos | `rzSetObjectAxes`, `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count)`, `rzUpdateObjectVertices`, `rzDestroyObject`, `rzSetObjectColor`, `rzSetObjectVisible`, `rzSetObjectCulling` |
+| Objetos | `rzSetObjectAxes`, `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count)`, `rzAddObjectTexturedPolygon(id, indices, uvs, count)`, `rzLoadObjectTexture(id, caminhoPcx)`, `rzLoadFallbackTexture(caminhoPcx)`, `rzUpdateObjectVertices`, `rzDestroyObject`, `rzSetObjectColor`, `rzSetObjectVisible`, `rzSetObjectCulling` |
 | Câmera | `rzSetCameraTarget(id, vertex)`, `rzSetCameraFollow(distance, height, stiffness)` |
 | Frame | `rzRender` |
 
@@ -154,8 +154,14 @@ Limites:
 - **Vértices:** `uint32` em ponto fixo 8.24 sem sinal, em coordenadas absolutas do mundo (1.0 = 1 tile), três por vértice.
 - **Montagem:** `rzCreateObject` recebe só a quantidade de vértices; cada polígono entra com uma chamada a `rzAddObjectPolygon`, que copia os índices (a lista é do chamador). As posições chegam por `rzUpdateObjectVertices`, antes ou depois dos polígonos; o objeto só é desenhado (e só serve de alvo da câmera) depois da primeira.
 - **Polígonos:** convexos, índices `uint16`. Se o último índice repetir o primeiro (fechamento do legado), ele é descartado. Com menos de 3 vértices, o polígono é ignorado; com índice fora do objeto, dá `RZ_ERR_INVALID_ARG` e nada é acrescentado. Até 65535 polígonos por objeto. Triangulados em leque.
-- **Cor:** provisória por objeto, com sombreamento flat por polígono pela normal de Newell. A luz é de dois lados enquanto o winding do legado for desconhecido.
-- **Na GPU:** um VBO por objeto, realocado a cada `rzAddObjectPolygon`. Update, cor e polígono novo só marcam o objeto como alterado; o VBO é reenviado (sem alocar) no `rzRender` seguinte. Um `glDrawArrays` por objeto visível.
+- **Cor:** por objeto (`rzSetObjectColor`), com sombreamento flat por polígono pela normal de Newell. A luz é de dois lados enquanto o winding do legado for desconhecido. Vale só para os polígonos sem textura.
+- **Textura (uma por objeto):** `rzLoadObjectTexture` lê um PCX de 8 bits (`src/rz_texture.cpp`).
+  - Quadrada, W×W: W é a maior potência de 2 que cabe na largura (mínimo 256; máximo 4096 ou o limite do driver). O que sobra à direita é descartado; na vertical, corta em W linhas ou completa embaixo repetindo a última linha.
+  - UVs (`rzAddObjectTexturedPolygon`): um par de `float` por índice, de 0 a 1, os dois na escala da largura (v = 1 é a linha W). (0, 0) é o canto superior esquerdo; fora de [0, 1], repete a borda. Com fechamento, o último par é descartado junto.
+  - Sem textura carregada, ou se a carga falhar, usa a **textura fallback**: xadrez magenta 256×256 gerado na criação do contexto, ou um PCX de `rzLoadFallbackTexture` (mesmas regras de tamanho; vale para todos os objetos, inclusive os já criados; se falhar, a atual continua; `NULL` volta ao xadrez).
+  - Polígono texturizado: textura × luz flat do polígono (sem a atenuação do chão). Polígonos com e sem textura podem se misturar no mesmo objeto.
+  - Mipmaps na CPU (média 2×2) e os mesmos filtros do chão (`rzSetTextureFilter`), inclusive o dither, que usa o tamanho da textura no shader.
+- **Na GPU:** um VBO por objeto (posição, cor e UV; 24 bytes por vértice), realocado a cada polígono acrescentado. Update, cor e polígono novo só marcam o objeto como alterado; o VBO é reenviado (sem alocar) no `rzRender` seguinte. Um `glDrawArrays` por objeto visível.
 - **Culling:** por objeto, com `RZ_CULL_NONE` (padrão), `RZ_CULL_CW` ou `RZ_CULL_CCW`.
 - **Ids:** são índices num `std::vector`; os slots livres são reaproveitados.
 
@@ -203,6 +209,7 @@ Sem heightmap, só limpa e apresenta.
 - **`test/rz_test.cpp`:**
   - linka o núcleo estático (`RZ_STATIC`) e renderiza offscreen;
   - grava `.ppm`; `-c 0` testa a visão geral;
+  - `-x 0` desliga as texturas dos objetos (com ela ligada, grava `rz_wall.pcx` e `rz_car.pcx` na pasta de saída; o cubo pede um arquivo inexistente e mostra o fallback);
   - `-a atlas.pcx` usa um atlas próprio; sem ele, grava o procedural em `atlas.pcx` na pasta de saída e carrega de lá;
   - registra hashes FNV-1a por frame. Eles só são comparáveis na mesma máquina e driver, então não há regressão bit a bit entre GPUs.
 - **`test/rz_testdata.h`:** dados procedurais.

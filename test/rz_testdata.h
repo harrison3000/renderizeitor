@@ -6,6 +6,10 @@
  *   rztdWritePcx          : grava uma imagem paletizada como PCX de 8 bits (RLE),
  *                           para alimentar rzLoadTileAtlas
  *   rztdGenerateTileMap   : bloco de cada quad, escolhido pela altura
+ *   rztdGenerateWallTexture / rztdGenerateCarTexture : texturas de objetos
+ *                           (paletizadas, para gravar como PCX)
+ *   rztdCreateObject      : cria um objeto no renderer como o legado faria
+ *                           (com UVs planares por face, se texturizado)
  */
 #ifndef RZ_TESTDATA_H
 #define RZ_TESTDATA_H
@@ -507,19 +511,145 @@ static void rztdVehiclePath(float t, float* x, float* z, float* heading) {
     *heading = atan2f(dz, dx);
 }
 
+
+/* ------------------------------------------------------------------------- */
+/* Texturas dos objetos                                                      */
+/* ------------------------------------------------------------------------- */
+
+/* Parede 300x256: tijolos com janelas. As 44 colunas à direita (256..299) são
+   verde puro: a DLL deve descartá-las (a textura fica 256x256). */
+#define RZTD_WALL_W 300
+#define RZTD_WALL_H 256
+/* Carro 256x128: a textura fica 256x256, com padding embaixo; os UVs usam
+   v de 0 a 128/256 = 0,5. */
+#define RZTD_CAR_W 256
+#define RZTD_CAR_H 128
+
+static void rztdSetColor(uint8_t* pal, int i, int r, int g, int b) {
+    pal[i * 3 + 0] = (uint8_t)r; pal[i * 3 + 1] = (uint8_t)g; pal[i * 3 + 2] = (uint8_t)b;
+}
+
+static void rztdGenerateWallTexture(uint8_t* idx, uint8_t* pal) {
+    int x, y, i;
+    memset(pal, 0, 768);
+    for (i = 0; i < 16; ++i) rztdSetColor(pal, i, 150 + i * 5, 70 + i * 3, 50 + i * 2);  /* tijolos */
+    rztdSetColor(pal, 16, 200, 195, 185);   /* argamassa */
+    rztdSetColor(pal, 17, 40, 60, 90);      /* vidro */
+    rztdSetColor(pal, 18, 90, 130, 170);    /* reflexo */
+    rztdSetColor(pal, 19, 235, 230, 220);   /* moldura */
+    rztdSetColor(pal, 20, 0, 255, 0);       /* marcador: não deve aparecer */
+    for (y = 0; y < RZTD_WALL_H; ++y) {
+        for (x = 0; x < RZTD_WALL_W; ++x) {
+            int c;
+            int row = y / 16, bx = (x + (row & 1) * 16) / 32;
+            int wx = x % 128, wy = y % 128;
+            if (x >= 256) c = 20;
+            else if (wx >= 36 && wx < 92 && wy >= 28 && wy < 100) {
+                if (wx < 40 || wx >= 88 || wy < 32 || wy >= 96 || (wx >= 62 && wx < 66)) c = 19;
+                else c = (wx - wy > 0 && wx - wy < 14) ? 18 : 17;
+            } else if (y % 16 == 15 || (x + (row & 1) * 16) % 32 == 31) c = 16;
+            else c = (int)(rztdHash(bx, row, 99u) & 15u);
+            idx[y * RZTD_WALL_W + x] = (uint8_t)c;
+        }
+    }
+}
+
+static void rztdGenerateCarTexture(uint8_t* idx, uint8_t* pal) {
+    int x, y;
+    memset(pal, 0, 768);
+    for (y = 0; y < 32; ++y) rztdSetColor(pal, y, 30 + y * 3, 70 + y * 4, 170 + y * 2);  /* lataria */
+    rztdSetColor(pal, 32, 245, 245, 245);  /* faixa */
+    rztdSetColor(pal, 33, 25, 30, 40);     /* vidro */
+    rztdSetColor(pal, 34, 15, 15, 15);     /* pneu */
+    rztdSetColor(pal, 35, 250, 210, 60);   /* farol */
+    for (y = 0; y < RZTD_CAR_H; ++y) {
+        for (x = 0; x < RZTD_CAR_W; ++x) {
+            int c = 31 - y / 4;
+            int dx1 = x - 48, dx2 = x - 208, dy = y - 112;
+            if (y >= 12 && y < 44 && x >= 24 && x < 232 && (x - 24) % 52 >= 4) c = 33;
+            else if (y >= 60 && y < 72) c = 32;
+            else if (dx1 * dx1 + dy * dy < 22 * 22 || dx2 * dx2 + dy * dy < 22 * 22) c = 34;
+            else if (y >= 76 && y < 88 && (x < 16 || x >= 240)) c = 35;
+            idx[y * RZTD_CAR_W + x] = (uint8_t)c;
+        }
+    }
+}
+
+/* UVs planares de uma face: paredes com v para baixo (eixo da altura) e u na
+   horizontal; faces quase horizontais projetadas em x/z. Cada face cobre a
+   textura inteira: u de 0 a 1 e v de 0 a vMax. */
+static void rztdFaceUVs(const RztdMesh* m, const uint16_t* ids, int n, float vMax, float* uv) {
+    float nx = 0.0f, ny = 0.0f, nz = 0.0f, len;
+    float ua[3], va[3], smin = 1e30f, smax = -1e30f, tmin = 1e30f, tmax = -1e30f;
+    int i;
+    for (i = 0; i < n; ++i) {
+        const float* a = m->pos[ids[i]];
+        const float* b = m->pos[ids[(i + 1) % n]];
+        nx += (a[1] - b[1]) * (a[2] + b[2]);
+        ny += (a[2] - b[2]) * (a[0] + b[0]);
+        nz += (a[0] - b[0]) * (a[1] + b[1]);
+    }
+    len = sqrtf(nx * nx + ny * ny + nz * nz);
+    if (len > 0.0f) { nx /= len; ny /= len; nz /= len; }
+    if (fabsf(ny) < 0.9f) {
+        float h = sqrtf(nx * nx + nz * nz);
+        ua[0] = nz / h; ua[1] = 0.0f; ua[2] = -nx / h;
+        va[0] = 0.0f;   va[1] = -1.0f; va[2] = 0.0f;
+    } else {
+        ua[0] = 1.0f; ua[1] = 0.0f; ua[2] = 0.0f;
+        va[0] = 0.0f; va[1] = 0.0f; va[2] = 1.0f;
+    }
+    for (i = 0; i < n; ++i) {
+        const float* p = m->pos[ids[i]];
+        float s = p[0] * ua[0] + p[1] * ua[1] + p[2] * ua[2];
+        float t = p[0] * va[0] + p[1] * va[1] + p[2] * va[2];
+        uv[i * 2] = s; uv[i * 2 + 1] = t;
+        if (s < smin) smin = s;
+        if (s > smax) smax = s;
+        if (t < tmin) tmin = t;
+        if (t > tmax) tmax = t;
+    }
+    for (i = 0; i < n; ++i) {
+        uv[i * 2]     = smax > smin ? (uv[i * 2] - smin) / (smax - smin) : 0.0f;
+        uv[i * 2 + 1] = tmax > tmin ? (uv[i * 2 + 1] - tmin) / (tmax - tmin) * vMax : 0.0f;
+    }
+}
+
+/* Grava as duas texturas como PCX: prefix + "rz_wall.pcx" / "rz_car.pcx"
+   (prefix com a barra no fim, ou ""). Devolve 1 se gravou as duas. */
+static int rztdWriteObjectTextures(const char* prefix, char* wallPath, char* carPath, size_t cap) {
+    static uint8_t wall[RZTD_WALL_W * RZTD_WALL_H], car[RZTD_CAR_W * RZTD_CAR_H];
+    static uint8_t wallPal[768], carPal[768];
+    rztdGenerateWallTexture(wall, wallPal);
+    rztdGenerateCarTexture(car, carPal);
+    snprintf(wallPath, cap, "%srz_wall.pcx", prefix);
+    snprintf(carPath, cap, "%srz_car.pcx", prefix);
+    return rztdWritePcx(wallPath, wall, RZTD_WALL_W, RZTD_WALL_H, wallPal) &&
+           rztdWritePcx(carPath, car, RZTD_CAR_W, RZTD_CAR_H, carPal);
+}
+
 /* Cria no renderer um objeto a partir de uma malha de teste, como o legado
-   faria: rzCreateObject (só a quantidade), um rzAddObjectPolygon por polígono
-   (com o índice de fechamento) e rzUpdateObjectVertices. Só existe quando
+   faria: rzCreateObject (só a quantidade), um rzAddObjectPolygon (vMax <= 0)
+   ou rzAddObjectTexturedPolygon (UVs planares, v até vMax) por polígono, com o
+   índice de fechamento, e rzUpdateObjectVertices. Só existe quando
    renderizeitor.h foi incluído antes. */
 #ifdef RENDERIZEITOR_H
-static int32_t rztdCreateObject(RzContext* ctx, const RztdMesh* m, int32_t* outId) {
+static int32_t rztdCreateObject(RzContext* ctx, const RztdMesh* m, float vMax, int32_t* outId) {
+    float uv[(RZTD_MESH_MAX_INDEX + 1) * 2];
     int32_t err = rzCreateObject(ctx, m->vertexCount, outId);
     int pos = 0;
     while (err == RZ_OK && pos < m->indexCount) {
-        int end = pos + 1;
+        int end = pos + 1, n;
         while (end < m->indexCount && m->indices[end] != m->indices[pos]) ++end;
         if (end >= m->indexCount) return RZ_ERR_INVALID_ARG;   /* malha sem fechamento */
-        err = rzAddObjectPolygon(ctx, *outId, m->indices + pos, end - pos + 1);
+        n = end - pos;
+        if (vMax > 0.0f) {
+            rztdFaceUVs(m, m->indices + pos, n, vMax, uv);
+            uv[n * 2] = uv[0]; uv[n * 2 + 1] = uv[1];            /* par do fechamento */
+            err = rzAddObjectTexturedPolygon(ctx, *outId, m->indices + pos, uv, n + 1);
+        } else {
+            err = rzAddObjectPolygon(ctx, *outId, m->indices + pos, n + 1);
+        }
         pos = end + 1;
     }
     if (err == RZ_OK) err = rzUpdateObjectVertices(ctx, *outId, m->vertices);

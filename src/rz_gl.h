@@ -46,6 +46,7 @@ constexpr GLenum GL_LESS                    = 0x0201;
 constexpr GLenum GL_UNPACK_ALIGNMENT        = 0x0CF5;
 constexpr GLenum GL_PACK_ALIGNMENT          = 0x0D05;
 constexpr GLenum GL_TEXTURE_2D              = 0x0DE1;
+constexpr GLenum GL_MAX_TEXTURE_SIZE        = 0x0D33;
 constexpr GLenum GL_TEXTURE_2D_ARRAY        = 0x8C1A;
 constexpr GLenum GL_UNSIGNED_BYTE           = 0x1401;
 constexpr GLenum GL_FLOAT                   = 0x1406;
@@ -93,6 +94,7 @@ constexpr GLenum GL_FRAMEBUFFER_COMPLETE    = 0x8CD5;
 #define RZ_GL_FUNCTIONS(X)                                                                         \
     X(const GLubyte*, glGetString, (GLenum name))                                                  \
     X(GLenum, glGetError, (void))                                                                  \
+    X(void, glGetIntegerv, (GLenum pname, GLint* data))                                            \
     X(void, glViewport, (GLint x, GLint y, GLsizei w, GLsizei h))                                  \
     X(void, glClearColor, (GLfloat r, GLfloat g, GLfloat b, GLfloat a))                            \
     X(void, glClear, (GLbitfield mask))                                                            \

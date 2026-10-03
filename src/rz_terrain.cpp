@@ -36,7 +36,10 @@ uint32_t packColor(float r, float g, float b) {
     return (channel(r) << 16) | (channel(g) << 8) | channel(b);   // byte reservado = 0
 }
 
-// Nível L+1 de um bloco a partir do nível L: média 2x2 por canal, arredondada.
+} // namespace
+
+// Nível L+1 de uma imagem quadrada a partir do nível L: média 2x2 por canal,
+// arredondada. Usado no atlas e nas texturas dos objetos.
 void downsample(const uint32_t* src, uint32_t* dst, int32_t dstSide) {
     const int32_t srcSide = dstSide * 2;
     for (int32_t y = 0; y < dstSide; ++y) {
@@ -55,8 +58,6 @@ void downsample(const uint32_t* src, uint32_t* dst, int32_t dstSide) {
         }
     }
 }
-
-} // namespace
 
 // Direção (normalizada) para a luz, fixa no mundo. Provisória.
 Vec3 lightDirection() {

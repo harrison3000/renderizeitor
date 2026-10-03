@@ -1,8 +1,8 @@
-// Leitura do atlas em PCX (ZSoft): 8 bits por pixel, 1 plano, RLE e paleta
-// VGA de 256 cores no fim do arquivo. Só a fase de carga usa este código.
+// Leitura de PCX (ZSoft): 8 bits por pixel, 1 plano, RLE e paleta VGA de 256
+// cores no fim do arquivo. Só a fase de carga usa este código.
 //
-// A imagem precisa ter pelo menos 256x256; de uma maior, só o canto superior
-// esquerdo (256x256) é usado e o resto é ignorado.
+// Atlas do chão: pelo menos 256x256; só o canto superior esquerdo (256x256)
+// é usado. As texturas dos objetos usam loadPcx direto (rz_texture.cpp).
 
 #include <cstdio>
 
@@ -41,7 +41,7 @@ int32_t readFile(const char* path, std::vector<uint8_t>& out) {
 
 } // namespace
 
-int32_t loadPcxAtlas(const char* path, uint8_t* indices, uint8_t* paletteRGB) {
+int32_t loadPcx(const char* path, PcxImage& img) {
     std::vector<uint8_t> file;
     const int32_t err = readFile(path, file);
     if (err != RZ_OK) return err;
@@ -61,21 +61,23 @@ int32_t loadPcxAtlas(const char* path, uint8_t* indices, uint8_t* paletteRGB) {
     const int32_t height       = int32_t(yMax - yMin + 1);
     const int32_t bytesPerLine = int32_t(readU16(h + 66));
     if (bytesPerLine < width) return RZ_ERR_FORMAT;
-    if (width < kAtlasSize || height < kAtlasSize) return RZ_ERR_SIZE;
 
     // Paleta VGA: 0x0C seguido de 256 x (R, G, B), nos últimos 769 bytes
     const uint8_t* pal = h + size - kPcxPaletteSize;
     if (pal[0] != 0x0C) return RZ_ERR_FORMAT;
-    std::memcpy(paletteRGB, pal + 1, 768);
 
-    // Pixels: só as primeiras kAtlasSize linhas, e de cada uma só as primeiras
-    // kAtlasSize colunas. Uma sequência RLE pode atravessar o fim da linha.
+    // Pixels: width x height (o padding de cada linha é descartado). Uma
+    // sequência RLE pode atravessar o fim da linha.
+    img.width  = width;
+    img.height = height;
+    img.pixels.resize(size_t(width) * size_t(height));
+    std::memcpy(img.palette, pal + 1, 768);
     const uint8_t* src = h + kPcxHeaderSize;
     const uint8_t* end = pal;
     uint32_t runValue = 0;
     int32_t  runLeft  = 0;
-    for (int32_t y = 0; y < kAtlasSize; ++y) {
-        uint8_t* row = indices + y * kAtlasSize;
+    for (int32_t y = 0; y < height; ++y) {
+        uint8_t* row = img.pixels.data() + size_t(y) * size_t(width);
         for (int32_t x = 0; x < bytesPerLine; ++x) {
             if (runLeft == 0) {
                 if (src >= end) return RZ_ERR_FORMAT;          // dados truncados
@@ -90,10 +92,23 @@ int32_t loadPcxAtlas(const char* path, uint8_t* indices, uint8_t* paletteRGB) {
                     runValue = b;
                 }
             }
-            if (x < kAtlasSize) row[x] = uint8_t(runValue);
+            if (x < width) row[x] = uint8_t(runValue);
             --runLeft;
         }
     }
+    return RZ_OK;
+}
+
+int32_t loadPcxAtlas(const char* path, uint8_t* indices, uint8_t* paletteRGB) {
+    PcxImage img;
+    const int32_t err = loadPcx(path, img);
+    if (err != RZ_OK) return err;
+    if (img.width < kAtlasSize || img.height < kAtlasSize) return RZ_ERR_SIZE;
+    for (int32_t y = 0; y < kAtlasSize; ++y) {
+        std::memcpy(indices + y * kAtlasSize, img.pixels.data() + size_t(y) * size_t(img.width),
+                    size_t(kAtlasSize));
+    }
+    std::memcpy(paletteRGB, img.palette, 768);
     return RZ_OK;
 }
 

@@ -94,18 +94,23 @@ Mat4 operator*(const Mat4& a, const Mat4& b);
 // ---------------------------------------------------------------------------
 
 // Triângulo de objeto: índices de vértice e o polígono de origem (para a cor).
+// Cantos do triângulo como posições em Object::indices (dali saem o vértice e o UV).
 struct ObjectTriangle {
-    uint16_t a, b, c;
+    int32_t  a, b, c;
     uint16_t polygon;
 };
 
-// Vértice enviado à GPU: posição no mundo e cor flat (0x00RRGGBB; em memória
-// B, G, R, 0, lido no shader como vec4 normalizado e trocado para .bgr).
+// Vértice de objeto enviado à GPU: posição no mundo, cor flat (0xAARRGGBB; em
+// memória B, G, R, A, lido no shader como vec4 normalizado) e UV.
+// A = 0xFF marca polígono texturizado: aí RGB é só a luz (cinza) que multiplica
+// a textura; senão, RGB é a cor do objeto já iluminada.
 struct GpuVertex {
     float    x, y, z;
     uint32_t color;
+    float    u, v;
 };
-static_assert(sizeof(GpuVertex) == 16);
+static_assert(sizeof(GpuVertex) == 24);
+constexpr uint32_t kTexturedFlag = 0xFF000000u;
 
 // Vértice do terreno: um por canto de triângulo (malha não indexada, porque a
 // cor flat e o bloco são do triângulo/quad, não do ponto da grade).
@@ -129,12 +134,16 @@ struct Object {
     std::vector<int32_t>  polygonStart;   // em `indices`
     std::vector<int32_t>  polygonLength;  // sem o índice de fechamento
     std::vector<uint16_t> indices;        // cópia dos índices dos polígonos (sem os fechamentos)
+    std::vector<float>    uvs;            // (u, v) de cada entrada de `indices`; 0 se sem textura
+    std::vector<uint8_t>  polygonTextured; // 1 se o polígono veio de rzAddObjectTexturedPolygon
     std::vector<uint32_t> polygonColors;  // cor sombreada por polígono
     std::vector<ObjectTriangle> triangles; // leque de cada polígono, montado na carga
     std::vector<GpuVertex> staging;       // triangles.size() * 3, preenchido no envio
 
     GLuint    vao = 0;
     GLuint    vbo = 0;
+    GLuint    texture = 0;          // 0: usa a textura fallback do contexto
+    int32_t   textureSize = 0;      // lado da textura (potência de 2)
 
     int32_t vertexCount() const   { return int32_t(world.size()); }
     int32_t triangleCount() const { return int32_t(triangles.size()); }
@@ -148,7 +157,14 @@ struct TerrainProgram {
 
 struct ObjectProgram {
     GLuint program = 0;
-    GLint  viewProj = -1;
+    GLint  viewProj = -1, texture = -1, filter = -1, texSize = -1, maxLevel = -1;
+};
+
+// Imagem paletizada lida de um PCX (rz_pcx.cpp)
+struct PcxImage {
+    int32_t width = 0, height = 0;
+    std::vector<uint8_t> pixels;   // width * height, linha 0 em cima
+    uint8_t palette[768];          // 256 x (R, G, B)
 };
 
 } // namespace rz
@@ -187,7 +203,12 @@ struct RzContext {
     std::vector<uint8_t> tileMap;      // 256x256, cópia na CPU (bloco de cada quad)
     bool      hasAtlas   = false;
     bool      hasTileMap = false;
-    int32_t   textureFilter = RZ_FILTER_MIP_DITHER;
+    int32_t   textureFilter = RZ_FILTER_MIP_DITHER;   // chão e objetos
+
+    // Textura dos objetos sem textura própria (ou cuja carga falhou): xadrez
+    // gerado ou PCX de rzLoadFallbackTexture
+    rz::GLuint fallbackTex = 0;
+    int32_t    fallbackSize = 0;
 
     // Câmera
     float terrainRadius = 0.0f;   // R: raio da esfera envolvente do terreno
@@ -219,9 +240,13 @@ void buildPalette(uint32_t* palette);
 void updateTerrainBounds(RzContext* ctx);
 bool buildTerrainMesh(RzContext* ctx);
 void buildAtlasLevels(uint32_t* tiles, const uint8_t* indices, const uint8_t* paletteRGB);
+void downsample(const uint32_t* src, uint32_t* dst, int32_t dstSide);
 uint32_t shadeFlat(uint32_t base, Vec3 normal, bool twoSided);
 Vec3 lightDirection();
 
+// rz_pcx.cpp: lê um PCX de 8 bits inteiro. Devolve RZ_OK, RZ_ERR_FILE,
+// RZ_ERR_FORMAT ou RZ_ERR_SIZE.
+int32_t loadPcx(const char* path, PcxImage& img);
 // rz_pcx.cpp: lê o canto 256x256 de um PCX de 8 bits (indices: 256*256 bytes,
 // paletteRGB: 768 bytes). Devolve RZ_OK, RZ_ERR_FILE, RZ_ERR_FORMAT ou RZ_ERR_SIZE.
 int32_t loadPcxAtlas(const char* path, uint8_t* indices, uint8_t* paletteRGB);
@@ -235,6 +260,12 @@ void destroyRenderer(RzContext* ctx);
 bool resizeTargets(RzContext* ctx);
 void applyTextureFilter(RzContext* ctx);
 void renderFrame(RzContext* ctx);
+
+// rz_texture.cpp: texturas 2D quadradas dos objetos (mipmaps na CPU)
+GLuint uploadSquareTexture(const uint32_t* rgb, int32_t side, int32_t filter);
+void   applyFilter2D(GLuint texture, int32_t side, int32_t filter);
+bool   createFallbackTexture(RzContext* ctx);
+int32_t mipLevels(int32_t side);   // log2(side) + 1
 
 // rz_object.cpp
 void drawObjects(RzContext* ctx, const Mat4& viewProj, bool flipped);

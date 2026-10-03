@@ -208,8 +208,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
     LARGE_INTEGER freq, now, next, t0, t1, fpsStart;
     LONGLONG frameTicks;
     int32_t err, running = 1, frames = 0, renderUsSum = 0;
-    char pcxPath[MAX_PATH];
+    char pcxPath[MAX_PATH], tempDir[MAX_PATH], wallPath[MAX_PATH], carPath[MAX_PATH];
     const char* rawPath = NULL;
+    DWORD tempLen;
     int i;
     (void)prev;
     (void)cmdLine;
@@ -230,12 +231,18 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
     } else {
         rztdGenerateHeightmap(heightmap);
     }
+    tempLen = GetTempPathA(MAX_PATH, tempDir);
+    if (tempLen == 0 || tempLen + 24 >= MAX_PATH) lstrcpyA(tempDir, ".\\");
+    /* Texturas dos objetos: geradas e gravadas como PCX temporários */
+    if (!rztdWriteObjectTextures(tempDir, wallPath, carPath, MAX_PATH)) {
+        MessageBoxA(NULL, "Falha ao gravar as texturas de teste.", "rz_viewer", MB_ICONERROR);
+        return 1;
+    }
     if (!pcxPath[0]) {
         /* Sem atlas: grava o procedural num PCX temporário */
         static uint8_t atlas[RZTD_ATLAS_SIZE * RZTD_ATLAS_SIZE];
         static uint8_t palette[768];
-        DWORD n = GetTempPathA(MAX_PATH, pcxPath);
-        if (n == 0 || n + 20 >= MAX_PATH) lstrcpyA(pcxPath, ".\\");
+        lstrcpyA(pcxPath, tempDir);
         lstrcatA(pcxPath, "rz_atlas_teste.pcx");
         rztdGenerateAtlas(atlas, palette);
         if (!rztdWritePcx(pcxPath, atlas, RZTD_ATLAS_SIZE, RZTD_ATLAS_SIZE, palette)) {
@@ -280,8 +287,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         rztdVehiclePath(0.0f, &g_carX, &g_carZ, &g_carHeading);
         g_carSpeed = 0.0f;
         placeVehicle();
-        err = rztdCreateObject(g_ctx, &g_vehicle, &g_vehicleId);
+        err = rztdCreateObject(g_ctx, &g_vehicle, (float)RZTD_CAR_H / RZTD_CAR_W, &g_vehicleId);
         if (err == RZ_OK) {
+            rzLoadObjectTexture(g_ctx, g_vehicleId, carPath);
             rzSetObjectColor(g_ctx, g_vehicleId, 0x003070E0u);
             rzSetObjectCulling(g_ctx, g_vehicleId, RZ_CULL_CW);
             rzSetCameraTarget(g_ctx, g_vehicleId, RZTD_VEHICLE_TARGET);
@@ -296,8 +304,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         int i, top = 0;
         for (i = 0; i < count && err == RZ_OK; ++i) {
             int32_t id;
-            err = rztdCreateObject(g_ctx, &buildings[i], &id);
+            err = rztdCreateObject(g_ctx, &buildings[i], 1.0f, &id);
             if (err == RZ_OK) {
+                rzLoadObjectTexture(g_ctx, id, wallPath);
                 rzSetObjectColor(g_ctx, id, colors[i]);
                 rzSetObjectCulling(g_ctx, id, RZ_CULL_CW);
                 g_objectIds[g_objectCount++] = id;
@@ -306,8 +315,10 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         for (i = 0; i < 256 * 256; ++i) if (heightmap[i] > top) top = heightmap[i];
         g_cubePos[0] = 128.0f; g_cubePos[1] = (float)top * heightScale + 2.0f; g_cubePos[2] = 128.0f;
         rztdSpinningCube(&g_cube, g_cubePos[0], g_cubePos[1], g_cubePos[2], 0.6f, 0.0f);
-        if (err == RZ_OK) err = rztdCreateObject(g_ctx, &g_cube, &g_cubeId);
+        /* Cubo: textura que não existe, para mostrar o fallback */
+        if (err == RZ_OK) err = rztdCreateObject(g_ctx, &g_cube, 1.0f, &g_cubeId);
         if (err == RZ_OK) {
+            rzLoadObjectTexture(g_ctx, g_cubeId, "nao_existe.pcx");
             rzSetObjectColor(g_ctx, g_cubeId, 0x00E04030u);
             rzSetObjectCulling(g_ctx, g_cubeId, RZ_CULL_CW);
             g_objectIds[g_objectCount++] = g_cubeId;

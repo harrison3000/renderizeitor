@@ -36,7 +36,8 @@ abaixo fica como registro do que mudou. A spec atual é `renderizeitor-spec.md`.
 | `src/rz_terrain.cpp` | Malha do terreno montada na CPU na carga, paleta, mipmaps do atlas |
 | `src/rz_render.cpp`, `rz_shaders.h` | Programas, FBO e o frame |
 | `src/rz_object.cpp` | Objetos (um vertex buffer por objeto, reenviado no update) |
-| `src/rz_pcx.cpp` | Leitura do atlas em PCX de 8 bits (`rzLoadTileAtlas`) |
+| `src/rz_pcx.cpp` | Leitura de PCX de 8 bits (atlas e texturas dos objetos) |
+| `src/rz_texture.cpp` | Texturas dos objetos (`rzLoadObjectTexture`, fallback, mipmaps) |
 
 ## Desempenho (máquina de testes, 2 núcleos, 1280x720)
 

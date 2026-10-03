@@ -89,8 +89,9 @@ RZ_API int32_t RZ_CALL rzLoadTileAtlas(RzContext* ctx, const char* pcxPath);
 RZ_API int32_t RZ_CALL rzSetTileMap(RzContext* ctx, const uint8_t* data,
                                     int32_t width, int32_t height);
 
-/* Filtragem das texturas. A ampliação (perto) é sempre nearest; muda a redução
-   (longe), que evita o "shimmering" dos polígonos distantes. */
+/* Filtragem das texturas (chão e objetos). A ampliação (perto) é sempre
+   nearest; muda a redução (longe), que evita o "shimmering" dos polígonos
+   distantes. */
 #define RZ_FILTER_NEAREST     0   /* sem mipmap */
 #define RZ_FILTER_MIPMAP      1   /* nearest no nível mais próximo */
 #define RZ_FILTER_MIP_DITHER  2   /* nearest, dither ordenado entre os dois níveis vizinhos (padrão) */
@@ -109,7 +110,8 @@ RZ_API int32_t RZ_CALL rzSetTextureFilter(RzContext* ctx, int32_t filter);
 
    Montagem de um objeto (fase de carga):
      1. rzCreateObject(ctx, vertexCount, &id)       só a quantidade de vértices
-     2. rzAddObjectPolygon(ctx, id, indices, n)     uma vez por polígono
+     2. rzAddObjectPolygon(ctx, id, indices, n)     uma vez por polígono, ou
+        rzAddObjectTexturedPolygon(ctx, id, indices, uvs, n)  (com textura)
      3. rzUpdateObjectVertices(ctx, id, vertices)   posições (e a cada frame)
    Os passos 2 e 3 podem vir em qualquer ordem e se repetir; o objeto só é
    desenhado depois da primeira rzUpdateObjectVertices. */
@@ -135,6 +137,33 @@ RZ_API int32_t RZ_CALL rzCreateObject(RzContext* ctx, int32_t vertexCount, int32
 RZ_API int32_t RZ_CALL rzAddObjectPolygon(RzContext* ctx, int32_t id,
                                           const uint16_t* indices, int32_t count);
 
+/* Igual a rzAddObjectPolygon, com a textura do objeto: uvs tem count pares
+   (u, v) em float, um por índice (se houver fechamento, o último par é
+   descartado junto). u e v vão de 0 a 1, ambos na escala da LARGURA da
+   textura (ver rzLoadObjectTexture): v = 1 é a linha W, não a altura da
+   imagem. (0, 0) é o canto superior esquerdo. Fora de [0, 1], repete a borda.
+   UV não finito: RZ_ERR_INVALID_ARG. A cor do polígono é a textura vezes a
+   luz flat; rzSetObjectColor não afeta polígonos texturizados. */
+RZ_API int32_t RZ_CALL rzAddObjectTexturedPolygon(RzContext* ctx, int32_t id,
+                                                  const uint16_t* indices,
+                                                  const float* uvs, int32_t count);
+
+/* Textura do objeto (uma por objeto), lida de um PCX de 8 bits (fase de carga).
+   A textura é quadrada, W x W: W é a maior potência de 2 que cabe na largura
+   da imagem (mínimo 256, máximo 4096 ou o limite do driver); o que sobra à
+   direita é descartado. Na vertical, a imagem é cortada em W linhas ou
+   completada embaixo (repetindo a última linha).
+   Sem textura carregada, ou se esta função falhar (RZ_ERR_FILE, RZ_ERR_FORMAT,
+   RZ_ERR_SIZE para largura < 256), o objeto usa a textura fallback (xadrez
+   magenta). Chamar de novo troca a textura. */
+RZ_API int32_t RZ_CALL rzLoadObjectTexture(RzContext* ctx, int32_t id, const char* pcxPath);
+
+/* Troca a textura fallback (a dos objetos sem textura ou cuja carga falhou),
+   com as mesmas regras de rzLoadObjectTexture. Vale para todos os objetos,
+   inclusive os já criados. Em caso de erro, a fallback atual continua.
+   pcxPath == NULL volta ao xadrez magenta gerado pela DLL. */
+RZ_API int32_t RZ_CALL rzLoadFallbackTexture(RzContext* ctx, const char* pcxPath);
+
 /* Posições de todos os vértices (vertexCount * 3 uint32_t). Copia e recalcula
    a iluminação; não aloca. */
 RZ_API int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t id,
@@ -143,7 +172,7 @@ RZ_API int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t id,
 /* Libera o objeto; o id pode ser reaproveitado por rzCreateObject. */
 RZ_API int32_t RZ_CALL rzDestroyObject(RzContext* ctx, int32_t id);
 
-/* Cor provisória do objeto inteiro (0x00RRGGBB), sombreada por polígono. */
+/* Cor dos polígonos sem textura do objeto (0x00RRGGBB), sombreada por polígono. */
 RZ_API int32_t RZ_CALL rzSetObjectColor(RzContext* ctx, int32_t id, uint32_t rgb);
 
 RZ_API int32_t RZ_CALL rzSetObjectVisible(RzContext* ctx, int32_t id, int32_t visible);

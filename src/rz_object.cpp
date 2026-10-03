@@ -1,12 +1,15 @@
 // Objetos: malhas de polígonos convexos em coordenadas absolutas do mundo.
 //
 // Carga: rzCreateObject cria o objeto vazio (vértices, VAO e VBO);
-// rzAddObjectPolygon valida e copia um polígono, triangula em leque, cresce os
-// buffers da CPU e realoca o VBO.
+// rzAddObjectPolygon / rzAddObjectTexturedPolygon validam e copiam um
+// polígono (e seus UVs), triangulam em leque, crescem os buffers da CPU e
+// realocam o VBO. A textura do objeto fica em rz_texture.cpp.
 // Update (rzUpdateObjectVertices): converte as posições 8.24 para float e
 // recalcula a cor sombreada de cada polígono.
 // Frame (drawObjects): reenvia o VBO dos objetos alterados (sem alocar) e faz
 // um glDrawArrays por objeto visível.
+
+#include <cmath>
 
 #include "rz_internal.h"
 
@@ -24,6 +27,7 @@ bool validId(const RzContext* ctx, int32_t id) {
 
 // Libera os recursos de GPU e esvazia o slot (fica livre para reuso).
 void freeObject(Object& o) {
+    if (o.texture) glDeleteTextures(1, &o.texture);
     if (o.vbo) glDeleteBuffers(1, &o.vbo);
     if (o.vao) glDeleteVertexArrays(1, &o.vao);
     o = Object{};
@@ -42,7 +46,8 @@ void loadPositions(const RzContext* ctx, Object& o, const uint32_t* vertices) {
 }
 
 // Normal de Newell do polígono e cor sombreada (pelos dois lados, enquanto o
-// winding do legado não é conhecido).
+// winding do legado não é conhecido). Polígono texturizado: só a luz, em cinza,
+// com a marca kTexturedFlag; a textura é multiplicada por ela no shader.
 uint32_t polygonColor(const Object& o, size_t p) {
     const uint16_t* idx = o.indices.data() + o.polygonStart[p];
     const int32_t n = o.polygonLength[p];
@@ -54,6 +59,7 @@ uint32_t polygonColor(const Object& o, size_t p) {
         normal.y += (cur.z - next.z) * (cur.x + next.x);
         normal.z += (cur.x - next.x) * (cur.y + next.y);
     }
+    if (o.polygonTextured[p]) return shadeFlat(0x00FFFFFFu, normal, true) | kTexturedFlag;
     return shadeFlat(o.baseColor, normal, true);
 }
 
@@ -67,15 +73,57 @@ void uploadObject(Object& o) {
     GpuVertex* v = o.staging.data();
     for (const ObjectTriangle& tri : o.triangles) {
         const uint32_t color = o.polygonColors[tri.polygon];
-        const uint16_t corners[3] = { tri.a, tri.b, tri.c };
-        for (uint16_t index : corners) {
-            const Vec3 p = o.world[index];
-            *v++ = { p.x, p.y, p.z, color };
+        const int32_t corners[3] = { tri.a, tri.b, tri.c };
+        for (int32_t corner : corners) {
+            const Vec3 p = o.world[o.indices[corner]];
+            *v++ = { p.x, p.y, p.z, color, o.uvs[corner * 2], o.uvs[corner * 2 + 1] };
         }
     }
     glBindBuffer(GL_ARRAY_BUFFER, o.vbo);
     glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(o.staging.size() * sizeof(GpuVertex)),
                     o.staging.data());
+}
+
+// Corpo comum de rzAddObjectPolygon e rzAddObjectTexturedPolygon (uvs = nullptr
+// para polígono sem textura).
+int32_t addPolygon(RzContext* ctx, int32_t id, const uint16_t* indices, const float* uvs,
+                   int32_t count) {
+    if (!validId(ctx, id) || !indices || count < 0) return RZ_ERR_INVALID_ARG;
+    Object& o = ctx->objects[id];
+
+    int32_t n = count;
+    if (n > 1 && indices[n - 1] == indices[0]) --n;          // fechamento do legado
+    for (int32_t i = 0; i < n; ++i) {
+        if (indices[i] >= o.vertexCount()) return RZ_ERR_INVALID_ARG;
+        if (uvs && !(std::isfinite(uvs[i * 2]) && std::isfinite(uvs[i * 2 + 1]))) {
+            return RZ_ERR_INVALID_ARG;
+        }
+    }
+    if (n < 3) return RZ_OK;                                  // degenerado: ignorado
+    if (o.polygonStart.size() >= 65535) return RZ_ERR_SIZE;  // polígono do triângulo é uint16
+    if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
+
+    // Cópia dos índices e UVs, e leque (fase de carga: os vetores crescem aqui)
+    const uint16_t polygon = uint16_t(o.polygonStart.size());
+    const int32_t  first   = int32_t(o.indices.size());
+    o.polygonStart.push_back(first);
+    o.polygonLength.push_back(n);
+    o.polygonTextured.push_back(uvs ? 1 : 0);
+    o.indices.insert(o.indices.end(), indices, indices + n);
+    if (uvs) o.uvs.insert(o.uvs.end(), uvs, uvs + n * 2);
+    else     o.uvs.resize(o.uvs.size() + size_t(n) * 2, 0.0f);
+    for (int32_t i = 1; i + 1 < n; ++i) {
+        o.triangles.push_back({ first, first + i, first + i + 1, polygon });
+    }
+    o.polygonColors.push_back(polygonColor(o, polygon));
+    o.staging.resize(o.triangles.size() * 3);
+
+    // VBO com o novo tamanho; o conteúdo vai no próximo frame
+    glBindBuffer(GL_ARRAY_BUFFER, o.vbo);
+    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(o.staging.size() * sizeof(GpuVertex)),
+                 nullptr, GL_DYNAMIC_DRAW);
+    o.gpuDirty = true;
+    return glGetError() == GL_NO_ERROR ? RZ_OK : RZ_ERR_GL;
 }
 
 } // namespace
@@ -87,11 +135,20 @@ void drawObjects(RzContext* ctx, const Mat4& viewProj, bool /*flipped*/) {
     bool programBound = false;
     for (Object& o : ctx->objects) {
         if (!o.alive || !o.visible || !o.positioned || o.triangles.empty()) continue;
+        const ObjectProgram& prog = ctx->objectProgram;
         if (!programBound) {
-            glUseProgram(ctx->objectProgram.program);
-            glUniformMatrix4fv(ctx->objectProgram.viewProj, 1, GL_TRUE, viewProj.e);
+            glUseProgram(prog.program);
+            glUniformMatrix4fv(prog.viewProj, 1, GL_TRUE, viewProj.e);
+            glUniform1i(prog.filter, ctx->textureFilter);
+            glActiveTexture(GL_TEXTURE0);
             programBound = true;
         }
+        // Textura própria ou fallback (só importa se houver polígono texturizado)
+        const GLuint  texture = o.texture ? o.texture : ctx->fallbackTex;
+        const int32_t side    = o.texture ? o.textureSize : ctx->fallbackSize;
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glUniform1f(prog.texSize, float(side));
+        glUniform1f(prog.maxLevel, float(mipLevels(side) - 1));
         if (o.cull == RZ_CULL_NONE) {
             glDisable(GL_CULL_FACE);
         } else {
@@ -139,7 +196,8 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateObject(RzContext* ctx, int32_t vertexCou
     Object& o = ctx->objects[id];
     o.world.assign(size_t(vertexCount), Vec3{ 0.0f, 0.0f, 0.0f });
 
-    // Vertex buffer (vazio até o primeiro polígono): posição (vec3) + cor (4 bytes normalizados)
+    // Vertex buffer (vazio até o primeiro polígono): posição (vec3), cor (4 bytes
+    // normalizados) e UV (vec2)
     glGenVertexArrays(1, &o.vao);
     glGenBuffers(1, &o.vbo);
     glBindVertexArray(o.vao);
@@ -149,6 +207,9 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateObject(RzContext* ctx, int32_t vertexCou
     glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(GpuVertex),
                           reinterpret_cast<void*>(offsetof(GpuVertex, color)));
     glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(GpuVertex),
+                          reinterpret_cast<void*>(offsetof(GpuVertex, u)));
+    glEnableVertexAttribArray(2);
     glBindVertexArray(0);
 
     o.alive      = true;
@@ -168,35 +229,14 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateObject(RzContext* ctx, int32_t vertexCou
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzAddObjectPolygon(RzContext* ctx, int32_t id,
                                                    const uint16_t* indices, int32_t count) {
-    if (!validId(ctx, id) || !indices || count < 0) return RZ_ERR_INVALID_ARG;
-    Object& o = ctx->objects[id];
+    return addPolygon(ctx, id, indices, nullptr, count);
+}
 
-    int32_t n = count;
-    if (n > 1 && indices[n - 1] == indices[0]) --n;          // fechamento do legado
-    for (int32_t i = 0; i < n; ++i) {
-        if (indices[i] >= o.vertexCount()) return RZ_ERR_INVALID_ARG;
-    }
-    if (n < 3) return RZ_OK;                                  // degenerado: ignorado
-    if (o.polygonStart.size() >= 65535) return RZ_ERR_SIZE;  // polígono do triângulo é uint16
-    if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
-
-    // Cópia dos índices e leque (fase de carga: os vetores crescem aqui)
-    const uint16_t polygon = uint16_t(o.polygonStart.size());
-    o.polygonStart.push_back(int32_t(o.indices.size()));
-    o.polygonLength.push_back(n);
-    o.indices.insert(o.indices.end(), indices, indices + n);
-    for (int32_t i = 1; i + 1 < n; ++i) {
-        o.triangles.push_back({ indices[0], indices[i], indices[i + 1], polygon });
-    }
-    o.polygonColors.push_back(polygonColor(o, polygon));
-    o.staging.resize(o.triangles.size() * 3);
-
-    // VBO com o novo tamanho; o conteúdo vai no próximo frame
-    glBindBuffer(GL_ARRAY_BUFFER, o.vbo);
-    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(o.staging.size() * sizeof(GpuVertex)),
-                 nullptr, GL_DYNAMIC_DRAW);
-    o.gpuDirty = true;
-    return glGetError() == GL_NO_ERROR ? RZ_OK : RZ_ERR_GL;
+RZ_API RZ_ENTRY int32_t RZ_CALL rzAddObjectTexturedPolygon(RzContext* ctx, int32_t id,
+                                                           const uint16_t* indices,
+                                                           const float* uvs, int32_t count) {
+    if (!uvs) return RZ_ERR_INVALID_ARG;
+    return addPolygon(ctx, id, indices, uvs, count);
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t id,
