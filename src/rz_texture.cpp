@@ -8,6 +8,12 @@
 // cortada em W linhas ou completada embaixo repetindo a última linha. Assim
 // v = 1 corresponde a W pixels, a mesma escala de u.
 //
+// Gambiarra das cores sólidas: as últimas kSwatchRows linhas (que deveriam ser
+// padding) recebem 256 bloquinhos kSwatchBlock x kSwatchBlock, um por cor da
+// paleta do PCX; os polígonos de rzAddObjectPolygon amostram o centro do
+// bloco da sua cor. O que a imagem tiver nessas linhas é sobrescrito. O xadrez
+// fallback gerado aqui não tem paleta: a faixa continua xadrez.
+//
 // Mipmaps gerados na CPU (média 2x2), como no atlas do chão; o filtro é o de
 // rzSetTextureFilter, igual ao do chão.
 
@@ -40,7 +46,23 @@ void releaseTexture(Object& o) {
     o.textureSize = 0;
 }
 
+// Bloco da cor i: coluna i % (side / bloco), linha de blocos i / (side / bloco)
+void swatchOrigin(int32_t i, int32_t side, int32_t* x, int32_t* y) {
+    const int32_t perRow = side / kSwatchBlock;
+    *x = (i % perRow) * kSwatchBlock;
+    *y = side - kSwatchRows + (i / perRow) * kSwatchBlock;
+}
+
 } // namespace
+
+// Centro do bloco da cor (texel kSwatchBlock/2 dentro dele), em UV.
+void swatchUV(int32_t paletteIndex, int32_t side, float* u, float* v) {
+    int32_t x, y;
+    swatchOrigin(paletteIndex, side, &x, &y);
+    const float half = float(kSwatchBlock) * 0.5f;
+    *u = (float(x) + half) / float(side);
+    *v = (float(y) + half) / float(side);
+}
 
 int32_t mipLevels(int32_t side) {
     int32_t levels = 1;
@@ -129,6 +151,17 @@ static int32_t loadSquareTextureFromPcx(const RzContext* ctx, const char* path,
         const uint8_t* src = img.pixels.data() + size_t(srcY) * size_t(img.width);
         uint32_t* dst = rgb.data() + size_t(y) * size_t(side);
         for (int32_t x = 0; x < side; ++x) dst[x] = pal[src[x]];
+    }
+
+    // Faixa de amostras da paleta, no pé da textura
+    for (int32_t i = 0; i < 256; ++i) {
+        int32_t bx, by;
+        swatchOrigin(i, side, &bx, &by);
+        for (int32_t y = 0; y < kSwatchBlock; ++y) {
+            for (int32_t x = 0; x < kSwatchBlock; ++x) {
+                rgb[size_t(by + y) * size_t(side) + size_t(bx + x)] = pal[i];
+            }
+        }
     }
 
     *outTexture = uploadSquareTexture(rgb.data(), side, ctx->textureFilter);

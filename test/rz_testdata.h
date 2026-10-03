@@ -516,14 +516,18 @@ static void rztdVehiclePath(float t, float* x, float* z, float* heading) {
 /* Texturas dos objetos                                                      */
 /* ------------------------------------------------------------------------- */
 
-/* Parede 300x256: tijolos com janelas. As 44 colunas à direita (256..299) são
-   verde puro: a DLL deve descartá-las (a textura fica 256x256). */
+/* Parede 300x240: tijolos com janelas. As 44 colunas à direita (256..299) são
+   verde puro: a DLL deve descartá-las (a textura fica 256x256, com padding
+   embaixo, onde entra a faixa de paleta); os UVs usam v de 0 a 240/256. */
 #define RZTD_WALL_W 300
-#define RZTD_WALL_H 256
-/* Carro 256x128: a textura fica 256x256, com padding embaixo; os UVs usam
-   v de 0 a 128/256 = 0,5. */
+#define RZTD_WALL_H 240
+#define RZTD_WALL_V (240.0f / 256.0f)
+#define RZTD_WALL_ROOF 21          /* cor sólida dos telhados */
+/* Carro 256x128: a textura fica 256x256; os UVs usam v de 0 a 0,5. */
 #define RZTD_CAR_W 256
 #define RZTD_CAR_H 128
+#define RZTD_CAR_V 0.5f
+#define RZTD_CAR_ROOF 36           /* cor sólida do teto e do capô */
 
 static void rztdSetColor(uint8_t* pal, int i, int r, int g, int b) {
     pal[i * 3 + 0] = (uint8_t)r; pal[i * 3 + 1] = (uint8_t)g; pal[i * 3 + 2] = (uint8_t)b;
@@ -538,6 +542,7 @@ static void rztdGenerateWallTexture(uint8_t* idx, uint8_t* pal) {
     rztdSetColor(pal, 18, 90, 130, 170);    /* reflexo */
     rztdSetColor(pal, 19, 235, 230, 220);   /* moldura */
     rztdSetColor(pal, 20, 0, 255, 0);       /* marcador: não deve aparecer */
+    rztdSetColor(pal, RZTD_WALL_ROOF, 120, 45, 35);
     for (y = 0; y < RZTD_WALL_H; ++y) {
         for (x = 0; x < RZTD_WALL_W; ++x) {
             int c;
@@ -562,6 +567,7 @@ static void rztdGenerateCarTexture(uint8_t* idx, uint8_t* pal) {
     rztdSetColor(pal, 33, 25, 30, 40);     /* vidro */
     rztdSetColor(pal, 34, 15, 15, 15);     /* pneu */
     rztdSetColor(pal, 35, 250, 210, 60);   /* farol */
+    rztdSetColor(pal, RZTD_CAR_ROOF, 40, 90, 200);
     for (y = 0; y < RZTD_CAR_H; ++y) {
         for (x = 0; x < RZTD_CAR_W; ++x) {
             int c = 31 - y / 4;
@@ -631,13 +637,31 @@ static int rztdWriteObjectTextures(const char* prefix, char* wallPath, char* car
            rztdWritePcx(carPath, car, RZTD_CAR_W, RZTD_CAR_H, carPal);
 }
 
+/* Normal (normalizada) de uma face da malha de teste: só o y interessa aqui. */
+static float rztdFaceUp(const RztdMesh* m, const uint16_t* ids, int n) {
+    float nx = 0.0f, ny = 0.0f, nz = 0.0f, len;
+    int i;
+    for (i = 0; i < n; ++i) {
+        const float* a = m->pos[ids[i]];
+        const float* b = m->pos[ids[(i + 1) % n]];
+        nx += (a[1] - b[1]) * (a[2] + b[2]);
+        ny += (a[2] - b[2]) * (a[0] + b[0]);
+        nz += (a[0] - b[0]) * (a[1] + b[1]);
+    }
+    len = sqrtf(nx * nx + ny * ny + nz * nz);
+    return len > 0.0f ? ny / len : 0.0f;
+}
+
 /* Cria no renderer um objeto a partir de uma malha de teste, como o legado
-   faria: rzCreateObject (só a quantidade), um rzAddObjectPolygon (vMax <= 0)
-   ou rzAddObjectTexturedPolygon (UVs planares, v até vMax) por polígono, com o
-   índice de fechamento, e rzUpdateObjectVertices. Só existe quando
-   renderizeitor.h foi incluído antes. */
+   faria: rzCreateObject (só a quantidade), um polígono por chamada (com o
+   índice de fechamento) e rzUpdateObjectVertices. Faces viradas para cima
+   (telhados, tetos) e, com vMax <= 0, todas as faces usam a cor sólida
+   paletteIndex (rzAddObjectPolygon); as outras, UVs planares com v até vMax
+   (rzAddObjectTexturedPolygon). Só existe quando renderizeitor.h foi incluído
+   antes. */
 #ifdef RENDERIZEITOR_H
-static int32_t rztdCreateObject(RzContext* ctx, const RztdMesh* m, float vMax, int32_t* outId) {
+static int32_t rztdCreateObject(RzContext* ctx, const RztdMesh* m, float vMax, int paletteIndex,
+                                int32_t* outId) {
     float uv[(RZTD_MESH_MAX_INDEX + 1) * 2];
     int32_t err = rzCreateObject(ctx, m->vertexCount, outId);
     int pos = 0;
@@ -646,12 +670,12 @@ static int32_t rztdCreateObject(RzContext* ctx, const RztdMesh* m, float vMax, i
         while (end < m->indexCount && m->indices[end] != m->indices[pos]) ++end;
         if (end >= m->indexCount) return RZ_ERR_INVALID_ARG;   /* malha sem fechamento */
         n = end - pos;
-        if (vMax > 0.0f) {
+        if (vMax > 0.0f && rztdFaceUp(m, m->indices + pos, n) <= 0.5f) {
             rztdFaceUVs(m, m->indices + pos, n, vMax, uv);
             uv[n * 2] = uv[0]; uv[n * 2 + 1] = uv[1];            /* par do fechamento */
             err = rzAddObjectTexturedPolygon(ctx, *outId, m->indices + pos, uv, n + 1);
         } else {
-            err = rzAddObjectPolygon(ctx, *outId, m->indices + pos, n + 1);
+            err = rzAddObjectPolygon(ctx, *outId, m->indices + pos, n + 1, paletteIndex);
         }
         pos = end + 1;
     }

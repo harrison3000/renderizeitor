@@ -171,8 +171,8 @@ int main(int argc, char** argv) {
     };
     if (objects) {
         char wallPath[1024], carPath[1024], prefix[1000];
-        const float carV  = objectTextures ? float(RZTD_CAR_H) / float(RZTD_CAR_W) : 0.0f;
-        const float wallV = objectTextures ? 1.0f : 0.0f;
+        const float carV  = objectTextures ? RZTD_CAR_V : 0.0f;
+        const float wallV = objectTextures ? RZTD_WALL_V : 0.0f;
         if (objectTextures) {
             std::snprintf(prefix, sizeof(prefix), "%s/", outDir);
             if (!rztdWriteObjectTextures(prefix, wallPath, carPath, sizeof(wallPath))) {
@@ -183,13 +183,12 @@ int main(int argc, char** argv) {
 
         // Primeiro objeto: o veículo, que anda e é o alvo da câmera
         placeVehicle(0);
-        err = rztdCreateObject(ctx, &vehicle, carV, &vehicleId);
+        err = rztdCreateObject(ctx, &vehicle, carV, RZTD_CAR_ROOF, &vehicleId);
         if (err != RZ_OK) { std::fprintf(stderr, "rzCreateObject (veiculo) falhou: %d\n", err); return 1; }
         if (objectTextures) {
             err = rzLoadObjectTexture(ctx, vehicleId, carPath);
             if (err != RZ_OK) { std::fprintf(stderr, "rzLoadObjectTexture(%s) falhou: %d\n", carPath, err); return 1; }
         }
-        rzSetObjectColor(ctx, vehicleId, 0x003070E0u);
         rzSetObjectCulling(ctx, vehicleId, RZ_CULL_CW);
         if (follow) rzSetCameraTarget(ctx, vehicleId, RZTD_VEHICLE_TARGET);
 
@@ -197,26 +196,24 @@ int main(int argc, char** argv) {
                                                 RZTD_MAX_OBJECTS);
         for (int i = 0; i < count; ++i) {
             int32_t id;
-            err = rztdCreateObject(ctx, &buildings[i], wallV, &id);
+            err = rztdCreateObject(ctx, &buildings[i], wallV, RZTD_WALL_ROOF, &id);
             if (err != RZ_OK) { std::fprintf(stderr, "rzCreateObject falhou: %d\n", err); return 1; }
             if (objectTextures) {
                 err = rzLoadObjectTexture(ctx, id, wallPath);
                 if (err != RZ_OK) { std::fprintf(stderr, "rzLoadObjectTexture(%s) falhou: %d\n", wallPath, err); return 1; }
             }
-            rzSetObjectColor(ctx, id, buildingColors[i]);
             rzSetObjectCulling(ctx, id, RZ_CULL_CW);
         }
         int top = 0;
         for (int i = 0; i < 256 * 256; ++i) if (heightmap[i] > top) top = heightmap[i];
         cubeY = float(top) * heightScale + 2.0f;
         rztdSpinningCube(&cube, cubeX, cubeY, cubeZ, 0.6f, 0.0f);
-        err = rztdCreateObject(ctx, &cube, wallV, &cubeId);
+        err = rztdCreateObject(ctx, &cube, wallV, RZTD_WALL_ROOF, &cubeId);
         if (err != RZ_OK) { std::fprintf(stderr, "rzCreateObject (cubo) falhou: %d\n", err); return 1; }
         if (objectTextures && rzLoadObjectTexture(ctx, cubeId, "nao_existe.pcx") != RZ_ERR_FILE) {
             std::fprintf(stderr, "rzLoadObjectTexture deveria falhar com RZ_ERR_FILE\n");
             return 1;
         }
-        rzSetObjectColor(ctx, cubeId, 0x00E04030u);
         rzSetObjectCulling(ctx, cubeId, RZ_CULL_CW);
         std::printf("objetos: 1 veiculo + %d construcoes + 1 cubo\n", count);
     }

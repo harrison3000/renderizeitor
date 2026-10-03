@@ -2,8 +2,14 @@
 //
 // Carga: rzCreateObject cria o objeto vazio (vértices, VAO e VBO);
 // rzAddObjectPolygon / rzAddObjectTexturedPolygon validam e copiam um
-// polígono (e seus UVs), triangulam em leque, crescem os buffers da CPU e
-// realocam o VBO. A textura do objeto fica em rz_texture.cpp.
+// polígono (e seus UVs ou o índice de paleta), triangulam em leque, crescem os
+// buffers da CPU e realocam o VBO. A textura do objeto fica em rz_texture.cpp.
+//
+// Todo polígono é texturizado. O de cor sólida (rzAddObjectPolygon) aponta os
+// três cantos para o centro do bloquinho da sua cor na faixa de amostras da
+// paleta, no pé da textura (kSwatch*, rz_texture.cpp): UV constante, derivada
+// zero, sempre o nível 0 do mipmap. Como a posição do bloco depende do lado
+// da textura, esses UVs são calculados no envio ao VBO.
 // Update (rzUpdateObjectVertices): converte as posições 8.24 para float e
 // recalcula a cor sombreada de cada polígono.
 // Frame (drawObjects): reenvia o VBO dos objetos alterados (sem alocar) e faz
@@ -18,7 +24,6 @@ using namespace rz;
 namespace {
 
 constexpr int32_t  kMaxObjectVertices = 65536;              // índice uint16
-constexpr uint32_t kDefaultObjectColor = 0x00B0A090u;       // provisória
 constexpr float    kFixed824ToFloat = 1.0f / 16777216.0f;   // 2^-24
 
 bool validId(const RzContext* ctx, int32_t id) {
@@ -46,8 +51,8 @@ void loadPositions(const RzContext* ctx, Object& o, const uint32_t* vertices) {
 }
 
 // Normal de Newell do polígono e cor sombreada (pelos dois lados, enquanto o
-// winding do legado não é conhecido). Polígono texturizado: só a luz, em cinza,
-// com a marca kTexturedFlag; a textura é multiplicada por ela no shader.
+// winding do legado não é conhecido): só a luz, em cinza, que o shader
+// multiplica pela textura.
 uint32_t polygonColor(const Object& o, size_t p) {
     const uint16_t* idx = o.indices.data() + o.polygonStart[p];
     const int32_t n = o.polygonLength[p];
@@ -59,8 +64,7 @@ uint32_t polygonColor(const Object& o, size_t p) {
         normal.y += (cur.z - next.z) * (cur.x + next.x);
         normal.z += (cur.x - next.x) * (cur.y + next.y);
     }
-    if (o.polygonTextured[p]) return shadeFlat(0x00FFFFFFu, normal, true) | kTexturedFlag;
-    return shadeFlat(o.baseColor, normal, true);
+    return shadeFlat(0x00FFFFFFu, normal, true);
 }
 
 void computePolygonColors(Object& o) {
@@ -68,15 +72,20 @@ void computePolygonColors(Object& o) {
 }
 
 // Monta os vértices dos triângulos e reenvia o vertex buffer inteiro (que já
-// tem o tamanho certo: é realocado em rzAddObjectPolygon).
-void uploadObject(Object& o) {
+// tem o tamanho certo: é realocado em rzAddObjectPolygon). side: lado da
+// textura em uso, para o UV dos polígonos de cor sólida.
+void uploadObject(Object& o, int32_t side) {
     GpuVertex* v = o.staging.data();
     for (const ObjectTriangle& tri : o.triangles) {
         const uint32_t color = o.polygonColors[tri.polygon];
+        const int32_t  pal   = o.polygonPalette[tri.polygon];
+        float su = 0.0f, sv = 0.0f;
+        if (pal >= 0) swatchUV(pal, side, &su, &sv);
         const int32_t corners[3] = { tri.a, tri.b, tri.c };
         for (int32_t corner : corners) {
             const Vec3 p = o.world[o.indices[corner]];
-            *v++ = { p.x, p.y, p.z, color, o.uvs[corner * 2], o.uvs[corner * 2 + 1] };
+            if (pal >= 0) *v++ = { p.x, p.y, p.z, color, su, sv };
+            else          *v++ = { p.x, p.y, p.z, color, o.uvs[corner * 2], o.uvs[corner * 2 + 1] };
         }
     }
     glBindBuffer(GL_ARRAY_BUFFER, o.vbo);
@@ -84,11 +93,12 @@ void uploadObject(Object& o) {
                     o.staging.data());
 }
 
-// Corpo comum de rzAddObjectPolygon e rzAddObjectTexturedPolygon (uvs = nullptr
-// para polígono sem textura).
+// Corpo comum de rzAddObjectPolygon (uvs = nullptr, cor = paletteIndex) e
+// rzAddObjectTexturedPolygon (paletteIndex = -1).
 int32_t addPolygon(RzContext* ctx, int32_t id, const uint16_t* indices, const float* uvs,
-                   int32_t count) {
+                   int32_t count, int32_t paletteIndex) {
     if (!validId(ctx, id) || !indices || count < 0) return RZ_ERR_INVALID_ARG;
+    if (!uvs && (paletteIndex < 0 || paletteIndex > 255)) return RZ_ERR_INVALID_ARG;
     Object& o = ctx->objects[id];
 
     int32_t n = count;
@@ -108,7 +118,7 @@ int32_t addPolygon(RzContext* ctx, int32_t id, const uint16_t* indices, const fl
     const int32_t  first   = int32_t(o.indices.size());
     o.polygonStart.push_back(first);
     o.polygonLength.push_back(n);
-    o.polygonTextured.push_back(uvs ? 1 : 0);
+    o.polygonPalette.push_back(int16_t(uvs ? -1 : paletteIndex));
     o.indices.insert(o.indices.end(), indices, indices + n);
     if (uvs) o.uvs.insert(o.uvs.end(), uvs, uvs + n * 2);
     else     o.uvs.resize(o.uvs.size() + size_t(n) * 2, 0.0f);
@@ -143,7 +153,7 @@ void drawObjects(RzContext* ctx, const Mat4& viewProj, bool /*flipped*/) {
             glActiveTexture(GL_TEXTURE0);
             programBound = true;
         }
-        // Textura própria ou fallback (só importa se houver polígono texturizado)
+        // Textura própria ou fallback
         const GLuint  texture = o.texture ? o.texture : ctx->fallbackTex;
         const int32_t side    = o.texture ? o.textureSize : ctx->fallbackSize;
         glBindTexture(GL_TEXTURE_2D, texture);
@@ -155,9 +165,10 @@ void drawObjects(RzContext* ctx, const Mat4& viewProj, bool /*flipped*/) {
             glEnable(GL_CULL_FACE);
             glCullFace(o.cull == RZ_CULL_CW ? GL_BACK : GL_FRONT);
         }
-        if (o.gpuDirty) {
-            uploadObject(o);
+        if (o.gpuDirty || o.uploadedSide != side) {   // textura trocada: UVs das cores mudam
+            uploadObject(o, side);
             o.gpuDirty = false;
+            o.uploadedSide = side;
         }
         glBindVertexArray(o.vao);
         glDrawArrays(GL_TRIANGLES, 0, o.triangleCount() * 3);
@@ -217,7 +228,6 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateObject(RzContext* ctx, int32_t vertexCou
     o.positioned = false;
     o.gpuDirty   = false;
     o.cull       = RZ_CULL_NONE;
-    o.baseColor  = kDefaultObjectColor;
 
     if (glGetError() != GL_NO_ERROR) {
         freeObject(o);
@@ -228,15 +238,16 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateObject(RzContext* ctx, int32_t vertexCou
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzAddObjectPolygon(RzContext* ctx, int32_t id,
-                                                   const uint16_t* indices, int32_t count) {
-    return addPolygon(ctx, id, indices, nullptr, count);
+                                                   const uint16_t* indices, int32_t count,
+                                                   int32_t paletteIndex) {
+    return addPolygon(ctx, id, indices, nullptr, count, paletteIndex);
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzAddObjectTexturedPolygon(RzContext* ctx, int32_t id,
                                                            const uint16_t* indices,
                                                            const float* uvs, int32_t count) {
     if (!uvs) return RZ_ERR_INVALID_ARG;
-    return addPolygon(ctx, id, indices, uvs, count);
+    return addPolygon(ctx, id, indices, uvs, count, -1);
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t id,
@@ -254,15 +265,6 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzDestroyObject(RzContext* ctx, int32_t id) {
     if (!validId(ctx, id)) return RZ_ERR_INVALID_ARG;
     platformMakeCurrent(ctx->platform);
     freeObject(ctx->objects[id]);
-    return RZ_OK;
-}
-
-RZ_API RZ_ENTRY int32_t RZ_CALL rzSetObjectColor(RzContext* ctx, int32_t id, uint32_t rgb) {
-    if (!validId(ctx, id)) return RZ_ERR_INVALID_ARG;
-    Object& o = ctx->objects[id];
-    o.baseColor = rgb & 0x00FFFFFFu;
-    computePolygonColors(o);
-    o.gpuDirty = true;
     return RZ_OK;
 }
 

@@ -110,8 +110,8 @@ RZ_API int32_t RZ_CALL rzSetTextureFilter(RzContext* ctx, int32_t filter);
 
    Montagem de um objeto (fase de carga):
      1. rzCreateObject(ctx, vertexCount, &id)       só a quantidade de vértices
-     2. rzAddObjectPolygon(ctx, id, indices, n)     uma vez por polígono, ou
-        rzAddObjectTexturedPolygon(ctx, id, indices, uvs, n)  (com textura)
+     2. rzAddObjectPolygon(ctx, id, indices, n, cor)  uma vez por polígono, ou
+        rzAddObjectTexturedPolygon(ctx, id, indices, uvs, n)  (com UVs)
      3. rzUpdateObjectVertices(ctx, id, vertices)   posições (e a cada frame)
    Os passos 2 e 3 podem vir em qualquer ordem e se repetir; o objeto só é
    desenhado depois da primeira rzUpdateObjectVertices. */
@@ -127,23 +127,26 @@ RZ_API int32_t RZ_CALL rzSetObjectAxes(RzContext* ctx, int32_t axes);
    polígonos e sem posições (fase de carga: aloca). Devolve o id em outId. */
 RZ_API int32_t RZ_CALL rzCreateObject(RzContext* ctx, int32_t vertexCount, int32_t* outId);
 
-/* Acrescenta um polígono convexo ao objeto (fase de carga: aloca). Pode ser
-   chamada quantas vezes for preciso; os índices são copiados.
+/* Acrescenta um polígono convexo de cor sólida ao objeto (fase de carga:
+   aloca). Pode ser chamada quantas vezes for preciso; os índices são copiados.
    indices: count índices de vértices do objeto. Se o último repetir o
    primeiro (fechamento, como no legado: 0 1 2 3 0), ele é descartado.
+   paletteIndex (0..255): a cor é a dessa entrada da paleta do PCX da textura
+   do objeto (ver rzLoadObjectTexture), com a luz flat do polígono.
    Triangulado em leque. Com menos de 3 vértices, é ignorado (RZ_OK).
-   Erros: RZ_ERR_INVALID_ARG (índice fora do objeto; nada é acrescentado),
-   RZ_ERR_SIZE (mais de 65535 polígonos no objeto). */
+   Erros: RZ_ERR_INVALID_ARG (índice fora do objeto ou paletteIndex fora de
+   0..255; nada é acrescentado), RZ_ERR_SIZE (mais de 65535 polígonos). */
 RZ_API int32_t RZ_CALL rzAddObjectPolygon(RzContext* ctx, int32_t id,
-                                          const uint16_t* indices, int32_t count);
+                                          const uint16_t* indices, int32_t count,
+                                          int32_t paletteIndex);
 
-/* Igual a rzAddObjectPolygon, com a textura do objeto: uvs tem count pares
+/* Igual a rzAddObjectPolygon, mas com UVs próprios em vez da cor: uvs tem count pares
    (u, v) em float, um por índice (se houver fechamento, o último par é
    descartado junto). u e v vão de 0 a 1, ambos na escala da LARGURA da
    textura (ver rzLoadObjectTexture): v = 1 é a linha W, não a altura da
    imagem. (0, 0) é o canto superior esquerdo. Fora de [0, 1], repete a borda.
    UV não finito: RZ_ERR_INVALID_ARG. A cor do polígono é a textura vezes a
-   luz flat; rzSetObjectColor não afeta polígonos texturizados. */
+   luz flat. Os UVs devem ficar fora das últimas 16 linhas (faixa de paleta). */
 RZ_API int32_t RZ_CALL rzAddObjectTexturedPolygon(RzContext* ctx, int32_t id,
                                                   const uint16_t* indices,
                                                   const float* uvs, int32_t count);
@@ -153,9 +156,13 @@ RZ_API int32_t RZ_CALL rzAddObjectTexturedPolygon(RzContext* ctx, int32_t id,
    da imagem (mínimo 256, máximo 4096 ou o limite do driver); o que sobra à
    direita é descartado. Na vertical, a imagem é cortada em W linhas ou
    completada embaixo (repetindo a última linha).
+   As últimas 16 linhas da textura são reservadas: viram 256 bloquinhos 4x4,
+   um por cor da paleta do PCX, para os polígonos de cor sólida
+   (rzAddObjectPolygon). O conteúdo da imagem nessas linhas é sobrescrito.
    Sem textura carregada, ou se esta função falhar (RZ_ERR_FILE, RZ_ERR_FORMAT,
    RZ_ERR_SIZE para largura < 256), o objeto usa a textura fallback (xadrez
-   magenta). Chamar de novo troca a textura. */
+   magenta; os polígonos de cor sólida também saem no xadrez). Chamar de novo
+   troca a textura. */
 RZ_API int32_t RZ_CALL rzLoadObjectTexture(RzContext* ctx, int32_t id, const char* pcxPath);
 
 /* Troca a textura fallback (a dos objetos sem textura ou cuja carga falhou),
@@ -172,8 +179,6 @@ RZ_API int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t id,
 /* Libera o objeto; o id pode ser reaproveitado por rzCreateObject. */
 RZ_API int32_t RZ_CALL rzDestroyObject(RzContext* ctx, int32_t id);
 
-/* Cor dos polígonos sem textura do objeto (0x00RRGGBB), sombreada por polígono. */
-RZ_API int32_t RZ_CALL rzSetObjectColor(RzContext* ctx, int32_t id, uint32_t rgb);
 
 RZ_API int32_t RZ_CALL rzSetObjectVisible(RzContext* ctx, int32_t id, int32_t visible);
 

@@ -287,10 +287,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         rztdVehiclePath(0.0f, &g_carX, &g_carZ, &g_carHeading);
         g_carSpeed = 0.0f;
         placeVehicle();
-        err = rztdCreateObject(g_ctx, &g_vehicle, (float)RZTD_CAR_H / RZTD_CAR_W, &g_vehicleId);
+        err = rztdCreateObject(g_ctx, &g_vehicle, RZTD_CAR_V, RZTD_CAR_ROOF, &g_vehicleId);
         if (err == RZ_OK) {
             rzLoadObjectTexture(g_ctx, g_vehicleId, carPath);
-            rzSetObjectColor(g_ctx, g_vehicleId, 0x003070E0u);
             rzSetObjectCulling(g_ctx, g_vehicleId, RZ_CULL_CW);
             rzSetCameraTarget(g_ctx, g_vehicleId, RZTD_VEHICLE_TARGET);
             g_objectIds[g_objectCount++] = g_vehicleId;
@@ -304,10 +303,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         int i, top = 0;
         for (i = 0; i < count && err == RZ_OK; ++i) {
             int32_t id;
-            err = rztdCreateObject(g_ctx, &buildings[i], 1.0f, &id);
+            err = rztdCreateObject(g_ctx, &buildings[i], RZTD_WALL_V, RZTD_WALL_ROOF, &id);
             if (err == RZ_OK) {
                 rzLoadObjectTexture(g_ctx, id, wallPath);
-                rzSetObjectColor(g_ctx, id, colors[i]);
                 rzSetObjectCulling(g_ctx, id, RZ_CULL_CW);
                 g_objectIds[g_objectCount++] = id;
             }
@@ -316,10 +314,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         g_cubePos[0] = 128.0f; g_cubePos[1] = (float)top * heightScale + 2.0f; g_cubePos[2] = 128.0f;
         rztdSpinningCube(&g_cube, g_cubePos[0], g_cubePos[1], g_cubePos[2], 0.6f, 0.0f);
         /* Cubo: textura que não existe, para mostrar o fallback */
-        if (err == RZ_OK) err = rztdCreateObject(g_ctx, &g_cube, 1.0f, &g_cubeId);
+        if (err == RZ_OK) err = rztdCreateObject(g_ctx, &g_cube, RZTD_WALL_V, RZTD_WALL_ROOF, &g_cubeId);
         if (err == RZ_OK) {
             rzLoadObjectTexture(g_ctx, g_cubeId, "nao_existe.pcx");
-            rzSetObjectColor(g_ctx, g_cubeId, 0x00E04030u);
             rzSetObjectCulling(g_ctx, g_cubeId, RZ_CULL_CW);
             g_objectIds[g_objectCount++] = g_cubeId;
         }

@@ -100,17 +100,22 @@ struct ObjectTriangle {
     uint16_t polygon;
 };
 
-// Vértice de objeto enviado à GPU: posição no mundo, cor flat (0xAARRGGBB; em
-// memória B, G, R, A, lido no shader como vec4 normalizado) e UV.
-// A = 0xFF marca polígono texturizado: aí RGB é só a luz (cinza) que multiplica
-// a textura; senão, RGB é a cor do objeto já iluminada.
+// Vértice de objeto enviado à GPU: posição no mundo, luz flat do polígono
+// (cinza 0x00LLLLLL; em memória B, G, R, 0, lido como vec4 normalizado), que
+// multiplica a textura, e UV.
 struct GpuVertex {
     float    x, y, z;
     uint32_t color;
     float    u, v;
 };
 static_assert(sizeof(GpuVertex) == 24);
-constexpr uint32_t kTexturedFlag = 0xFF000000u;
+
+// Faixa de amostras da paleta no pé de toda textura de objeto: 256 blocos de
+// kSwatchBlock x kSwatchBlock, um por cor, da esquerda para a direita e de cima
+// para baixo, nas últimas kSwatchRows linhas (side/4 blocos por linha de blocos;
+// com side >= 256, cabem em 4 linhas de blocos).
+constexpr int32_t kSwatchBlock = 4;
+constexpr int32_t kSwatchRows  = 16;
 
 // Vértice do terreno: um por canto de triângulo (malha não indexada, porque a
 // cor flat e o bloco são do triângulo/quad, não do ponto da grade).
@@ -127,15 +132,15 @@ struct Object {
     bool      visible = false;
     bool      positioned = false;   // já recebeu rzUpdateObjectVertices
     bool      gpuDirty   = false;   // staging/VBO desatualizado: reenviar no próximo frame
+    int32_t   uploadedSide = 0;     // lado da textura usado no último envio (UV das cores)
     int32_t   cull    = RZ_CULL_NONE;
-    uint32_t  baseColor = 0;   // 0x00RRGGBB, provisório até as texturas
 
     std::vector<Vec3>     world;          // posições no mundo, atualizadas pelo host
     std::vector<int32_t>  polygonStart;   // em `indices`
     std::vector<int32_t>  polygonLength;  // sem o índice de fechamento
     std::vector<uint16_t> indices;        // cópia dos índices dos polígonos (sem os fechamentos)
-    std::vector<float>    uvs;            // (u, v) de cada entrada de `indices`; 0 se sem textura
-    std::vector<uint8_t>  polygonTextured; // 1 se o polígono veio de rzAddObjectTexturedPolygon
+    std::vector<float>    uvs;            // (u, v) de cada entrada de `indices`; 0 nos de cor sólida
+    std::vector<int16_t>  polygonPalette; // índice de cor (rzAddObjectPolygon) ou -1 (UVs próprios)
     std::vector<uint32_t> polygonColors;  // cor sombreada por polígono
     std::vector<ObjectTriangle> triangles; // leque de cada polígono, montado na carga
     std::vector<GpuVertex> staging;       // triangles.size() * 3, preenchido no envio
@@ -266,6 +271,7 @@ GLuint uploadSquareTexture(const uint32_t* rgb, int32_t side, int32_t filter);
 void   applyFilter2D(GLuint texture, int32_t side, int32_t filter);
 bool   createFallbackTexture(RzContext* ctx);
 int32_t mipLevels(int32_t side);   // log2(side) + 1
+void   swatchUV(int32_t paletteIndex, int32_t side, float* u, float* v);   // centro do bloco
 
 // rz_object.cpp
 void drawObjects(RzContext* ctx, const Mat4& viewProj, bool flipped);
