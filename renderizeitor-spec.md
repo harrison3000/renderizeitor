@@ -201,7 +201,7 @@ O modo normal é a perseguição (9.2): o host sempre define um alvo.
 
 1. Atualiza a câmera e monta a view-projection e a matriz da luz (sombra).
 2. Reenvia os VBOs de objetos alterados.
-3. Passe da sombra: terreno e objetos visíveis, só profundidade, no shadow map.
+3. Sombras (10.1): refaz os mapas que precisam (terreno só se mudou; objetos próximos se algo mudou; alvo sempre).
 4. Faz bind do FBO (offscreen) ou do framebuffer padrão (janela) e limpa com a cor de fundo (`rzSetBackgroundColor`, padrão 32, 40, 48), com profundidade em `GL_LESS`.
 5. Desenha o terreno em um draw: textura se houver atlas e mapa de blocos, senão as cores flat.
 6. Desenha os objetos.
@@ -209,16 +209,27 @@ O modo normal é a perseguição (9.2): o host sempre define um alvo.
 
 Sem heightmap, só limpa e apresenta.
 
-### 10.1 Sombras (shadow map)
+### 10.1 Sombras (três shadow maps)
 
-Sem API por enquanto: tudo fixo em constantes (`rz_internal.h`).
+Sem API por enquanto: tudo fixo em constantes (`rz_internal.h`); o código fica em `src/rz_shadow.cpp`.
 
-- **Luz:** a mesma direcional fixa da iluminação flat (`lightDirection`), com projeção ortográfica. A view da luz é fixa, olhando para o centro do terreno.
-- **Caixa:** seguindo um alvo, 2 × 40 tiles em volta dele (`kShadowHalfExtent`), deslocada em passos de um texel para a sombra não tremer; na visão geral, o terreno inteiro. Em profundidade, cobre a esfera do terreno com folga, então morros fora da caixa ainda fazem sombra dentro dela. Fora da caixa, tudo é iluminado.
-- **Mapa:** 2048 × 2048, profundidade de 24 bits, com comparação (`sampler2DShadow`, PCF 2×2 do hardware via `GL_LINEAR`). Passe sem culling, com `glPolygonOffset(2, 4)` contra acne.
-- **Quem projeta:** terreno e objetos visíveis. **Quem recebe:** os dois.
-- **Efeito:** na sombra, a luz flat cai para o ambiente (0,3), nas cores flat do terreno e nos objetos; no chão texturizado, a cor é multiplicada por 0,6 (`kShadowTexturedDim`), porque a luz flat ali já é atenuada.
-- **Custo:** o passe da sombra redesenha os 130 mil triângulos do terreno. No llvmpipe (800×450), o frame do `rz_test` foi de ~30 para ~55 ms.
+- **Luz:** a mesma direcional fixa da iluminação flat (`lightDirection`). Os três mapas usam a mesma view da luz (fixa, olhando para o centro do terreno) e projeções ortográficas diferentes.
+
+| Mapa | Projeta | Caixa | Tamanho | Refeito |
+|---|---|---|---|---|
+| 0 terreno | só o terreno | terreno inteiro | 4096 (~0,09 tile/texel) | só quando o terreno muda (`buildTerrainMesh` marca `terrainShadowDirty`) |
+| 1 próximos | objetos, **menos o alvo da câmera** | 60 × 60 tiles em volta do foco | 2048 (~0,03 tile/texel) | todo frame |
+| 2 alvo | só o objeto seguido | esfera do objeto + 0,25 tile, lado em passos de 0,25 tile | 256 (~0,008 tile/texel num carro) | todo frame (desligado na visão geral) |
+
+Tamanhos limitados a `GL_MAX_TEXTURE_SIZE` (o GL 3.3 só garante 1024). As resoluções são próximas de propósito: o mapa 2 bem mais nítido que os outros destoava. Memória: ~64 + 16 + 0,25 MB.
+
+- **Combinação:** iluminado = mínimo dos três; fora da caixa de um mapa, ele não sombreia. O alvo fica fora do mapa 1 para a sombra grossa dele não vazar em volta da fina do mapa 2.
+- **Quem recebe:** terreno e objetos, dos três mapas (o carro entra na sombra do morro pelo mapa 0).
+- **Fora de alcance:** objetos além da caixa do mapa 1 não projetam sombra. Na visão geral, o mapa 1 cobre o terreno inteiro.
+- **Ressalva:** o mapa 1 não inclui o terreno; o relevo perto do carro faz sombra só pela resolução do mapa 0. Se ficar serrilhado demais, dá para desenhar no mapa 1 o pedaço de terreno da caixa (comentário em `rz_shadow.cpp`).
+- **Profundidade:** os três cobrem a esfera do terreno com folga (receptores dentro da faixa), 24 bits, `sampler2DShadow` com PCF 2×2 (`GL_LINEAR`), `glPolygonOffset(2, 4)`, sem culling. As caixas andam em passos inteiros de texels, para a sombra não tremer.
+- **Efeito:** na sombra, a luz flat cai para o ambiente (0,3) nas cores flat do terreno e nos objetos; no chão texturizado, a cor é multiplicada por 0,6 (`kShadowTexturedDim`).
+- **Custo (llvmpipe, `rz_test` 800×450, 120 frames):** ~37 ms/frame; redesenhando o terreno no mapa de sombra todo frame (como na primeira versão), ~61 ms. Na tela, 2 ou 3 leituras de sombra por pixel.
 
 ## 11. Testes
 
@@ -251,6 +262,7 @@ Sem API por enquanto: tudo fixo em constantes (`rz_internal.h`).
 
 - **`rzUpdateHeightmap(ctx, data, x, y, w, h)`:** atualizaria só a região alterada da malha (`glBufferSubData` dos quads com col em [x−1, x+w−1] e row em [y−1, y+h−1], limitados a [0, 254]).
 - **Sombras:** APIs de configuração (tamanho do mapa, caixa, força) e otimizações (só redesenhar quando a luz/caixa muda, terreno simplificado no passe da sombra, cascatas). Iluminação por pixel.
+- **Distance fog:** quando entrar, rever as regras do mapa de sombra 1 (objetos próximos): tamanho e posição da caixa em função da distância da neblina.
 - **Overlay/HUD:** para o legado desenhar por cima da janela GL.
 - **Desempenho em CPU fraca:** no Allwinner D1, via llvmpipe, os 130 mil triângulos pequenos dominam. O próximo passo seria descarte de blocos do terreno fora do frustum e LOD por blocos.
 - **Escolha da diagonal do quad pela altura dos cantos**, de forma determinística.

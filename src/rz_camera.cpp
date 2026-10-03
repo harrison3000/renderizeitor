@@ -92,25 +92,6 @@ void updateFollowCamera(RzContext* ctx, Vec3 target) {
     ctx->followEye = eye;
 }
 
-// Matriz de view olhando de `eye` para `at`, y para cima (sistema destro,
-// câmera olhando para −z no espaço de view).
-Mat4 lookAt(Vec3 eye, Vec3 at) {
-    Vec3 f = at - eye;
-    const float invF = 1.0f / sqrtf(dot(f, f));
-    f = { f.x * invF, f.y * invF, f.z * invF };
-    Vec3 r = cross(f, Vec3{ 0.0f, 1.0f, 0.0f });
-    const float invR = 1.0f / sqrtf(dot(r, r));
-    r = { r.x * invR, r.y * invR, r.z * invR };
-    const Vec3 u = cross(r, f);
-
-    Mat4 v = Mat4::identity();
-    v[0, 0] =  r.x; v[0, 1] =  r.y; v[0, 2] =  r.z; v[0, 3] = -dot(r, eye);
-    v[1, 0] =  u.x; v[1, 1] =  u.y; v[1, 2] =  u.z; v[1, 3] = -dot(u, eye);
-    v[2, 0] = -f.x; v[2, 1] = -f.y; v[2, 2] = -f.z; v[2, 3] =  dot(f, eye);
-    return v;
-}
-
-
 // Projeção perspectiva no clip space do OpenGL (−w ≤ z ≤ w), câmera olhando
 // para −z. flipY espelha a imagem na vertical (modo offscreen: o glReadPixels
 // lê de baixo para cima e o buffer do host é top-down).
@@ -194,42 +175,22 @@ Mat4 updateCamera(RzContext* ctx) {
     return perspective(ctx->focalX, ctx->focalY, nearPlane, farPlane, !ctx->windowed) * view;
 }
 
-// Matriz da luz para o shadow map: ortográfica, olhando ao longo da direção
-// da luz para o centro do terreno. A view da luz é fixa (origem no centro do
-// terreno); a caixa (meia-largura H) se desloca até o foco do frame em passos
-// de um texel do shadow map, para a sombra não tremer quando o alvo anda. Em
-// profundidade, cobre a esfera envolvente do terreno inteiro (com folga), para
-// morros fora da caixa ainda projetarem sombra dentro dela.
-Mat4 shadowViewProj(const RzContext* ctx) {
-    const float cs = ctx->cellSize;
-    const Vec3 terrainCenter = { 127.5f * cs, 127.5f * ctx->heightScale, 127.5f * cs };
-    const float radius = ctx->terrainRadius * 1.1f + 4.0f * cs;   // folga para objetos acima do terreno
-    const Vec3 l = lightDirection();
-    const Vec3 lightEye = terrainCenter + Vec3{ l.x * 2.0f * radius, l.y * 2.0f * radius, l.z * 2.0f * radius };
-    const Mat4 view = lookAt(lightEye, terrainCenter);
+// Matriz de view olhando de `eye` para `at`, y para cima (sistema destro,
+// câmera olhando para −z no espaço de view).
+Mat4 lookAt(Vec3 eye, Vec3 at) {
+    Vec3 f = at - eye;
+    const float invF = 1.0f / sqrtf(dot(f, f));
+    f = { f.x * invF, f.y * invF, f.z * invF };
+    Vec3 r = cross(f, Vec3{ 0.0f, 1.0f, 0.0f });
+    const float invR = 1.0f / sqrtf(dot(r, r));
+    r = { r.x * invR, r.y * invR, r.z * invR };
+    const Vec3 u = cross(r, f);
 
-    float half = ctx->shadowWholeTerrain ? radius : kShadowHalfExtent * cs;
-    if (half > radius) half = radius;
-    float cx = 0.0f, cy = 0.0f;
-    if (!ctx->shadowWholeTerrain) {
-        const Vec3 f = ctx->shadowFocus;
-        cx = view[0, 0] * f.x + view[0, 1] * f.y + view[0, 2] * f.z + view[0, 3];
-        cy = view[1, 0] * f.x + view[1, 1] * f.y + view[1, 2] * f.z + view[1, 3];
-        const float texel = 2.0f * half / float(kShadowMapSize);
-        cx = floorf(cx / texel) * texel;
-        cy = floorf(cy / texel) * texel;
-    }
-
-    // Ortográfica: x, y em [c - H, c + H]; profundidade de 2R - R a 2R + R
-    const float nearPlane = radius, farPlane = 3.0f * radius;
-    const float invHalf = 1.0f / half;
-    Mat4 p = Mat4::identity();
-    p[0, 0] = invHalf;  p[0, 3] = -cx * invHalf;
-    p[1, 1] = invHalf;  p[1, 3] = -cy * invHalf;
-    p[2, 2] = -2.0f / (farPlane - nearPlane);
-    p[2, 3] = -(farPlane + nearPlane) / (farPlane - nearPlane);
-    return p * view;
+    Mat4 v = Mat4::identity();
+    v[0, 0] =  r.x; v[0, 1] =  r.y; v[0, 2] =  r.z; v[0, 3] = -dot(r, eye);
+    v[1, 0] =  u.x; v[1, 1] =  u.y; v[1, 2] =  u.z; v[1, 3] = -dot(u, eye);
+    v[2, 0] = -f.x; v[2, 1] = -f.y; v[2, 2] = -f.z; v[2, 3] =  dot(f, eye);
+    return v;
 }
-
 
 } // namespace rz

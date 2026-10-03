@@ -38,6 +38,7 @@ abaixo fica como registro do que mudou. A spec atual é `renderizeitor-spec.md`.
 | `src/rz_object.cpp` | Objetos (um vertex buffer por objeto, reenviado no update) |
 | `src/rz_pcx.cpp` | Leitura de PCX de 8 bits (atlas e texturas dos objetos) |
 | `src/rz_texture.cpp` | Texturas dos objetos (`rzLoadObjectTexture`, fallback, mipmaps) |
+| `src/rz_shadow.cpp` | Três shadow maps: terreno, objetos próximos, alvo da câmera |
 
 ## Desempenho (máquina de testes, 2 núcleos, 1280x720)
 

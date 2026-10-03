@@ -61,11 +61,18 @@ constexpr float kFollowLookY        = 0.1f;
 
 constexpr int32_t kMaxWindowSize = 8192;
 
-// Sombras (shadow map da luz direcional, projeção ortográfica). Seguindo um
-// alvo, a caixa da sombra cobre kShadowHalfExtent tiles em volta dele; na
-// visão geral, o terreno inteiro. Fora da caixa, tudo fica iluminado.
-constexpr int32_t kShadowMapSize    = 2048;
-constexpr float   kShadowHalfExtent = 40.0f;
+// Sombras: três shadow maps da luz direcional (detalhes em rz_shadow.cpp):
+// 0 terreno inteiro (só o terreno), 1 objetos próximos, 2 objeto seguido.
+constexpr int32_t kShadowMaps           = 3;
+// Tamanhos pedidos; limitados a GL_MAX_TEXTURE_SIZE na criação (ctx->shadowSize).
+// Resoluções parecidas entre os mapas, para a sombra do alvo não destoar das outras.
+constexpr int32_t kShadowTerrainSize    = 4096;   // ~0,09 tile/texel
+constexpr int32_t kShadowNearSize       = 2048;
+constexpr float   kShadowNearHalfExtent = 30.0f;  // tiles: 60 x 60 em volta do foco, ~0,03 tile/texel
+constexpr int32_t kShadowTargetSize     = 256;
+constexpr float   kShadowTargetMargin   = 0.25f;  // tiles além da esfera do objeto seguido
+constexpr float   kShadowTargetStep     = 0.25f;  // passo da meia-largura da caixa do alvo
+constexpr int32_t kUnitShadowFirst      = 1;      // unidades de textura 1..3 (0: atlas/objeto)
 constexpr float   kShadowTexturedDim  = 0.6f;   // chão texturizado na sombra
 constexpr float   kShadowOffsetFactor = 2.0f;   // glPolygonOffset no passe de profundidade
 constexpr float   kShadowOffsetUnits  = 4.0f;
@@ -171,16 +178,21 @@ struct Object {
 };
 
 // Locais de uniforms dos programas
+struct ShadowUniforms {
+    GLint matrices = -1, targetOn = -1;
+    GLint maps[kShadowMaps] = { -1, -1, -1 };
+};
+
 struct TerrainProgram {
     GLuint program = 0;
-    GLint  viewProj = -1, atlas = -1, textured = -1, filter = -1, shading = -1;
-    GLint  lightViewProj = -1, shadowMap = -1, ambient = -1;
+    GLint  viewProj = -1, atlas = -1, textured = -1, filter = -1, shading = -1, ambient = -1;
+    ShadowUniforms shadow;
 };
 
 struct ObjectProgram {
     GLuint program = 0;
-    GLint  viewProj = -1, texture = -1, filter = -1, texSize = -1, maxLevel = -1;
-    GLint  lightViewProj = -1, shadowMap = -1, ambient = -1;
+    GLint  viewProj = -1, texture = -1, filter = -1, texSize = -1, maxLevel = -1, ambient = -1;
+    ShadowUniforms shadow;
 };
 
 struct DepthProgram {
@@ -220,10 +232,15 @@ struct RzContext {
     rz::ObjectProgram  objectProgram;
     rz::DepthProgram   depthProgram;
 
-    // Sombras: FBO só com profundidade, textura com comparação (PCF 2x2 do hardware)
-    rz::GLuint shadowFbo = 0, shadowTex = 0;
-    rz::Vec3   shadowFocus = { 0.0f, 0.0f, 0.0f };   // centro da caixa da sombra (do frame)
-    bool       shadowWholeTerrain = true;           // visão geral: caixa = terreno inteiro
+    // Sombras (rz_shadow.cpp): três mapas, FBO só com profundidade cada
+    rz::GLuint shadowFbo[rz::kShadowMaps] = {};
+    rz::GLuint shadowTex[rz::kShadowMaps] = {};
+    rz::Mat4   shadowMatrix[rz::kShadowMaps] = {};     // do frame; contíguas (glUniformMatrix4fv)
+    int32_t    shadowSize[rz::kShadowMaps] = {};      // lado de cada mapa (já limitado pelo driver)
+    bool       terrainShadowDirty = true;            // mapa 0 precisa ser refeito
+    bool       shadowTargetOn = false;               // mapa 2 em uso (câmera seguindo)
+    rz::Vec3   shadowFocus = { 0.0f, 0.0f, 0.0f };   // centro da caixa do mapa 1 (do frame)
+    bool       shadowWholeTerrain = true;           // visão geral: mapa 1 = terreno inteiro
 
     // Projeção
     float focalX = 1.0f;     // f / aspecto
@@ -292,9 +309,16 @@ int32_t loadPcx(const char* path, PcxImage& img);
 int32_t loadPcxAtlas(const char* path, uint8_t* indices, uint8_t* paletteRGB);
 
 // rz_camera.cpp: avança a câmera um frame e devolve view-projection (convenção GL);
-// também guarda o foco da sombra. shadowViewProj: matriz da luz para o frame.
+// também guarda o foco da sombra.
 Mat4 updateCamera(RzContext* ctx);
-Mat4 shadowViewProj(const RzContext* ctx);
+Mat4 lookAt(Vec3 eye, Vec3 at);
+
+// rz_shadow.cpp
+bool createShadowMaps(RzContext* ctx);
+void destroyShadowMaps(RzContext* ctx);
+void renderShadowMaps(RzContext* ctx);
+void initShadowUniforms(GLuint program, ShadowUniforms& u);
+void bindShadowMaps(const RzContext* ctx, const ShadowUniforms& u);
 
 // rz_render.cpp
 bool createRenderer(RzContext* ctx);
@@ -312,8 +336,9 @@ void   swatchUV(int32_t paletteIndex, int32_t side, float* u, float* v);   // ce
 
 // rz_object.cpp
 void prepareObjects(RzContext* ctx);          // reenvia os VBOs alterados
-void drawObjectsDepth(RzContext* ctx);        // passe da sombra (programa já ligado)
-void drawObjects(RzContext* ctx, const Mat4& viewProj, const Mat4& lightViewProj);
+// passe da sombra (programa já ligado): onlyId >= 0 desenha só ele; skipId >= 0 pula ele
+void drawObjectsDepth(RzContext* ctx, int32_t onlyId, int32_t skipId);
+void drawObjects(RzContext* ctx, const Mat4& viewProj);
 void destroyAllObjects(RzContext* ctx);
 
 } // namespace rz

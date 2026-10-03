@@ -54,53 +54,7 @@ GLuint linkProgram(const char* vertexSource, const char* fragmentSource) {
 }
 
 constexpr GLint kUnitAtlas  = 0;    // unidade de textura do atlas (e da textura do objeto)
-constexpr GLint kUnitShadow = 1;    // shadow map
-
-// Shadow map: textura de profundidade com comparação (sampler2DShadow, PCF
-// 2x2 com GL_LINEAR) num FBO sem cor.
-bool createShadowMap(RzContext* ctx) {
-    glGenTextures(1, &ctx->shadowTex);
-    glBindTexture(GL_TEXTURE_2D, ctx->shadowTex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, kShadowMapSize, kShadowMapSize, 0,
-                 GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
-
-    glGenFramebuffers(1, &ctx->shadowFbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, ctx->shadowFbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, ctx->shadowTex, 0);
-    glDrawBuffer(GL_NONE);
-    glReadBuffer(GL_NONE);
-    const bool ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    return ok;
-}
-
-// Passe da sombra: terreno e objetos, só profundidade, sem culling (objetos de
-// winding desconhecido), com polygon offset contra o "acne".
-void renderShadowPass(RzContext* ctx, const Mat4& lightViewProj) {
-    glBindFramebuffer(GL_FRAMEBUFFER, ctx->shadowFbo);
-    glViewport(0, 0, kShadowMapSize, kShadowMapSize);
-    glClear(GL_DEPTH_BUFFER_BIT);
-    glDisable(GL_CULL_FACE);
-    glEnable(GL_POLYGON_OFFSET_FILL);
-    glPolygonOffset(kShadowOffsetFactor, kShadowOffsetUnits);
-
-    glUseProgram(ctx->depthProgram.program);
-    glUniformMatrix4fv(ctx->depthProgram.lightViewProj, 1, GL_TRUE, lightViewProj.e);
-    if (ctx->hasTerrain()) {
-        glBindVertexArray(ctx->terrainVao);
-        glDrawArrays(GL_TRIANGLES, 0, kTriangleCount * 3);
-    }
-    drawObjectsDepth(ctx);
-
-    glDisable(GL_POLYGON_OFFSET_FILL);
-}
-
+                                    // (1..3: shadow maps, kUnitShadowFirst)
 // Frente = anti-horário na tela (como no software). Com a imagem espelhada na
 // vertical (offscreen), o anti-horário visual vira horário para o OpenGL.
 GLenum frontFaceWinding(const RzContext* ctx) {
@@ -118,16 +72,14 @@ bool createRenderer(RzContext* ctx) {
     t.textured = glGetUniformLocation(t.program, "uTextured");
     t.filter   = glGetUniformLocation(t.program, "uFilter");
     t.shading  = glGetUniformLocation(t.program, "uShading");
-    t.lightViewProj = glGetUniformLocation(t.program, "uLightViewProj");
-    t.shadowMap = glGetUniformLocation(t.program, "uShadowMap");
     t.ambient   = glGetUniformLocation(t.program, "uAmbient");
     const GLint shadowDim = glGetUniformLocation(t.program, "uShadowDim");
     glUseProgram(t.program);
     glUniform1i(t.atlas, kUnitAtlas);
-    glUniform1i(t.shadowMap, kUnitShadow);
     glUniform1f(t.shading, kTexturedShading);
     glUniform1f(t.ambient, kAmbient);
     glUniform1f(shadowDim, kShadowTexturedDim);
+    initShadowUniforms(t.program, t.shadow);
 
     ObjectProgram& o = ctx->objectProgram;
     o.program = linkProgram(kObjectVertexShader, kObjectFragmentShader);
@@ -137,20 +89,18 @@ bool createRenderer(RzContext* ctx) {
     o.filter   = glGetUniformLocation(o.program, "uFilter");
     o.texSize  = glGetUniformLocation(o.program, "uTexSize");
     o.maxLevel = glGetUniformLocation(o.program, "uMaxLevel");
-    o.lightViewProj = glGetUniformLocation(o.program, "uLightViewProj");
-    o.shadowMap = glGetUniformLocation(o.program, "uShadowMap");
     o.ambient   = glGetUniformLocation(o.program, "uAmbient");
     glUseProgram(o.program);
     glUniform1i(o.texture, kUnitAtlas);
-    glUniform1i(o.shadowMap, kUnitShadow);
     glUniform1f(o.ambient, kAmbient);
+    initShadowUniforms(o.program, o.shadow);
     if (!createFallbackTexture(ctx)) return false;
 
     DepthProgram& d = ctx->depthProgram;
     d.program = linkProgram(kDepthVertexShader, kDepthFragmentShader);
     if (!d.program) return false;
     d.lightViewProj = glGetUniformLocation(d.program, "uLightViewProj");
-    if (!createShadowMap(ctx)) return false;
+    if (!createShadowMaps(ctx)) return false;
 
     // Malha do terreno: buffer de tamanho fixo, preenchido em buildTerrainMesh
     glGenVertexArrays(1, &ctx->terrainVao);
@@ -202,8 +152,7 @@ void destroyRenderer(RzContext* ctx) {
     if (ctx->atlasTex) glDeleteTextures(1, &ctx->atlasTex);
     if (ctx->fallbackTex) glDeleteTextures(1, &ctx->fallbackTex);
     if (ctx->depthProgram.program) glDeleteProgram(ctx->depthProgram.program);
-    if (ctx->shadowFbo) glDeleteFramebuffers(1, &ctx->shadowFbo);
-    if (ctx->shadowTex) glDeleteTextures(1, &ctx->shadowTex);
+    destroyShadowMaps(ctx);
 }
 
 // Estado do sampler do atlas e das texturas dos objetos para o filtro atual.
@@ -228,12 +177,9 @@ void applyTextureFilter(RzContext* ctx) {
 
 void renderFrame(RzContext* ctx) {
     const Mat4 viewProj = updateCamera(ctx);
-    const Mat4 lightViewProj = shadowViewProj(ctx);
 
     prepareObjects(ctx);
-    renderShadowPass(ctx, lightViewProj);
-    glActiveTexture(GL_TEXTURE0 + GLenum(kUnitShadow));
-    glBindTexture(GL_TEXTURE_2D, ctx->shadowTex);
+    renderShadowMaps(ctx);
 
     glBindFramebuffer(GL_FRAMEBUFFER, ctx->windowed ? 0 : ctx->fbo);
     glViewport(0, 0, ctx->width, ctx->height);
@@ -248,7 +194,7 @@ void renderFrame(RzContext* ctx) {
         const bool textured = ctx->hasAtlas && ctx->hasTileMap;
         glUseProgram(t.program);
         glUniformMatrix4fv(t.viewProj, 1, GL_TRUE, viewProj.e);
-        glUniformMatrix4fv(t.lightViewProj, 1, GL_TRUE, lightViewProj.e);
+        bindShadowMaps(ctx, t.shadow);
         glUniform1i(t.textured, textured ? 1 : 0);
         glUniform1i(t.filter, ctx->textureFilter);
         glActiveTexture(GL_TEXTURE0 + GLenum(kUnitAtlas));
@@ -260,7 +206,7 @@ void renderFrame(RzContext* ctx) {
         glDrawArrays(GL_TRIANGLES, 0, kTriangleCount * 3);
     }
 
-    drawObjects(ctx, viewProj, lightViewProj);
+    drawObjects(ctx, viewProj);
 
     if (ctx->windowed) {
         platformSwapBuffers(ctx->platform);

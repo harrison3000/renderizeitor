@@ -10,13 +10,13 @@ layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec4 aColor;      // B, G, R, 0 normalizados
 layout(location = 2) in vec4 aUvLayer;    // u, v em {0, 1}; bloco 0..255; luz 0..255
 uniform mat4 uViewProj;
-uniform mat4 uLightViewProj;
+uniform mat4 uShadowMatrix[3];            // luz: terreno, objetos próximos, alvo
 
 flat out vec3  vColor;
 flat out int   vLayer;
 flat out float vLight;                    // luz flat do triângulo, 0..1
 out vec2 vUV;
-out vec3 vShadowCoord;
+out vec3 vShadow0, vShadow1, vShadow2;
 
 void main() {
     vColor = aColor.bgr;
@@ -24,7 +24,9 @@ void main() {
     vLayer = int(aUvLayer.z);
     vLight = aUvLayer.w / 255.0;
     vec4 world = vec4(aPosition, 1.0);
-    vShadowCoord = (uLightViewProj * world).xyz * 0.5 + 0.5;
+    vShadow0 = (uShadowMatrix[0] * world).xyz * 0.5 + 0.5;
+    vShadow1 = (uShadowMatrix[1] * world).xyz * 0.5 + 0.5;
+    vShadow2 = (uShadowMatrix[2] * world).xyz * 0.5 + 0.5;
     gl_Position = uViewProj * world;
 }
 )GLSL";
@@ -42,10 +44,11 @@ flat in vec3  vColor;
 flat in int   vLayer;
 flat in float vLight;
 in vec2 vUV;
-in vec3 vShadowCoord;
+in vec3 vShadow0, vShadow1, vShadow2;
 
 uniform sampler2DArray  uAtlas;
-uniform sampler2DShadow uShadowMap;
+uniform sampler2DShadow uShadow0, uShadow1, uShadow2;
+uniform int   uShadowTargetOn;            // mapa 2 (objeto seguido) em uso
 uniform int   uTextured;
 uniform int   uFilter;
 uniform float uShading;
@@ -54,18 +57,26 @@ uniform float uShadowDim;                 // chão texturizado na sombra: fator 
 
 out vec4 fragColor;
 
-// Sombra: 1 iluminado, 0 na sombra. Fora da caixa do shadow map, iluminado.
-// sampler2DShadow com GL_LINEAR: PCF 2x2 do hardware.
+// Sombra: 1 iluminado, 0 na sombra. Fora da caixa de um mapa, ele não sombreia.
+// sampler2DShadow com GL_LINEAR: PCF 2x2 do hardware. textureLod: o mapa não
+// tem mipmap e a leitura fica dentro de um if (sem derivadas).
 float shadowLit(sampler2DShadow map, vec3 c) {
     if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) return 1.0;
-    return texture(map, c);
+    return textureLod(map, c, 0.0);
+}
+
+// Os três mapas (rz_shadow.cpp): iluminado = mínimo
+float shadowTerm() {
+    float lit = min(shadowLit(uShadow0, vShadow0), shadowLit(uShadow1, vShadow1));
+    if (uShadowTargetOn != 0) lit = min(lit, shadowLit(uShadow2, vShadow2));
+    return lit;
 }
 
 const float kBayer[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0,
                                    3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
 
 void main() {
-    float lit   = shadowLit(uShadowMap, vShadowCoord);
+    float lit   = shadowTerm();
     float light = mix(min(uAmbient, vLight), vLight, lit);
     if (uTextured == 0) {
         fragColor = vec4(vColor * (light / max(vLight, 0.001)), 0.0);
@@ -98,15 +109,17 @@ layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec4 aColor;
 layout(location = 2) in vec2 aUV;
 uniform mat4 uViewProj;
-uniform mat4 uLightViewProj;
+uniform mat4 uShadowMatrix[3];            // luz: terreno, objetos próximos, alvo
 flat out float vLight;
 out vec2 vUV;
-out vec3 vShadowCoord;
+out vec3 vShadow0, vShadow1, vShadow2;
 void main() {
     vLight = aColor.b;                     // cinza: os três canais são iguais
     vUV = aUV;
     vec4 world = vec4(aPosition, 1.0);
-    vShadowCoord = (uLightViewProj * world).xyz * 0.5 + 0.5;
+    vShadow0 = (uShadowMatrix[0] * world).xyz * 0.5 + 0.5;
+    vShadow1 = (uShadowMatrix[1] * world).xyz * 0.5 + 0.5;
+    vShadow2 = (uShadowMatrix[2] * world).xyz * 0.5 + 0.5;
     gl_Position = uViewProj * world;
 }
 )GLSL";
@@ -116,10 +129,11 @@ void main() {
 constexpr const char* kObjectFragmentShader = R"GLSL(#version 330 core
 flat in float vLight;
 in vec2 vUV;
-in vec3 vShadowCoord;
+in vec3 vShadow0, vShadow1, vShadow2;
 
 uniform sampler2D       uTexture;
-uniform sampler2DShadow uShadowMap;
+uniform sampler2DShadow uShadow0, uShadow1, uShadow2;
+uniform int   uShadowTargetOn;            // mapa 2 (objeto seguido) em uso
 uniform int   uFilter;
 uniform float uTexSize;
 uniform float uMaxLevel;
@@ -127,11 +141,19 @@ uniform float uAmbient;
 
 out vec4 fragColor;
 
-// Sombra: 1 iluminado, 0 na sombra. Fora da caixa do shadow map, iluminado.
-// sampler2DShadow com GL_LINEAR: PCF 2x2 do hardware.
+// Sombra: 1 iluminado, 0 na sombra. Fora da caixa de um mapa, ele não sombreia.
+// sampler2DShadow com GL_LINEAR: PCF 2x2 do hardware. textureLod: o mapa não
+// tem mipmap e a leitura fica dentro de um if (sem derivadas).
 float shadowLit(sampler2DShadow map, vec3 c) {
     if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) return 1.0;
-    return texture(map, c);
+    return textureLod(map, c, 0.0);
+}
+
+// Os três mapas (rz_shadow.cpp): iluminado = mínimo
+float shadowTerm() {
+    float lit = min(shadowLit(uShadow0, vShadow0), shadowLit(uShadow1, vShadow1));
+    if (uShadowTargetOn != 0) lit = min(lit, shadowLit(uShadow2, vShadow2));
+    return lit;
 }
 
 const float kBayer[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0,
@@ -152,7 +174,7 @@ void main() {
     } else {
         texel = texture(uTexture, vUV).rgb;
     }
-    float lit = shadowLit(uShadowMap, vShadowCoord);
+    float lit = shadowTerm();
     fragColor = vec4(texel * mix(min(uAmbient, vLight), vLight, lit), 0.0);
 }
 )GLSL";

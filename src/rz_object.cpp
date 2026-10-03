@@ -158,16 +158,20 @@ void prepareObjects(RzContext* ctx) {
 }
 
 // Passe da sombra: só a geometria (o programa de profundidade já está ligado).
-void drawObjectsDepth(RzContext* ctx) {
-    for (const Object& o : ctx->objects) {
-        if (!drawable(o)) continue;
+// onlyId >= 0: só esse objeto; skipId >= 0: todos menos ele.
+// (Os que ficam fora da caixa do mapa são cortados pelo clipping; descartá-los
+// antes pela esfera envolvente seria a otimização.)
+void drawObjectsDepth(RzContext* ctx, int32_t onlyId, int32_t skipId) {
+    for (int32_t id = 0; id < int32_t(ctx->objects.size()); ++id) {
+        const Object& o = ctx->objects[id];
+        if (!drawable(o) || (onlyId >= 0 && id != onlyId) || id == skipId) continue;
         glBindVertexArray(o.vao);
         glDrawArrays(GL_TRIANGLES, 0, o.triangleCount() * 3);
     }
 }
 
 // Culling pela ordem na tela (glFrontFace já define frente = anti-horário visual).
-void drawObjects(RzContext* ctx, const Mat4& viewProj, const Mat4& lightViewProj) {
+void drawObjects(RzContext* ctx, const Mat4& viewProj) {
     bool programBound = false;
     for (Object& o : ctx->objects) {
         if (!drawable(o)) continue;
@@ -175,9 +179,8 @@ void drawObjects(RzContext* ctx, const Mat4& viewProj, const Mat4& lightViewProj
         if (!programBound) {
             glUseProgram(prog.program);
             glUniformMatrix4fv(prog.viewProj, 1, GL_TRUE, viewProj.e);
-            glUniformMatrix4fv(prog.lightViewProj, 1, GL_TRUE, lightViewProj.e);
             glUniform1i(prog.filter, ctx->textureFilter);
-            glActiveTexture(GL_TEXTURE0);
+            bindShadowMaps(ctx, prog.shadow);           // deixa a unidade 0 ativa
             programBound = true;
         }
         // Textura própria ou fallback

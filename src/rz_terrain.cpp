@@ -106,6 +106,7 @@ void buildPalette(uint32_t* palette) {
 // Remontada em rzSetHeightmap, rzSetTerrainScale e rzSetTileMap (carga).
 bool buildTerrainMesh(RzContext* ctx) {
     constexpr int32_t kCount = kTriangleCount * 3;
+    ctx->terrainShadowDirty = true;          // o mapa de sombra do terreno é refeito no próximo frame
     std::vector<TerrainVertex> mesh(kCount);
 
     uint32_t palette[kPaletteSize];
