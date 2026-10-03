@@ -54,6 +54,15 @@ constexpr float kFollowClimb        = 0.2f;   // amortecimento ao subir
 
 constexpr int32_t kMaxWindowSize = 8192;
 
+// Sombras (shadow map da luz direcional, projeção ortográfica). Seguindo um
+// alvo, a caixa da sombra cobre kShadowHalfExtent tiles em volta dele; na
+// visão geral, o terreno inteiro. Fora da caixa, tudo fica iluminado.
+constexpr int32_t kShadowMapSize    = 2048;
+constexpr float   kShadowHalfExtent = 40.0f;
+constexpr float   kShadowTexturedDim  = 0.6f;   // chão texturizado na sombra
+constexpr float   kShadowOffsetFactor = 2.0f;   // glPolygonOffset no passe de profundidade
+constexpr float   kShadowOffsetUnits  = 4.0f;
+
 // Texturas: blocos 16x16 numa textura array (uma camada por bloco), com
 // mipmaps 16, 8, 4, 2, 1 gerados na carga (média 2x2, como no software).
 constexpr int32_t kTileSize      = 16;
@@ -158,11 +167,18 @@ struct Object {
 struct TerrainProgram {
     GLuint program = 0;
     GLint  viewProj = -1, atlas = -1, textured = -1, filter = -1, shading = -1;
+    GLint  lightViewProj = -1, shadowMap = -1, ambient = -1;
 };
 
 struct ObjectProgram {
     GLuint program = 0;
     GLint  viewProj = -1, texture = -1, filter = -1, texSize = -1, maxLevel = -1;
+    GLint  lightViewProj = -1, shadowMap = -1, ambient = -1;
+};
+
+struct DepthProgram {
+    GLuint program = 0;
+    GLint  lightViewProj = -1;
 };
 
 // Imagem paletizada lida de um PCX (rz_pcx.cpp)
@@ -190,6 +206,12 @@ struct RzContext {
 
     rz::TerrainProgram terrainProgram;
     rz::ObjectProgram  objectProgram;
+    rz::DepthProgram   depthProgram;
+
+    // Sombras: FBO só com profundidade, textura com comparação (PCF 2x2 do hardware)
+    rz::GLuint shadowFbo = 0, shadowTex = 0;
+    rz::Vec3   shadowFocus = { 0.0f, 0.0f, 0.0f };   // centro da caixa da sombra (do frame)
+    bool       shadowWholeTerrain = true;           // visão geral: caixa = terreno inteiro
 
     // Projeção
     float focalX = 1.0f;     // f / aspecto
@@ -256,8 +278,10 @@ int32_t loadPcx(const char* path, PcxImage& img);
 // paletteRGB: 768 bytes). Devolve RZ_OK, RZ_ERR_FILE, RZ_ERR_FORMAT ou RZ_ERR_SIZE.
 int32_t loadPcxAtlas(const char* path, uint8_t* indices, uint8_t* paletteRGB);
 
-// rz_camera.cpp: avança a câmera um frame e devolve view-projection (convenção GL)
+// rz_camera.cpp: avança a câmera um frame e devolve view-projection (convenção GL);
+// também guarda o foco da sombra. shadowViewProj: matriz da luz para o frame.
 Mat4 updateCamera(RzContext* ctx);
+Mat4 shadowViewProj(const RzContext* ctx);
 
 // rz_render.cpp
 bool createRenderer(RzContext* ctx);
@@ -274,7 +298,9 @@ int32_t mipLevels(int32_t side);   // log2(side) + 1
 void   swatchUV(int32_t paletteIndex, int32_t side, float* u, float* v);   // centro do bloco
 
 // rz_object.cpp
-void drawObjects(RzContext* ctx, const Mat4& viewProj, bool flipped);
+void prepareObjects(RzContext* ctx);          // reenvia os VBOs alterados
+void drawObjectsDepth(RzContext* ctx);        // passe da sombra (programa já ligado)
+void drawObjects(RzContext* ctx, const Mat4& viewProj, const Mat4& lightViewProj);
 void destroyAllObjects(RzContext* ctx);
 
 } // namespace rz

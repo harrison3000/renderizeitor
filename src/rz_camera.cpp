@@ -162,6 +162,9 @@ Mat4 updateCamera(RzContext* ctx) {
         at = terrainCenter;
         overviewCamera(ctx, at, &eye);
     }
+    ctx->shadowFocus = at;
+    ctx->shadowWholeTerrain = !following;
+
     const Mat4 view = lookAt(eye, at);
     const Vec3 toAt = at - eye;
     const float focusDist = sqrtf(dot(toAt, toAt));
@@ -179,6 +182,43 @@ Mat4 updateCamera(RzContext* ctx) {
     ctx->farPlane  = farPlane;
 
     return perspective(ctx->focalX, ctx->focalY, nearPlane, farPlane, !ctx->windowed) * view;
+}
+
+// Matriz da luz para o shadow map: ortográfica, olhando ao longo da direção
+// da luz para o centro do terreno. A view da luz é fixa (origem no centro do
+// terreno); a caixa (meia-largura H) se desloca até o foco do frame em passos
+// de um texel do shadow map, para a sombra não tremer quando o alvo anda. Em
+// profundidade, cobre a esfera envolvente do terreno inteiro (com folga), para
+// morros fora da caixa ainda projetarem sombra dentro dela.
+Mat4 shadowViewProj(const RzContext* ctx) {
+    const float cs = ctx->cellSize;
+    const Vec3 terrainCenter = { 127.5f * cs, 127.5f * ctx->heightScale, 127.5f * cs };
+    const float radius = ctx->terrainRadius * 1.1f + 4.0f * cs;   // folga para objetos acima do terreno
+    const Vec3 l = lightDirection();
+    const Vec3 lightEye = terrainCenter + Vec3{ l.x * 2.0f * radius, l.y * 2.0f * radius, l.z * 2.0f * radius };
+    const Mat4 view = lookAt(lightEye, terrainCenter);
+
+    float half = ctx->shadowWholeTerrain ? radius : kShadowHalfExtent * cs;
+    if (half > radius) half = radius;
+    float cx = 0.0f, cy = 0.0f;
+    if (!ctx->shadowWholeTerrain) {
+        const Vec3 f = ctx->shadowFocus;
+        cx = view[0, 0] * f.x + view[0, 1] * f.y + view[0, 2] * f.z + view[0, 3];
+        cy = view[1, 0] * f.x + view[1, 1] * f.y + view[1, 2] * f.z + view[1, 3];
+        const float texel = 2.0f * half / float(kShadowMapSize);
+        cx = floorf(cx / texel) * texel;
+        cy = floorf(cy / texel) * texel;
+    }
+
+    // Ortográfica: x, y em [c - H, c + H]; profundidade de 2R - R a 2R + R
+    const float nearPlane = radius, farPlane = 3.0f * radius;
+    const float invHalf = 1.0f / half;
+    Mat4 p = Mat4::identity();
+    p[0, 0] = invHalf;  p[0, 3] = -cx * invHalf;
+    p[1, 1] = invHalf;  p[1, 3] = -cy * invHalf;
+    p[2, 2] = -2.0f / (farPlane - nearPlane);
+    p[2, 3] = -(farPlane + nearPlane) / (farPlane - nearPlane);
+    return p * view;
 }
 
 

@@ -47,6 +47,13 @@ constexpr GLenum GL_UNPACK_ALIGNMENT        = 0x0CF5;
 constexpr GLenum GL_PACK_ALIGNMENT          = 0x0D05;
 constexpr GLenum GL_TEXTURE_2D              = 0x0DE1;
 constexpr GLenum GL_MAX_TEXTURE_SIZE        = 0x0D33;
+constexpr GLenum GL_NONE                    = 0;
+constexpr GLenum GL_UNSIGNED_INT            = 0x1405;
+constexpr GLenum GL_DEPTH_COMPONENT         = 0x1902;
+constexpr GLenum GL_POLYGON_OFFSET_FILL     = 0x8037;
+constexpr GLenum GL_TEXTURE_COMPARE_MODE    = 0x884C;
+constexpr GLenum GL_TEXTURE_COMPARE_FUNC    = 0x884D;
+constexpr GLenum GL_COMPARE_REF_TO_TEXTURE  = 0x884E;
 constexpr GLenum GL_TEXTURE_2D_ARRAY        = 0x8C1A;
 constexpr GLenum GL_UNSIGNED_BYTE           = 0x1401;
 constexpr GLenum GL_FLOAT                   = 0x1406;
@@ -95,6 +102,11 @@ constexpr GLenum GL_FRAMEBUFFER_COMPLETE    = 0x8CD5;
     X(const GLubyte*, glGetString, (GLenum name))                                                  \
     X(GLenum, glGetError, (void))                                                                  \
     X(void, glGetIntegerv, (GLenum pname, GLint* data))                                            \
+    X(void, glDrawBuffer, (GLenum mode))                                                           \
+    X(void, glReadBuffer, (GLenum mode))                                                           \
+    X(void, glPolygonOffset, (GLfloat factor, GLfloat units))                                      \
+    X(void, glFramebufferTexture2D, (GLenum target, GLenum attachment, GLenum texTarget,           \
+                                     GLuint texture, GLint level))                                 \
     X(void, glViewport, (GLint x, GLint y, GLsizei w, GLsizei h))                                  \
     X(void, glClearColor, (GLfloat r, GLfloat g, GLfloat b, GLfloat a))                            \
     X(void, glClear, (GLbitfield mask))                                                            \

@@ -140,15 +140,42 @@ int32_t addPolygon(RzContext* ctx, int32_t id, const uint16_t* indices, const fl
 
 namespace rz {
 
+static bool drawable(const Object& o) {
+    return o.alive && o.visible && o.positioned && !o.triangles.empty();
+}
+
+// Reenvia os VBOs alterados, antes dos dois passes do frame (sem alocar).
+void prepareObjects(RzContext* ctx) {
+    for (Object& o : ctx->objects) {
+        if (!drawable(o)) continue;
+        const int32_t side = o.texture ? o.textureSize : ctx->fallbackSize;
+        if (o.gpuDirty || o.uploadedSide != side) {   // textura trocada: UVs das cores mudam
+            uploadObject(o, side);
+            o.gpuDirty = false;
+            o.uploadedSide = side;
+        }
+    }
+}
+
+// Passe da sombra: só a geometria (o programa de profundidade já está ligado).
+void drawObjectsDepth(RzContext* ctx) {
+    for (const Object& o : ctx->objects) {
+        if (!drawable(o)) continue;
+        glBindVertexArray(o.vao);
+        glDrawArrays(GL_TRIANGLES, 0, o.triangleCount() * 3);
+    }
+}
+
 // Culling pela ordem na tela (glFrontFace já define frente = anti-horário visual).
-void drawObjects(RzContext* ctx, const Mat4& viewProj, bool /*flipped*/) {
+void drawObjects(RzContext* ctx, const Mat4& viewProj, const Mat4& lightViewProj) {
     bool programBound = false;
     for (Object& o : ctx->objects) {
-        if (!o.alive || !o.visible || !o.positioned || o.triangles.empty()) continue;
+        if (!drawable(o)) continue;
         const ObjectProgram& prog = ctx->objectProgram;
         if (!programBound) {
             glUseProgram(prog.program);
             glUniformMatrix4fv(prog.viewProj, 1, GL_TRUE, viewProj.e);
+            glUniformMatrix4fv(prog.lightViewProj, 1, GL_TRUE, lightViewProj.e);
             glUniform1i(prog.filter, ctx->textureFilter);
             glActiveTexture(GL_TEXTURE0);
             programBound = true;
@@ -164,11 +191,6 @@ void drawObjects(RzContext* ctx, const Mat4& viewProj, bool /*flipped*/) {
         } else {
             glEnable(GL_CULL_FACE);
             glCullFace(o.cull == RZ_CULL_CW ? GL_BACK : GL_FRONT);
-        }
-        if (o.gpuDirty || o.uploadedSide != side) {   // textura trocada: UVs das cores mudam
-            uploadObject(o, side);
-            o.gpuDirty = false;
-            o.uploadedSide = side;
         }
         glBindVertexArray(o.vao);
         glDrawArrays(GL_TRIANGLES, 0, o.triangleCount() * 3);

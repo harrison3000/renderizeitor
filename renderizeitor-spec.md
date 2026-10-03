@@ -197,13 +197,26 @@ O modo normal é a perseguição (9.2): o host sempre define um alvo.
 
 ## 10. Frame (`rzRender`)
 
-1. Atualiza a câmera e monta a view-projection.
-2. Faz bind do FBO (offscreen) ou do framebuffer padrão (janela) e limpa com a cor de fundo `0x00202830`, com profundidade em `GL_LESS`.
-3. Desenha o terreno em um draw: textura se houver atlas e mapa de blocos, senão as cores flat.
-4. Desenha os objetos.
-5. Faz `SwapBuffers` (janela) ou `glReadPixels` para o buffer do host (offscreen).
+1. Atualiza a câmera e monta a view-projection e a matriz da luz (sombra).
+2. Reenvia os VBOs de objetos alterados.
+3. Passe da sombra: terreno e objetos visíveis, só profundidade, no shadow map.
+4. Faz bind do FBO (offscreen) ou do framebuffer padrão (janela) e limpa com a cor de fundo `0x00202830`, com profundidade em `GL_LESS`.
+5. Desenha o terreno em um draw: textura se houver atlas e mapa de blocos, senão as cores flat.
+6. Desenha os objetos.
+7. Faz `SwapBuffers` (janela) ou `glReadPixels` para o buffer do host (offscreen).
 
 Sem heightmap, só limpa e apresenta.
+
+### 10.1 Sombras (shadow map)
+
+Sem API por enquanto: tudo fixo em constantes (`rz_internal.h`).
+
+- **Luz:** a mesma direcional fixa da iluminação flat (`lightDirection`), com projeção ortográfica. A view da luz é fixa, olhando para o centro do terreno.
+- **Caixa:** seguindo um alvo, 2 × 40 tiles em volta dele (`kShadowHalfExtent`), deslocada em passos de um texel para a sombra não tremer; na visão geral, o terreno inteiro. Em profundidade, cobre a esfera do terreno com folga, então morros fora da caixa ainda fazem sombra dentro dela. Fora da caixa, tudo é iluminado.
+- **Mapa:** 2048 × 2048, profundidade de 24 bits, com comparação (`sampler2DShadow`, PCF 2×2 do hardware via `GL_LINEAR`). Passe sem culling, com `glPolygonOffset(2, 4)` contra acne.
+- **Quem projeta:** terreno e objetos visíveis. **Quem recebe:** os dois.
+- **Efeito:** na sombra, a luz flat cai para o ambiente (0,3), nas cores flat do terreno e nos objetos; no chão texturizado, a cor é multiplicada por 0,6 (`kShadowTexturedDim`), porque a luz flat ali já é atenuada.
+- **Custo:** o passe da sombra redesenha os 130 mil triângulos do terreno. No llvmpipe (800×450), o frame do `rz_test` foi de ~30 para ~55 ms.
 
 ## 11. Testes
 
@@ -235,8 +248,7 @@ Sem heightmap, só limpa e apresenta.
 ## 12. Roadmap e decisões em aberto
 
 - **`rzUpdateHeightmap(ctx, data, x, y, w, h)`:** atualizaria só a região alterada da malha (`glBufferSubData` dos quads com col em [x−1, x+w−1] e row em [y−1, y+h−1], limitados a [0, 254]).
-- **Sombras e iluminação por pixel:** o motivo principal da migração para GL.
-- **Texturas e cores reais nos objetos:** hoje a cor é provisória.
+- **Sombras:** APIs de configuração (tamanho do mapa, caixa, força) e otimizações (só redesenhar quando a luz/caixa muda, terreno simplificado no passe da sombra, cascatas). Iluminação por pixel.
 - **Overlay/HUD:** para o legado desenhar por cima da janela GL.
 - **Desempenho em CPU fraca:** no Allwinner D1, via llvmpipe, os 130 mil triângulos pequenos dominam. O próximo passo seria descarte de blocos do terreno fora do frustum e LOD por blocos.
 - **Escolha da diagonal do quad pela altura dos cantos**, de forma determinística.
