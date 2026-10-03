@@ -245,8 +245,9 @@ static void rztdGenerateTileMap(const uint8_t* heights, uint8_t* tileMap) {
 /* Objetos de teste, no formato do legado: vértices 8.24 absolutos (z para    */
 /* cima, 1.0 = 1 tile), polígonos convexos fechados repetindo o 1º índice.    */
 /* As funções abaixo recebem (x, y, z) com y para cima e gravam (x, z, y).   */
-/* Faces orientadas para fora (regra da mão direita), o que as deixa em        */
-/* sentido anti-horário na tela quando vistas de fora: use RZ_CULL_CW.         */
+/* Faces no sentido do legado: horário na tela quando vistas de fora (a normal */
+/* de Newell, pela regra da mão direita, aponta para dentro). O renderer        */
+/* descarta as faces em sentido anti-horário na tela.                          */
 /* ------------------------------------------------------------------------- */
 
 #define RZTD_MESH_MAX_VERTS  64
@@ -277,8 +278,10 @@ static int rztdVertex(RztdMesh* m, float x, float y, float z) {
     return i;
 }
 
-/* Polígono com os vértices ids[0..n-1]; a ordem é invertida se a normal de
-   Newell não apontar para o mesmo lado de `out` (direção "para fora"). */
+/* Polígono com os vértices ids[0..n-1], gravado no sentido do legado: a normal
+   de Newell aponta para o lado oposto de `out` (direção "para fora"). O
+   primeiro vértice é sempre o mesmo (ids[0] ou ids[n-1]): só o sentido muda,
+   o leque da triangulação continua com os mesmos triângulos. */
 static void rztdPolygon(RztdMesh* m, const int* ids, int n, float ox, float oy, float oz) {
     float nx = 0.0f, ny = 0.0f, nz = 0.0f;
     int i;
@@ -290,9 +293,13 @@ static void rztdPolygon(RztdMesh* m, const int* ids, int n, float ox, float oy, 
         nz += (a[0] - b[0]) * (a[1] + b[1]);
     }
     if (nx * ox + ny * oy + nz * oz >= 0.0f) {
-        for (i = 0; i < n; ++i) m->indices[m->indexCount++] = (uint16_t)ids[i];
+        /* ids está para fora: grava ids[0], ids[n-1], ..., ids[1] */
+        m->indices[m->indexCount++] = (uint16_t)ids[0];
+        for (i = n - 1; i >= 1; --i) m->indices[m->indexCount++] = (uint16_t)ids[i];
     } else {
-        for (i = n - 1; i >= 0; --i) m->indices[m->indexCount++] = (uint16_t)ids[i];
+        /* ids já está no sentido do legado: grava ids[n-1], ids[0], ..., ids[n-2] */
+        m->indices[m->indexCount++] = (uint16_t)ids[n - 1];
+        for (i = 0; i < n - 1; ++i) m->indices[m->indexCount++] = (uint16_t)ids[i];
     }
     m->indices[m->indexCount] = m->indices[m->indexCount - n];   /* fechamento */
     m->indexCount++;
@@ -596,7 +603,7 @@ static void rztdFaceUVs(const RztdMesh* m, const uint16_t* ids, int n, float vMa
         nz += (a[0] - b[0]) * (a[1] + b[1]);
     }
     len = sqrtf(nx * nx + ny * ny + nz * nz);
-    if (len > 0.0f) { nx /= len; ny /= len; nz /= len; }
+    if (len > 0.0f) { nx /= -len; ny /= -len; nz /= -len; }   /* sentido do legado: Newell aponta para dentro */
     if (fabsf(ny) < 0.9f) {
         float h = sqrtf(nx * nx + nz * nz);
         ua[0] = nz / h; ua[1] = 0.0f; ua[2] = -nx / h;
@@ -649,7 +656,7 @@ static float rztdFaceUp(const RztdMesh* m, const uint16_t* ids, int n) {
         nz += (a[0] - b[0]) * (a[1] + b[1]);
     }
     len = sqrtf(nx * nx + ny * ny + nz * nz);
-    return len > 0.0f ? ny / len : 0.0f;
+    return len > 0.0f ? -ny / len : 0.0f;    /* sentido do legado: Newell aponta para dentro */
 }
 
 /* Cria no renderer um objeto a partir de uma malha de teste, como o legado

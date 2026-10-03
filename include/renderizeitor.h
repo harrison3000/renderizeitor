@@ -110,7 +110,7 @@ RZ_API int32_t RZ_CALL rzSetBackgroundColor(RzContext* ctx, uint8_t r, uint8_t g
 
 /* Vértices: array de vertexCount * 3 uint32_t (três eixos por vértice), em
    ponto fixo 8.24 sem sinal, coordenadas absolutas no mundo: 1.0 = 1 tile.
-   A ordem dos eixos é definida por rzSetObjectAxes (padrão RZ_AXES_Z_UP, como no legado).
+   Eixos do legado: (x, y, z) = (coluna, linha, altura), z para cima.
 
    Montagem de um objeto (fase de carga):
      1. rzCreateObject(ctx, vertexCount, &id)       só a quantidade de vértices
@@ -119,13 +119,6 @@ RZ_API int32_t RZ_CALL rzSetBackgroundColor(RzContext* ctx, uint8_t r, uint8_t g
      3. rzUpdateObjectVertices(ctx, id, vertices)   posições (e a cada frame)
    Os passos 2 e 3 podem vir em qualquer ordem e se repetir; o objeto só é
    desenhado depois da primeira rzUpdateObjectVertices. */
-
-#define RZ_AXES_Y_UP  0   /* (x, y, z) = (coluna, altura, linha) */
-#define RZ_AXES_Z_UP  1   /* (x, y, z) = (coluna, linha, altura) */
-
-/* Vale para todos os objetos; mude antes de criar os objetos (as posições já
-   carregadas não são reconvertidas). */
-RZ_API int32_t RZ_CALL rzSetObjectAxes(RzContext* ctx, int32_t axes);
 
 /* Cria um objeto vazio com vertexCount vértices (1 a 65536), ainda sem
    polígonos e sem posições (fase de carga: aloca). Devolve o id em outId. */
@@ -184,16 +177,9 @@ RZ_API int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t id,
 RZ_API int32_t RZ_CALL rzDestroyObject(RzContext* ctx, int32_t id);
 
 
-RZ_API int32_t RZ_CALL rzSetObjectVisible(RzContext* ctx, int32_t id, int32_t visible);
+/* Faces: as que aparecem em sentido anti-horário na tela são descartadas
+   (convenção do legado: vista de fora, a face está em sentido horário). */
 
-/* Descarte de faces pelo sentido em que os vértices aparecem na tela.
-   Padrão RZ_CULL_NONE (desenha os dois lados), enquanto o winding dos
-   polígonos do legado não é conhecido. */
-#define RZ_CULL_NONE  0
-#define RZ_CULL_CW    1   /* descarta faces com vértices em sentido horário */
-#define RZ_CULL_CCW   2   /* descarta faces com vértices em sentido anti-horário */
-
-RZ_API int32_t RZ_CALL rzSetObjectCulling(RzContext* ctx, int32_t id, int32_t cull);
 
 /* ------------------------------------------------------------------------ */
 

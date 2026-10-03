@@ -54,7 +54,7 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 | Contexto | `rzCreate(w, h, pixels)` offscreen; `rzCreateWindow(hwndPai, x, y, w, h)` janela filha; `rzSetViewport` (só no modo janela); `rzDestroy` |
 | Terreno | `rzSetHeightmap` (256×256); `rzSetTerrainScale(cellSize, heightScale)` |
 | Texturas | `rzLoadTileAtlas(caminhoPcx)`; `rzSetTileMap` (256×256, NULL desliga as texturas); `rzSetTextureFilter` |
-| Objetos | `rzSetObjectAxes`, `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count, paletteIndex)`, `rzAddObjectTexturedPolygon(id, indices, uvs, count)`, `rzLoadObjectTexture(id, caminhoPcx)`, `rzLoadFallbackTexture(caminhoPcx)`, `rzUpdateObjectVertices`, `rzDestroyObject`, `rzSetObjectVisible`, `rzSetObjectCulling` |
+| Objetos | `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count, paletteIndex)`, `rzAddObjectTexturedPolygon(id, indices, uvs, count)`, `rzLoadObjectTexture(id, caminhoPcx)`, `rzLoadFallbackTexture(caminhoPcx)`, `rzUpdateObjectVertices`, `rzDestroyObject` |
 | Câmera | `rzSetCameraTarget(id, vertex)`, `rzSetCameraFollow(distance, height, stiffness)` |
 | Cena | `rzSetBackgroundColor(r, g, b)` (0..255; padrão 32, 40, 48) |
 | Frame | `rzRender` |
@@ -99,7 +99,7 @@ Limites:
 - **Unidade:** 1 tile, o tamanho de um quad da grade com `cellSize = 1`.
 - **Eixos internos:** y para cima. O vértice da grade (col, row) fica em `(col·cellSize, h·heightScale, row·cellSize)`.
 - **Escala padrão:** `heightScale = 16/255`, ou seja, byte 0 é altura 0 e byte 255 é 16 tiles. O mundo mede 255 × 255 × 16.
-- **Objetos:** chegam no eixo do legado, `RZ_AXES_Z_UP` (padrão): (x, y, z) = (coluna, linha, altura), convertido internamente para (x, z, y). `RZ_AXES_Y_UP` também existe.
+- **Objetos:** chegam no eixo do legado, (x, y, z) = (coluna, linha, altura), z para cima, e são convertidos internamente para (x, z, y). Fixo (`rzSetObjectAxes` saiu).
 
 ## 7. Terreno
 
@@ -155,7 +155,7 @@ Limites:
 - **Vértices:** `uint32` em ponto fixo 8.24 sem sinal, em coordenadas absolutas do mundo (1.0 = 1 tile), três por vértice.
 - **Montagem:** `rzCreateObject` recebe só a quantidade de vértices; cada polígono entra com uma chamada a `rzAddObjectPolygon`, que copia os índices (a lista é do chamador). As posições chegam por `rzUpdateObjectVertices`, antes ou depois dos polígonos; o objeto só é desenhado (e só serve de alvo da câmera) depois da primeira.
 - **Polígonos:** convexos, índices `uint16`. Se o último índice repetir o primeiro (fechamento do legado), ele é descartado. Com menos de 3 vértices, o polígono é ignorado; com índice fora do objeto, dá `RZ_ERR_INVALID_ARG` e nada é acrescentado. Até 65535 polígonos por objeto. Triangulados em leque.
-- **Cor e luz:** todo polígono é texturizado; a cor é a textura × a luz flat do polígono (normal de Newell, sem a atenuação do chão). A luz é de dois lados enquanto o winding do legado for desconhecido.
+- **Cor e luz:** todo polígono é texturizado; a cor é a textura × a luz flat do polígono (sem a atenuação do chão), de um lado só: `0,3 + 0,7 · max(0, n·L)`, com n = −(normal de Newell), porque no sentido do legado (horário visto de fora) a de Newell aponta para dentro. Face de costas para a luz fica só com o ambiente.
 - **Textura (uma por objeto):** `rzLoadObjectTexture` lê um PCX de 8 bits (`src/rz_texture.cpp`).
   - Quadrada, W×W: W é a maior potência de 2 que cabe na largura (mínimo 256; máximo 4096 ou o limite do driver). O que sobra à direita é descartado; na vertical, corta em W linhas ou completa embaixo repetindo a última linha.
   - UVs (`rzAddObjectTexturedPolygon`): um par de `float` por índice, de 0 a 1, os dois na escala da largura (v = 1 é a linha W). (0, 0) é o canto superior esquerdo; fora de [0, 1], repete a borda. Com fechamento, o último par é descartado junto.
@@ -164,7 +164,7 @@ Limites:
   - `rzSetObjectColor` saiu: a cor sólida vem da paleta.
   - Mipmaps na CPU (média 2×2) e os mesmos filtros do chão (`rzSetTextureFilter`), inclusive o dither, que usa o tamanho da textura no shader.
 - **Na GPU:** um VBO por objeto (posição, cor e UV; 24 bytes por vértice), realocado a cada polígono acrescentado. Update, cor e polígono novo só marcam o objeto como alterado; o VBO é reenviado (sem alocar) no `rzRender` seguinte. Um `glDrawArrays` por objeto visível.
-- **Culling:** por objeto, com `RZ_CULL_NONE` (padrão), `RZ_CULL_CW` ou `RZ_CULL_CCW`.
+- **Culling:** fixo, na convenção do legado: vista de fora, a face está em sentido horário; as faces em sentido anti-horário na tela são descartadas (o antigo `RZ_CULL_CCW`, validado no legado; `rzSetObjectCulling` saiu).
 - **Ids:** são índices num `std::vector`; os slots livres são reaproveitados.
 
 ## 9. Câmera
@@ -250,7 +250,6 @@ Tamanhos limitados a `GL_MAX_TEXTURE_SIZE` (o GL 3.3 só garante 1024). As resol
   |---|---|
   | WASD | Dirige o carro |
   | C | Câmera segue o carro / visão geral |
-  | O | Liga/desliga os objetos |
   | T | Liga/desliga as texturas |
   | F | Alterna o filtro |
   | PgUp / PgDn | Comprimento da corda |
@@ -266,5 +265,4 @@ Tamanhos limitados a `GL_MAX_TEXTURE_SIZE` (o GL 3.3 só garante 1024). As resol
 - **Overlay/HUD:** para o legado desenhar por cima da janela GL.
 - **Desempenho em CPU fraca:** no Allwinner D1, via llvmpipe, os 130 mil triângulos pequenos dominam. O próximo passo seria descarte de blocos do terreno fora do frustum e LOD por blocos.
 - **Escolha da diagonal do quad pela altura dos cantos**, de forma determinística.
-- **Winding dos polígonos do legado:** ainda desconhecido; define o culling e a luz de um lado só.
 - **Valores provisórios:** paleta, direção da luz, ambient, força do sombreamento das texturas, FOV, inclinação da visão geral.

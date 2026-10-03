@@ -152,11 +152,9 @@ static_assert(sizeof(TerrainVertex) == 20);
 
 struct Object {
     bool      alive   = false;
-    bool      visible = false;
     bool      positioned = false;   // já recebeu rzUpdateObjectVertices
     bool      gpuDirty   = false;   // staging/VBO desatualizado: reenviar no próximo frame
     int32_t   uploadedSide = 0;     // lado da textura usado no último envio (UV das cores)
-    int32_t   cull    = RZ_CULL_NONE;
 
     std::vector<Vec3>     world;          // posições no mundo, atualizadas pelo host
     std::vector<int32_t>  polygonStart;   // em `indices`
@@ -287,7 +285,6 @@ struct RzContext {
 
     // Objetos (id = índice no vetor; slots livres são reaproveitados)
     std::vector<rz::Object> objects;
-    int32_t objectAxes = RZ_AXES_Z_UP;
 };
 
 namespace rz {

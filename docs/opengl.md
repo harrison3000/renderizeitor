@@ -13,7 +13,7 @@ abaixo fica como registro do que mudou. A spec atual é `renderizeitor-spec.md`.
 | Erro novo | — | `RZ_ERR_GL` (sem OpenGL 3.3, falha de contexto/shader/janela) |
 | Filtros | 0 nearest, 1 mipmap, 2 mip+dither | + 3 `RZ_FILTER_MIP_LINEAR` (nearest no nível, linear entre níveis), 4 `RZ_FILTER_TRILINEAR`; ampliação sempre nearest |
 | `heightScale` padrão | 0,25 | 16/255 (byte 255 = 16 tiles, como no legado) |
-| Eixos dos objetos | `RZ_AXES_Y_UP` | `RZ_AXES_Z_UP` (como no legado) |
+| Eixos dos objetos | `RZ_AXES_Y_UP` | fixo no do legado, z para cima (`rzSetObjectAxes` saiu depois) |
 | Thread | qualquer, uma por contexto | a mesma que criou o contexto (o contexto GL é dela) |
 
 ## Janela filha (Windows)

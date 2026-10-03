@@ -189,7 +189,6 @@ int main(int argc, char** argv) {
             err = rzLoadObjectTexture(ctx, vehicleId, carPath);
             if (err != RZ_OK) { std::fprintf(stderr, "rzLoadObjectTexture(%s) falhou: %d\n", carPath, err); return 1; }
         }
-        rzSetObjectCulling(ctx, vehicleId, RZ_CULL_CW);
         if (follow) rzSetCameraTarget(ctx, vehicleId, RZTD_VEHICLE_TARGET);
 
         const int count = rztdGenerateBuildings(heightmap, heightScale, buildings, buildingColors,
@@ -202,7 +201,6 @@ int main(int argc, char** argv) {
                 err = rzLoadObjectTexture(ctx, id, wallPath);
                 if (err != RZ_OK) { std::fprintf(stderr, "rzLoadObjectTexture(%s) falhou: %d\n", wallPath, err); return 1; }
             }
-            rzSetObjectCulling(ctx, id, RZ_CULL_CW);
         }
         int top = 0;
         for (int i = 0; i < 256 * 256; ++i) if (heightmap[i] > top) top = heightmap[i];
@@ -214,7 +212,6 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "rzLoadObjectTexture deveria falhar com RZ_ERR_FILE\n");
             return 1;
         }
-        rzSetObjectCulling(ctx, cubeId, RZ_CULL_CW);
         std::printf("objetos: 1 veiculo + %d construcoes + 1 cubo\n", count);
     }
 

@@ -10,7 +10,6 @@
  *   PgUp / PgDn             aproxima / afasta a câmera (comprimento da corda)
  *   T                       liga / desliga as texturas
  *   F                       filtro: nearest -> mipmap -> mip+dither -> mip linear -> trilinear
- *   O                       mostra / esconde os objetos
  *   C                       câmera segue o veículo / visão geral do terreno
  *   R                       volta a câmera aos valores iniciais
  *   Esc                     sai
@@ -49,9 +48,6 @@ static int32_t g_textures = 1;
 static int32_t g_filter = RZ_FILTER_MIP_DITHER;
 
 /* Objetos: construções paradas e um cubo que este "host" gira a cada frame */
-static int32_t  g_objectIds[RZTD_MAX_OBJECTS + 2];
-static int32_t  g_objectCount = 0;
-static int32_t  g_objectsVisible = 1;
 static int32_t  g_cubeId = -1;
 static RztdMesh g_cube;
 static float    g_cubePos[3];
@@ -131,10 +127,6 @@ static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         } else if (wp == 'C' && !(lp & (1 << 30))) {     /* ignora auto-repeat */
             g_follow = !g_follow;
             rzSetCameraTarget(g_ctx, g_follow ? g_vehicleId : -1, RZTD_VEHICLE_TARGET);
-        } else if (wp == 'O' && !(lp & (1 << 30))) {
-            int32_t i;
-            g_objectsVisible = !g_objectsVisible;
-            for (i = 0; i < g_objectCount; ++i) rzSetObjectVisible(g_ctx, g_objectIds[i], g_objectsVisible);
         } else if (wp == 'T' && !(lp & (1 << 30))) {
             g_textures = !g_textures;
             rzSetTileMap(g_ctx, g_textures ? g_tileMap : NULL, 256, 256);
@@ -290,9 +282,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         err = rztdCreateObject(g_ctx, &g_vehicle, RZTD_CAR_V, RZTD_CAR_ROOF, &g_vehicleId);
         if (err == RZ_OK) {
             rzLoadObjectTexture(g_ctx, g_vehicleId, carPath);
-            rzSetObjectCulling(g_ctx, g_vehicleId, RZ_CULL_CW);
             rzSetCameraTarget(g_ctx, g_vehicleId, RZTD_VEHICLE_TARGET);
-            g_objectIds[g_objectCount++] = g_vehicleId;
         }
     }
     if (err == RZ_OK) {
@@ -306,8 +296,6 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
             err = rztdCreateObject(g_ctx, &buildings[i], RZTD_WALL_V, RZTD_WALL_ROOF, &id);
             if (err == RZ_OK) {
                 rzLoadObjectTexture(g_ctx, id, wallPath);
-                rzSetObjectCulling(g_ctx, id, RZ_CULL_CW);
-                g_objectIds[g_objectCount++] = id;
             }
         }
         for (i = 0; i < 256 * 256; ++i) if (heightmap[i] > top) top = heightmap[i];
@@ -317,8 +305,6 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         if (err == RZ_OK) err = rztdCreateObject(g_ctx, &g_cube, RZTD_WALL_V, RZTD_WALL_ROOF, &g_cubeId);
         if (err == RZ_OK) {
             rzLoadObjectTexture(g_ctx, g_cubeId, "nao_existe.pcx");
-            rzSetObjectCulling(g_ctx, g_cubeId, RZ_CULL_CW);
-            g_objectIds[g_objectCount++] = g_cubeId;
         }
     }
     if (err != RZ_OK) {

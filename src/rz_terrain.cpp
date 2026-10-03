@@ -67,7 +67,8 @@ Vec3 lightDirection() {
 }
 
 // Cor flat de uma face com normal `normal` (não precisa estar normalizada).
-// twoSided: ilumina pelos dois lados (|n·L|), para objetos com winding desconhecido.
+// twoSided: ilumina pelos dois lados (|n·L|); hoje ninguém usa (os objetos
+// passaram à luz de um lado só quando o winding do legado foi definido).
 uint32_t shadeFlat(uint32_t base, Vec3 normal, bool twoSided) {
     const Vec3 light = lightDirection();
     const float len2 = dot(normal, normal);

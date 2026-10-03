@@ -157,7 +157,7 @@ void destroyShadowMaps(RzContext* ctx) {
 
 // Calcula as três matrizes do frame e redesenha os mapas que precisam.
 // Usa o foco da câmera do frame (updateCamera antes) e os VBOs já enviados
-// (prepareObjects antes). Sem culling (winding dos objetos desconhecido),
+// (prepareObjects antes). Sem culling (as faces de trás também projetam),
 // com polygon offset contra o "acne".
 void renderShadowMaps(RzContext* ctx) {
     const Mat4 view = lightView(ctx);
