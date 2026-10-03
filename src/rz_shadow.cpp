@@ -189,6 +189,7 @@ void renderShadowMaps(RzContext* ctx) {
         if (ctx->hasTerrain()) {
             glBindVertexArray(ctx->terrainVao);
             glDrawArrays(GL_TRIANGLES, 0, kTriangleCount * 3);
+            drawSkirtDepth(ctx);                 // a continuação também projeta
         }
         ctx->terrainShadowDirty = false;
     }

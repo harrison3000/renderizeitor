@@ -227,6 +227,53 @@ void main() {
 }
 )GLSL";
 
+// Parede de limite (rz_border.cpp): semitransparente, com X vermelhos de
+// uXSize tiles; só perto do alvo (fade entre uFadeFar e uFadeNear, distância
+// horizontal do alvo ao ponto da parede); com neblina.
+constexpr const char* kWallVertexShader = R"GLSL(#version 330 core
+layout(location = 0) in vec3 aPosition;
+layout(location = 1) in vec2 aUV;          // tiles ao longo da parede / acima da base
+uniform mat4 uViewProj;
+out vec2 vUV;
+out vec3 vWorld;
+void main() {
+    vUV = aUV;
+    vWorld = aPosition;
+    gl_Position = uViewProj * vec4(aPosition, 1.0);
+}
+)GLSL";
+
+constexpr const char* kWallFragmentShader = R"GLSL(#version 330 core
+in vec2 vUV;
+in vec3 vWorld;
+uniform vec3  uTarget;
+uniform float uFadeNear, uFadeFar;
+uniform float uXSize;
+uniform int   uFogOn;
+uniform float uFogStart, uFogEnd;
+uniform vec3  uFogColor;
+uniform vec3  uEye;
+out vec4 fragColor;
+void main() {
+    float near = 1.0 - smoothstep(uFadeNear, uFadeFar, length(vWorld.xz - uTarget.xz));
+    if (near <= 0.0) discard;
+    // X: as duas diagonais da célula, com espessura constante na tela
+    vec2 cell = fract(vUV / uXSize);
+    float d1 = abs(cell.x - cell.y);
+    float d2 = abs(cell.x + cell.y - 1.0);
+    float w = 1.5 * fwidth(vUV.x / uXSize) + 0.04;
+    float line = 1.0 - smoothstep(w * 0.5, w, min(d1, d2));
+    vec3  color = mix(vec3(0.85, 0.15, 0.12), vec3(1.0, 0.1, 0.05), line);
+    float alpha = mix(0.15, 0.85, line) * near;
+    if (uFogOn != 0) {
+        float fog = smoothstep(uFogStart, uFogEnd, length(vWorld - uEye));
+        color = mix(color, uFogColor, fog);
+        alpha *= 1.0 - fog;
+    }
+    fragColor = vec4(color, alpha);
+}
+)GLSL";
+
 // Passe da sombra: só profundidade, do ponto de vista da luz. Serve para o
 // terreno e para os objetos (posição no atributo 0 nos dois).
 constexpr const char* kDepthVertexShader = R"GLSL(#version 330 core

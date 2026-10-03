@@ -25,6 +25,18 @@ GLuint compileShader(GLenum type, const char* source) {
     return shader;
 }
 
+
+constexpr GLint kUnitAtlas  = 0;    // unidade de textura do atlas (e da textura do objeto)
+                                    // (1..3: shadow maps, kUnitShadowFirst)
+// Frente = anti-horário na tela (como no software). Com a imagem espelhada na
+// vertical (offscreen), o anti-horário visual vira horário para o OpenGL.
+GLenum frontFaceWinding(const RzContext* ctx) {
+    return ctx->windowed ? GL_CCW : GL_CW;
+}
+
+} // namespace
+
+// Compila e liga um programa (também usado por rz_border.cpp)
 GLuint linkProgram(const char* vertexSource, const char* fragmentSource) {
     GLuint vs = compileShader(GL_VERTEX_SHADER, vertexSource);
     GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragmentSource);
@@ -52,16 +64,6 @@ GLuint linkProgram(const char* vertexSource, const char* fragmentSource) {
     }
     return program;
 }
-
-constexpr GLint kUnitAtlas  = 0;    // unidade de textura do atlas (e da textura do objeto)
-                                    // (1..3: shadow maps, kUnitShadowFirst)
-// Frente = anti-horário na tela (como no software). Com a imagem espelhada na
-// vertical (offscreen), o anti-horário visual vira horário para o OpenGL.
-GLenum frontFaceWinding(const RzContext* ctx) {
-    return ctx->windowed ? GL_CCW : GL_CW;
-}
-
-} // namespace
 
 void initFogUniforms(GLuint program, FogUniforms& u) {
     u.on    = glGetUniformLocation(program, "uFogOn");
@@ -120,6 +122,7 @@ bool createRenderer(RzContext* ctx) {
     if (!d.program) return false;
     d.lightViewProj = glGetUniformLocation(d.program, "uLightViewProj");
     if (!createShadowMaps(ctx)) return false;
+    if (!createBorder(ctx)) return false;
 
     // Malha do terreno: buffer de tamanho fixo, preenchido em buildTerrainMesh
     glGenVertexArrays(1, &ctx->terrainVao);
@@ -172,6 +175,7 @@ void destroyRenderer(RzContext* ctx) {
     if (ctx->fallbackTex) glDeleteTextures(1, &ctx->fallbackTex);
     if (ctx->depthProgram.program) glDeleteProgram(ctx->depthProgram.program);
     destroyShadowMaps(ctx);
+    destroyBorder(ctx);
 }
 
 // Estado do sampler do atlas e das texturas dos objetos para o filtro atual.
@@ -224,9 +228,11 @@ void renderFrame(RzContext* ctx) {
         glCullFace(GL_BACK);
         glBindVertexArray(ctx->terrainVao);
         glDrawArrays(GL_TRIANGLES, 0, kTriangleCount * 3);
+        drawSkirt(ctx);                           // continuação além do mapa (com neblina)
     }
 
     drawObjects(ctx, viewProj);
+    drawWall(ctx, viewProj);                      // semitransparente: por último
 
     if (ctx->windowed) {
         platformSwapBuffers(ctx->platform);

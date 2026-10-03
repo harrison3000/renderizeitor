@@ -153,6 +153,7 @@ bool buildTerrainMesh(RzContext* ctx) {
 
     glBindBuffer(GL_ARRAY_BUFFER, ctx->terrainVbo);
     glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(kCount) * GLsizeiptr(sizeof(TerrainVertex)), mesh.data());
+    buildBorder(ctx);                        // continuação e parede dependem das alturas/blocos
     return glGetError() == GL_NO_ERROR;
 }
 

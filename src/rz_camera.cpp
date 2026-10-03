@@ -11,8 +11,11 @@ namespace rz {
 namespace {
 
 // Altura do terreno (mundo) no ponto (x, z) do mundo, bilinear; 0 sem terreno.
+// Com a continuação montada, vale também fora do mapa (câmera atrás do alvo
+// perto da borda).
 float groundHeight(const RzContext* ctx, float x, float z) {
     if (!ctx->hasTerrain()) return 0.0f;
+    if (!ctx->extHeights.empty()) return extendedGroundHeight(ctx, x, z);
     const float invCell = 1.0f / ctx->cellSize;      // uma divisão por frame
     float gx = x * invCell, gz = z * invCell;
     if (gx < 0.0f) gx = 0.0f;
@@ -137,6 +140,7 @@ Mat4 updateCamera(RzContext* ctx) {
         // Perseguição: câmera na corda, olhando para o vértice-alvo suavizado
         // (o mesmo ponto puxa a corda, então a altura da câmera também não treme)
         const Vec3 raw = ctx->objects[target].world[ctx->cameraTargetVertex];
+        ctx->targetPos = raw;
         if (!ctx->followInitialized) {
             ctx->followLook = raw;
         } else {

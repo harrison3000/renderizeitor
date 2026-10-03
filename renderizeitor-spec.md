@@ -206,14 +206,25 @@ Sem API por enquanto (constantes `kFogStart`, `kFogEnd` em `rz_internal.h`).
 - **Só seguindo um alvo.** Na visão geral não há neblina (a câmera fica longe demais).
 - **Cortes:** pixel só de neblina sai direto, sem textura nem sombra (as derivadas da textura são calculadas antes desse desvio; a leitura usa `textureGrad`). Objetos com a esfera envolvente toda além de 80 + 10 tiles não são enviados nem desenhados, na tela e nas sombras.
 
+### 9.5 Borda do mundo (continuação e parede)
+
+Sem API; constantes `kSkirt*`/`kBorder*` em `rz_internal.h`, código em `src/rz_border.cpp`. Montada na carga, junto com a malha do terreno (heightmap, escala ou mapa de blocos novos).
+
+- **Continuação:** terreno gerado até 88 tiles além de cada borda (o fim da neblina + 8).
+  - Altura: a da borda (ponto mais próximo do mapa) indo, ao longo de 24 tiles, para a média das bordas + ruído de valor (duas oitavas, períodos 32 e 12). Sem degrau na emenda.
+  - Blocos de textura: sorteados (hash da célula) entre os blocos que o próprio mapa usa na mesma faixa de altura.
+  - Malha: células de 1 tile numa faixa de 16 tiles em volta do mapa; de 4 tiles depois. Na linha entre as duas, os pontos intermediários ficam na reta entre os cantos das células grossas (sem frestas). ~49 mil triângulos, em 4 regiões (N, L, S, O); só as regiões a menos de 80 tiles do olho são desenhadas.
+  - Só seguindo um alvo (com neblina). Projeta sombra no mapa 0. A câmera usa as mesmas alturas fora do mapa.
+- **Parede de limite:** em cima das quatro bordas, do chão (−0,5) até 4 tiles acima, semitransparente (vermelho, alfa 0,15) com X vermelhos de 2 tiles (alfa 0,85). Aparece só perto do alvo: alfa × (1 − smoothstep(3, 10, distância horizontal do alvo ao ponto da parede)). Desenhada depois do opaco, com blending, sem gravar profundidade nem alfa de destino; com neblina; não projeta nem recebe sombra.
+
 ## 10. Frame (`rzRender`)
 
 1. Atualiza a câmera e monta a view-projection e a matriz da luz (sombra).
 2. Reenvia os VBOs de objetos alterados.
 3. Sombras (10.1): refaz os mapas que precisam (terreno só se mudou; objetos próximos se algo mudou; alvo sempre).
 4. Faz bind do FBO (offscreen) ou do framebuffer padrão (janela) e limpa com a cor de fundo (`rzSetBackgroundColor`, padrão 32, 40, 48), com profundidade em `GL_LESS`.
-5. Desenha o terreno em um draw: textura se houver atlas e mapa de blocos, senão as cores flat.
-6. Desenha os objetos.
+5. Desenha o terreno em um draw: textura se houver atlas e mapa de blocos, senão as cores flat. Seguindo um alvo, também a continuação (9.5).
+6. Desenha os objetos e, por último, a parede de limite (semitransparente).
 7. Faz `SwapBuffers` (janela) ou `glReadPixels` para o buffer do host (offscreen).
 
 Sem heightmap, só limpa e apresenta.

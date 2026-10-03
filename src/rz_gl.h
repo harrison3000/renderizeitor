@@ -48,6 +48,9 @@ constexpr GLenum GL_PACK_ALIGNMENT          = 0x0D05;
 constexpr GLenum GL_TEXTURE_2D              = 0x0DE1;
 constexpr GLenum GL_MAX_TEXTURE_SIZE        = 0x0D33;
 constexpr GLenum GL_NONE                    = 0;
+constexpr GLenum GL_BLEND                   = 0x0BE2;
+constexpr GLenum GL_SRC_ALPHA               = 0x0302;
+constexpr GLenum GL_ONE_MINUS_SRC_ALPHA     = 0x0303;
 constexpr GLenum GL_UNSIGNED_INT            = 0x1405;
 constexpr GLenum GL_DEPTH_COMPONENT         = 0x1902;
 constexpr GLenum GL_POLYGON_OFFSET_FILL     = 0x8037;
@@ -103,6 +106,9 @@ constexpr GLenum GL_FRAMEBUFFER_COMPLETE    = 0x8CD5;
     X(GLenum, glGetError, (void))                                                                  \
     X(void, glGetIntegerv, (GLenum pname, GLint* data))                                            \
     X(void, glDrawBuffer, (GLenum mode))                                                           \
+    X(void, glBlendFunc, (GLenum src, GLenum dst))                                                 \
+    X(void, glColorMask, (GLboolean r, GLboolean g, GLboolean b, GLboolean a))                     \
+    X(void, glDepthMask, (GLboolean flag))                                                         \
     X(void, glReadBuffer, (GLenum mode))                                                           \
     X(void, glPolygonOffset, (GLfloat factor, GLfloat units))                                      \
     X(void, glFramebufferTexture2D, (GLenum target, GLenum attachment, GLenum texTarget,           \

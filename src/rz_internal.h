@@ -70,6 +70,20 @@ constexpr float kFogCullMargin = 10.0f;   // tiles: objetos além de kFogEnd + r
                                           // não entram nem na tela nem nas sombras
                                           // (a margem cobre sombras longas para dentro)
 
+// Borda do mundo (rz_border.cpp): continuação do terreno além do mapa, até o
+// alcance da neblina + folga, e parede de limite com X vermelhos.
+constexpr int32_t kSkirtFine     = 16;     // faixa de células de 1 tile em volta do mapa
+constexpr int32_t kSkirtCoarse   = 4;      // depois, células de 4 tiles
+constexpr int32_t kSkirtExtent   = 88;     // tiles além de cada borda (kFogEnd + 8)
+constexpr float   kSkirtBlend    = 24.0f;  // tiles da altura da borda até a gerada
+constexpr float   kSkirtNoiseLow  = 60.0f; // amplitude do ruído (unidade do byte), período 32
+constexpr float   kSkirtNoiseHigh = 18.0f; // período 12
+constexpr float   kBorderWallHeight = 4.0f;   // tiles acima do chão
+constexpr float   kBorderFadeFar    = 10.0f;  // alvo a 10 tiles: começa a aparecer
+constexpr float   kBorderFadeNear   = 3.0f;   // a 3 tiles: totalmente visível
+constexpr float   kBorderXSize      = 2.0f;   // lado de cada X (tiles)
+static_assert(kSkirtExtent >= int32_t(kFogEnd), "a continuação tem que ir até o fim da neblina");
+
 // Sombras: três shadow maps da luz direcional (detalhes em rz_shadow.cpp):
 // 0 terreno inteiro (só o terreno), 1 objetos próximos, 2 objeto seguido.
 constexpr int32_t kShadowMaps           = 3;
@@ -212,6 +226,12 @@ struct ObjectProgram {
     FogUniforms    fog;
 };
 
+struct WallProgram {
+    GLuint program = 0;
+    GLint  viewProj = -1, target = -1, fadeNear = -1, fadeFar = -1, xSize = -1;
+    FogUniforms fog;
+};
+
 struct DepthProgram {
     GLuint program = 0;
     GLint  lightViewProj = -1;
@@ -248,6 +268,15 @@ struct RzContext {
     rz::TerrainProgram terrainProgram;
     rz::ObjectProgram  objectProgram;
     rz::DepthProgram   depthProgram;
+    rz::WallProgram    wallProgram;
+
+    // Borda do mundo (rz_border.cpp), refeita com a malha do terreno
+    std::vector<float> extHeights;      // (255 + 2 x 88 + 1)^2, unidade do byte
+    rz::GLuint skirtVao = 0, skirtVbo = 0;
+    int32_t    skirtVertexCount = 0;
+    int32_t    skirtFirst[4] = {}, skirtCount[4] = {};   // regiões N, L, S, O (drawSkirt)
+    rz::GLuint wallVao = 0, wallVbo = 0;
+    int32_t    wallVertexCount = 0;
 
     // Sombras (rz_shadow.cpp): três mapas, FBO só com profundidade cada
     rz::GLuint shadowFbo[rz::kShadowMaps] = {};
@@ -260,6 +289,7 @@ struct RzContext {
 
     // Do frame (updateCamera): olho e neblina
     rz::Vec3   eyePos = { 0.0f, 0.0f, 0.0f };
+    rz::Vec3   targetPos = { 0.0f, 0.0f, 0.0f };     // vértice-alvo (parede de limite)
     bool       fogOn = false;                        // seguindo um alvo
     bool       shadowWholeTerrain = true;           // visão geral: mapa 1 = terreno inteiro
 
@@ -339,6 +369,18 @@ void destroyShadowMaps(RzContext* ctx);
 void renderShadowMaps(RzContext* ctx);
 void initShadowUniforms(GLuint program, ShadowUniforms& u);
 void bindShadowMaps(const RzContext* ctx, const ShadowUniforms& u);
+
+// rz_border.cpp
+bool  createBorder(RzContext* ctx);
+void  destroyBorder(RzContext* ctx);
+void  buildBorder(RzContext* ctx);                 // carga, no fim de buildTerrainMesh
+float extendedGroundHeight(const RzContext* ctx, float x, float z);
+void  drawSkirt(const RzContext* ctx);             // programa do terreno em uso
+void  drawSkirtDepth(const RzContext* ctx);        // passe de sombra
+void  drawWall(const RzContext* ctx, const Mat4& viewProj);
+
+// rz_render.cpp
+GLuint linkProgram(const char* vertexSource, const char* fragmentSource);
 
 // rz_render.cpp: neblina (programa já em uso)
 void initFogUniforms(GLuint program, FogUniforms& u);
