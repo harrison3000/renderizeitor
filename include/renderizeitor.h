@@ -148,6 +148,16 @@ RZ_API int32_t RZ_CALL rzAddObjectTexturedPolygon(RzContext* ctx, int32_t id,
                                                   const uint16_t* indices,
                                                   const float* uvs, int32_t count);
 
+/* Polígono translúcido (vidro) em tom de cinza. tone 0..15: o que está atrás
+   é multiplicado por tone/15 (0 = preto, 15 = transparente), mais um brilho
+   especular embaçado da luz (some na sombra). Não depende da ordem de desenho;
+   não projeta sombra; só a face de fora aparece (como os outros polígonos).
+   Mesmas regras de índices/fechamento de rzAddObjectPolygon; sem textura.
+   Erros: RZ_ERR_INVALID_ARG (índice fora do objeto ou tone fora de 0..15). */
+RZ_API int32_t RZ_CALL rzAddObjectTranslucentPolygon(RzContext* ctx, int32_t id,
+                                                     const uint16_t* indices, int32_t count,
+                                                     int32_t tone);
+
 /* Textura do objeto (uma por objeto), lida de um PCX de 8 bits (fase de carga).
    A textura é quadrada, W x W: W é a maior potência de 2 que cabe na largura
    da imagem (mínimo 256, máximo 4096 ou o limite do driver); o que sobra à

@@ -35,6 +35,7 @@ void freeObject(Object& o) {
     if (o.texture) glDeleteTextures(1, &o.texture);
     if (o.vbo) glDeleteBuffers(1, &o.vbo);
     if (o.vao) glDeleteVertexArrays(1, &o.vao);
+    freeGlass(o);
     o = Object{};
 }
 
@@ -301,6 +302,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t i
     computePolygonColors(o);
     o.positioned = true;
     o.gpuDirty   = true;
+    o.glassDirty = !o.glassStaging.empty();
     return RZ_OK;
 }
 

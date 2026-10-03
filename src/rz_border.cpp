@@ -6,8 +6,8 @@
 //   - altura: parte da altura da borda (o ponto mais próximo do mapa) e, ao
 //     longo de kSkirtBlend tiles, vai para (média das bordas + ruído de valor
 //     em duas oitavas). Na emenda com o mapa, a altura é a da borda: sem degrau.
-//   - bloco de textura: escolhido entre os blocos que o próprio mapa usa na
-//     mesma faixa de altura (16 faixas), por hash da célula.
+//   - bloco de textura: o de um quad do mapa perto do ponto da borda mais
+//     próximo da célula (janela de kSkirtTileBand tiles), sorteado por hash.
 //   - malha: células de 1 tile numa faixa de kSkirtFine tiles em volta do mapa
 //     e de kSkirtCoarse tiles daí em diante (longe, a neblina cobre). Na linha
 //     onde as duas se encontram, as alturas dos pontos intermediários são
@@ -116,40 +116,25 @@ void buildExtendedHeights(RzContext* ctx) {
     fixLine(false, kFineLo); fixLine(false, kFineHi);
 }
 
-// Blocos usados pelo mapa em cada faixa de altura (16 faixas de 16)
-struct TileBuckets {
-    std::vector<uint8_t> tiles[16];
-};
-
-void buildTileBuckets(const RzContext* ctx, TileBuckets& b) {
-    if (ctx->tileMap.empty()) return;
-    bool seen[16][256] = {};
-    const uint8_t* h = ctx->heights.data();
-    for (int32_t r = 0; r < kQuadsPerSide; ++r) {
-        for (int32_t c = 0; c < kQuadsPerSide; ++c) {
-            const int32_t avg = (h[r * kGridSize + c] + h[r * kGridSize + c + 1]
-                               + h[(r + 1) * kGridSize + c] + h[(r + 1) * kGridSize + c + 1]) / 4;
-            const uint8_t t = ctx->tileMap[r * kGridSize + c];
-            if (!seen[avg >> 4][t]) {
-                seen[avg >> 4][t] = true;
-                b.tiles[avg >> 4].push_back(t);
-            }
-        }
-    }
-}
-
-uint8_t pickTile(const TileBuckets& b, float avgHeight, int32_t c, int32_t r) {
-    int32_t bucket = int32_t(avgHeight) >> 4;
-    if (bucket < 0) bucket = 0;
-    if (bucket > 15) bucket = 15;
-    for (int32_t dist = 0; dist < 16; ++dist) {          // faixa mais próxima que tenha blocos
-        for (int32_t s = -1; s <= 1; s += 2) {
-            const int32_t k = bucket + s * dist;
-            if (k < 0 || k > 15 || b.tiles[k].empty()) continue;
-            return b.tiles[k][hash2(c, r, 77u) % b.tiles[k].size()];
-        }
-    }
-    return 0;
+// Bloco de uma célula da continuação: o de um quad do mapa perto do ponto da
+// borda mais próximo da célula, sorteado (hash) numa janela de
+// 2 x kSkirtTileBand quads ao longo da borda e kSkirtTileBand para dentro.
+uint8_t pickTile(const RzContext* ctx, int32_t c, int32_t r) {
+    if (ctx->tileMap.empty()) return 0;
+    const int32_t last = kQuadsPerSide - 1;                  // 254: último quad
+    const int32_t cc = c < 0 ? 0 : (c > last ? last : c);    // quad da borda mais próximo
+    const int32_t cr = r < 0 ? 0 : (r > last ? last : r);
+    const uint32_t h = hash2(c, r, 77u);
+    const int32_t along  = int32_t(h % uint32_t(2 * kSkirtTileBand + 1)) - kSkirtTileBand;
+    const int32_t inward = int32_t((h >> 16) % uint32_t(kSkirtTileBand));
+    int32_t qc = cc, qr = cr;
+    // para dentro a partir da borda (nos cantos, nas duas direções); ao longo
+    // da borda no outro eixo
+    if (c < 0) qc = inward; else if (c > last) qc = last - inward; else qc = cc + along;
+    if (r < 0) qr = inward; else if (r > last) qr = last - inward; else qr = cr + along;
+    qc = qc < 0 ? 0 : (qc > last ? last : qc);
+    qr = qr < 0 ? 0 : (qr > last ? last : qr);
+    return ctx->tileMap[qr * kGridSize + qc];
 }
 
 // Uma célula (c, r)-(c+s, r+s): dois triângulos com a diagonal do mapa
@@ -188,14 +173,9 @@ void emitCell(const RzContext* ctx, std::vector<TerrainVertex>& out, const uint3
 void buildSkirtMesh(RzContext* ctx) {
     uint32_t palette[kPaletteSize];
     buildPalette(palette);
-    TileBuckets buckets;
-    buildTileBuckets(ctx, buckets);
 
     std::vector<TerrainVertex> mesh;                         // carga: aloca
     mesh.reserve(size_t(60000) * 3);
-    auto avgOf = [&](int32_t c, int32_t r, int32_t s) {
-        return 0.25f * (ext(ctx, c, r) + ext(ctx, c + s, r) + ext(ctx, c, r + s) + ext(ctx, c + s, r + s));
-    };
     // Região da célula: 0 norte (r < 0, com os cantos), 2 sul (r >= 255),
     // 3 oeste (c < 0), 1 leste (c >= 255). Cada uma fica contígua no buffer,
     // para drawSkirt pular as que estão além da neblina.
@@ -212,7 +192,7 @@ void buildSkirtMesh(RzContext* ctx) {
             for (int32_t c = kFineLo; c < kFineHi; ++c) {
                 if (r >= 0 && r < kQuadsPerSide && c >= 0 && c < kQuadsPerSide) continue;
                 if (regionOf(c, r) != region) continue;
-                emitCell(ctx, mesh, palette, c, r, 1, pickTile(buckets, avgOf(c, r, 1), c, r));
+                emitCell(ctx, mesh, palette, c, r, 1, pickTile(ctx, c, r));
             }
         }
         // Faixa grossa (células de kSkirtCoarse tiles), menos a faixa fina
@@ -220,8 +200,7 @@ void buildSkirtMesh(RzContext* ctx) {
             for (int32_t c = lo; c < hi; c += kSkirtCoarse) {
                 if (r >= kFineLo && r < kFineHi && c >= kFineLo && c < kFineHi) continue;
                 if (regionOf(c, r) != region) continue;
-                emitCell(ctx, mesh, palette, c, r, kSkirtCoarse,
-                         pickTile(buckets, avgOf(c, r, kSkirtCoarse), c, r));
+                emitCell(ctx, mesh, palette, c, r, kSkirtCoarse, pickTile(ctx, c, r));
             }
         }
         ctx->skirtCount[region] = int32_t(mesh.size()) - ctx->skirtFirst[region];

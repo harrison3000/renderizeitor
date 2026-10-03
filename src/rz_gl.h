@@ -48,6 +48,7 @@ constexpr GLenum GL_PACK_ALIGNMENT          = 0x0D05;
 constexpr GLenum GL_TEXTURE_2D              = 0x0DE1;
 constexpr GLenum GL_MAX_TEXTURE_SIZE        = 0x0D33;
 constexpr GLenum GL_NONE                    = 0;
+constexpr GLenum GL_ONE                     = 1;
 constexpr GLenum GL_BLEND                   = 0x0BE2;
 constexpr GLenum GL_SRC_ALPHA               = 0x0302;
 constexpr GLenum GL_ONE_MINUS_SRC_ALPHA     = 0x0303;

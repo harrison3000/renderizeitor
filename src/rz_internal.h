@@ -78,6 +78,7 @@ constexpr int32_t kSkirtExtent   = 88;     // tiles além de cada borda (kFogEnd
 constexpr float   kSkirtBlend    = 24.0f;  // tiles da altura da borda até a gerada
 constexpr float   kSkirtNoiseLow  = 60.0f; // amplitude do ruído (unidade do byte), período 32
 constexpr float   kSkirtNoiseHigh = 18.0f; // período 12
+constexpr int32_t kSkirtTileBand  = 8;     // blocos da continuação: de quads a até 8 tiles do ponto da borda mais próximo
 constexpr float   kBorderWallHeight = 4.0f;   // tiles acima do chão
 constexpr float   kBorderFadeFar    = 10.0f;  // alvo a 10 tiles: começa a aparecer
 constexpr float   kBorderFadeNear   = 3.0f;   // a 3 tiles: totalmente visível
@@ -175,6 +176,18 @@ struct TerrainVertex {
 };
 static_assert(sizeof(TerrainVertex) == 20);
 
+// Vértice do vidro (rz_glass.cpp): posição, normal de fora do polígono, cinza
+struct GlassVertex {
+    float x, y, z;
+    float nx, ny, nz;
+    float tint;                // 0 (preto) .. 1 (transparente) = tom / 15
+};
+static_assert(sizeof(GlassVertex) == 28);
+
+// Vidro: brilho especular "embaçado" (Blinn-Phong de expoente baixo)
+constexpr float kGlassSpecular  = 0.45f;
+constexpr float kGlassShininess = 12.0f;
+
 struct Object {
     bool      alive   = false;
     bool      positioned = false;   // já recebeu rzUpdateObjectVertices
@@ -195,6 +208,14 @@ struct Object {
 
     GLuint    vao = 0;
     GLuint    vbo = 0;
+    // Vidro (rz_glass.cpp): polígonos translúcidos, VBO próprio
+    std::vector<int32_t>  glassStart, glassLength;
+    std::vector<uint8_t>  glassTone;      // 0..15
+    std::vector<uint16_t> glassIndices;
+    std::vector<GlassVertex> glassStaging; // triângulos do leque, preenchido no envio
+    GLuint    glassVao = 0, glassVbo = 0;
+    bool      glassDirty = false;
+
     GLuint    texture = 0;          // 0: usa a textura fallback do contexto
     int32_t   textureSize = 0;      // lado da textura (potência de 2)
 
@@ -222,6 +243,13 @@ struct TerrainProgram {
 struct ObjectProgram {
     GLuint program = 0;
     GLint  viewProj = -1, texture = -1, filter = -1, texSize = -1, maxLevel = -1, ambient = -1;
+    ShadowUniforms shadow;
+    FogUniforms    fog;
+};
+
+struct GlassProgram {
+    GLuint program = 0;
+    GLint  viewProj = -1, light = -1, specular = -1, shininess = -1;
     ShadowUniforms shadow;
     FogUniforms    fog;
 };
@@ -269,6 +297,7 @@ struct RzContext {
     rz::ObjectProgram  objectProgram;
     rz::DepthProgram   depthProgram;
     rz::WallProgram    wallProgram;
+    rz::GlassProgram   glassProgram;
 
     // Borda do mundo (rz_border.cpp), refeita com a malha do terreno
     std::vector<float> extHeights;      // (255 + 2 x 88 + 1)^2, unidade do byte
@@ -378,6 +407,11 @@ float extendedGroundHeight(const RzContext* ctx, float x, float z);
 void  drawSkirt(const RzContext* ctx);             // programa do terreno em uso
 void  drawSkirtDepth(const RzContext* ctx);        // passe de sombra
 void  drawWall(const RzContext* ctx, const Mat4& viewProj);
+
+// rz_glass.cpp
+bool createGlassProgram(RzContext* ctx);
+void freeGlass(Object& o);
+void drawGlass(RzContext* ctx, const Mat4& viewProj);
 
 // rz_render.cpp
 GLuint linkProgram(const char* vertexSource, const char* fragmentSource);

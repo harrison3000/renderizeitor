@@ -123,6 +123,7 @@ bool createRenderer(RzContext* ctx) {
     d.lightViewProj = glGetUniformLocation(d.program, "uLightViewProj");
     if (!createShadowMaps(ctx)) return false;
     if (!createBorder(ctx)) return false;
+    if (!createGlassProgram(ctx)) return false;
 
     // Malha do terreno: buffer de tamanho fixo, preenchido em buildTerrainMesh
     glGenVertexArrays(1, &ctx->terrainVao);
@@ -176,6 +177,7 @@ void destroyRenderer(RzContext* ctx) {
     if (ctx->depthProgram.program) glDeleteProgram(ctx->depthProgram.program);
     destroyShadowMaps(ctx);
     destroyBorder(ctx);
+    if (ctx->glassProgram.program) glDeleteProgram(ctx->glassProgram.program);
 }
 
 // Estado do sampler do atlas e das texturas dos objetos para o filtro atual.
@@ -232,6 +234,7 @@ void renderFrame(RzContext* ctx) {
     }
 
     drawObjects(ctx, viewProj);
+    drawGlass(ctx, viewProj);                     // vidro: filtro + brilho, depois do opaco
     drawWall(ctx, viewProj);                      // semitransparente: por último
 
     if (ctx->windowed) {

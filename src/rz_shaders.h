@@ -227,6 +227,68 @@ void main() {
 }
 )GLSL";
 
+// Vidro (rz_glass.cpp): saída rgb = brilho especular, a = cinza do filtro;
+// blending GL_ONE, GL_SRC_ALPHA → destino = brilho + destino x cinza.
+constexpr const char* kGlassVertexShader = R"GLSL(#version 330 core
+layout(location = 0) in vec3 aPosition;
+layout(location = 1) in vec3 aNormal;     // de fora, por polígono
+layout(location = 2) in float aTint;
+uniform mat4 uViewProj;
+uniform mat4 uShadowMatrix[3];
+flat out vec3  vNormal;
+flat out float vTint;
+out vec3 vWorld;
+out vec3 vShadow0, vShadow1, vShadow2;
+void main() {
+    vec4 world = vec4(aPosition, 1.0);
+    vNormal = aNormal;
+    vTint = aTint;
+    vWorld = aPosition;
+    vShadow0 = (uShadowMatrix[0] * world).xyz * 0.5 + 0.5;
+    vShadow1 = (uShadowMatrix[1] * world).xyz * 0.5 + 0.5;
+    vShadow2 = (uShadowMatrix[2] * world).xyz * 0.5 + 0.5;
+    gl_Position = uViewProj * world;
+}
+)GLSL";
+
+constexpr const char* kGlassFragmentShader = R"GLSL(#version 330 core
+flat in vec3  vNormal;
+flat in float vTint;
+in vec3 vWorld;
+in vec3 vShadow0, vShadow1, vShadow2;
+uniform sampler2DShadow uShadow0, uShadow1, uShadow2;
+uniform int   uShadowTargetOn;
+uniform vec3  uLight;                     // direção para a luz (normalizada)
+uniform float uSpecular, uShininess;
+uniform int   uFogOn;
+uniform float uFogStart, uFogEnd;
+uniform vec3  uFogColor;
+uniform vec3  uEye;
+out vec4 fragColor;
+
+float shadowLit(sampler2DShadow map, vec3 c) {
+    if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) return 1.0;
+    return textureLod(map, c, 0.0);
+}
+
+void main() {
+    float fog = uFogOn != 0 ? smoothstep(uFogStart, uFogEnd, length(vWorld - uEye)) : 0.0;
+    if (fog >= 1.0) discard;
+    vec3 n = normalize(vNormal);
+    vec3 v = normalize(uEye - vWorld);
+    float ndl = dot(n, uLight);
+    float spec = 0.0;
+    if (ndl > 0.0) {
+        float lit = min(shadowLit(uShadow0, vShadow0), shadowLit(uShadow1, vShadow1));
+        if (uShadowTargetOn != 0) lit = min(lit, shadowLit(uShadow2, vShadow2));
+        vec3 h = normalize(uLight + v);
+        spec = pow(max(dot(n, h), 0.0), uShininess) * uSpecular * lit;
+    }
+    spec *= 1.0 - fog;
+    fragColor = vec4(vec3(spec), mix(vTint, 1.0, fog));
+}
+)GLSL";
+
 // Parede de limite (rz_border.cpp): semitransparente, com X vermelhos de
 // uXSize tiles; só perto do alvo (fade entre uFadeFar e uFadeNear, distância
 // horizontal do alvo ao ponto da parede); com neblina.

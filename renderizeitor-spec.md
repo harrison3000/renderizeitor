@@ -54,7 +54,7 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 | Contexto | `rzCreate(w, h, pixels)` offscreen; `rzCreateWindow(hwndPai, x, y, w, h)` janela filha; `rzSetViewport` (só no modo janela); `rzDestroy` |
 | Terreno | `rzSetHeightmap` (256×256); `rzSetTerrainScale(cellSize, heightScale)` |
 | Texturas | `rzLoadTileAtlas(caminhoPcx)`; `rzSetTileMap` (256×256, NULL desliga as texturas); `rzSetTextureFilter` |
-| Objetos | `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count, paletteIndex)`, `rzAddObjectTexturedPolygon(id, indices, uvs, count)`, `rzLoadObjectTexture(id, caminhoPcx)`, `rzLoadFallbackTexture(caminhoPcx)`, `rzUpdateObjectVertices`, `rzDestroyObject` |
+| Objetos | `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count, paletteIndex)`, `rzAddObjectTexturedPolygon(id, indices, uvs, count)`, `rzAddObjectTranslucentPolygon(id, indices, count, tone)`, `rzLoadObjectTexture(id, caminhoPcx)`, `rzLoadFallbackTexture(caminhoPcx)`, `rzUpdateObjectVertices`, `rzDestroyObject` |
 | Câmera | `rzSetCameraTarget(id, vertex)`, `rzSetCameraFollow(distance, height, stiffness)` |
 | Cena | `rzSetBackgroundColor(r, g, b)` (0..255; padrão 32, 40, 48) |
 | Frame | `rzRender` |
@@ -163,6 +163,10 @@ Limites:
   - **Cor sólida (gambiarra da paleta):** as últimas 16 linhas de toda textura de objeto (o padding) viram 256 bloquinhos 4×4, um por cor da paleta do PCX, da esquerda para a direita e de cima para baixo (W/4 blocos por linha de blocos). `rzAddObjectPolygon(..., paletteIndex)` põe os três cantos de cada triângulo no centro do bloco da cor: UV constante, derivada zero, sempre o nível 0 do mipmap, então a cor sai exata em qualquer filtro. O que a imagem tiver nessas linhas é sobrescrito; UVs de `rzAddObjectTexturedPolygon` devem ficar acima delas. O UV do bloco depende de W, então é calculado no envio ao VBO (que é refeito quando a textura do objeto, ou a fallback, muda de tamanho). No xadrez gerado (sem paleta), a faixa continua xadrez.
   - `rzSetObjectColor` saiu: a cor sólida vem da paleta.
   - Mipmaps na CPU (média 2×2) e os mesmos filtros do chão (`rzSetTextureFilter`), inclusive o dither, que usa o tamanho da textura no shader.
+- **Vidro (`rzAddObjectTranslucentPolygon`, `src/rz_glass.cpp`):** polígonos translúcidos em 16 tons de cinza (`tone` 0..15, cinza = tom/15).
+  - Filtro multiplicativo (o que está atrás × cinza) + brilho especular embaçado (Blinn-Phong, expoente 12, força 0,45; `kGlassShininess`, `kGlassSpecular`) da luz direcional, que some na sombra (os três mapas) e de costas para a luz.
+  - Um passe, `glBlendFunc(GL_ONE, GL_SRC_ALPHA)` com saída (brilho, cinza): destino = brilho + destino × cinza. Não precisa de ordenação (o filtro comuta; dois vidros sobrepostos em ordens diferentes diferem em no máximo 1 nível por arredondamento).
+  - Depois dos objetos opacos e antes da parede de limite; sem gravar profundidade nem alfa de destino; mesmo culling dos objetos (só a face de fora); não projeta sombra; neblina (filtro → 1, brilho → 0). VBO próprio por objeto, criado no primeiro vidro.
 - **Na GPU:** um VBO por objeto (posição, cor e UV; 24 bytes por vértice), realocado a cada polígono acrescentado. Update, cor e polígono novo só marcam o objeto como alterado; o VBO é reenviado (sem alocar) no `rzRender` seguinte. Um `glDrawArrays` por objeto visível.
 - **Culling:** fixo, na convenção do legado: vista de fora, a face está em sentido horário; as faces em sentido anti-horário na tela são descartadas (o antigo `RZ_CULL_CCW`, validado no legado; `rzSetObjectCulling` saiu).
 - **Ids:** são índices num `std::vector`; os slots livres são reaproveitados.
@@ -212,7 +216,7 @@ Sem API; constantes `kSkirt*`/`kBorder*` em `rz_internal.h`, código em `src/rz_
 
 - **Continuação:** terreno gerado até 88 tiles além de cada borda (o fim da neblina + 8).
   - Altura: a da borda (ponto mais próximo do mapa) indo, ao longo de 24 tiles, para a média das bordas + ruído de valor (duas oitavas, períodos 32 e 12). Sem degrau na emenda.
-  - Blocos de textura: sorteados (hash da célula) entre os blocos que o próprio mapa usa na mesma faixa de altura.
+  - Blocos de textura: só por proximidade. Cada célula pega o bloco de um quad do mapa sorteado (hash) numa janela perto do ponto da borda mais próximo: até 8 tiles para cada lado ao longo da borda e até 8 para dentro (`kSkirtTileBand`). A altura não entra.
   - Malha: células de 1 tile numa faixa de 16 tiles em volta do mapa; de 4 tiles depois. Na linha entre as duas, os pontos intermediários ficam na reta entre os cantos das células grossas (sem frestas). ~49 mil triângulos, em 4 regiões (N, L, S, O); só as regiões a menos de 80 tiles do olho são desenhadas.
   - Só seguindo um alvo (com neblina). Projeta sombra no mapa 0. A câmera usa as mesmas alturas fora do mapa.
 - **Parede de limite:** em cima das quatro bordas, do chão (−0,5) até 4 tiles acima, semitransparente (vermelho, alfa 0,15) com X vermelhos de 2 tiles (alfa 0,85). Aparece só perto do alvo: alfa × (1 − smoothstep(3, 10, distância horizontal do alvo ao ponto da parede)). Desenhada depois do opaco, com blending, sem gravar profundidade nem alfa de destino; com neblina; não projeta nem recebe sombra.
