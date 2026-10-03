@@ -167,6 +167,15 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetTileMap(RzContext* ctx, const uint8_t* data
     return RZ_OK;
 }
 
+RZ_API RZ_ENTRY int32_t RZ_CALL rzSetBackgroundColor(RzContext* ctx, uint8_t r, uint8_t g, uint8_t b) {
+    if (!ctx) return RZ_ERR_INVALID_ARG;
+    constexpr float inv255 = 1.0f / 255.0f;
+    ctx->backgroundR = float(r) * inv255;
+    ctx->backgroundG = float(g) * inv255;
+    ctx->backgroundB = float(b) * inv255;
+    return RZ_OK;
+}
+
 RZ_API RZ_ENTRY int32_t RZ_CALL rzSetTextureFilter(RzContext* ctx, int32_t filter) {
     if (!ctx) return RZ_ERR_INVALID_ARG;
     if (filter < RZ_FILTER_NEAREST || filter > RZ_FILTER_TRILINEAR) return RZ_ERR_INVALID_ARG;

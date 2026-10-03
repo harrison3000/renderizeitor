@@ -56,6 +56,7 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 | Texturas | `rzLoadTileAtlas(caminhoPcx)`; `rzSetTileMap` (256×256, NULL desliga as texturas); `rzSetTextureFilter` |
 | Objetos | `rzSetObjectAxes`, `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count, paletteIndex)`, `rzAddObjectTexturedPolygon(id, indices, uvs, count)`, `rzLoadObjectTexture(id, caminhoPcx)`, `rzLoadFallbackTexture(caminhoPcx)`, `rzUpdateObjectVertices`, `rzDestroyObject`, `rzSetObjectVisible`, `rzSetObjectCulling` |
 | Câmera | `rzSetCameraTarget(id, vertex)`, `rzSetCameraFollow(distance, height, stiffness)` |
+| Cena | `rzSetBackgroundColor(r, g, b)` (0..255; padrão 32, 40, 48) |
 | Frame | `rzRender` |
 
 Erros:
@@ -200,7 +201,7 @@ O modo normal é a perseguição (9.2): o host sempre define um alvo.
 1. Atualiza a câmera e monta a view-projection e a matriz da luz (sombra).
 2. Reenvia os VBOs de objetos alterados.
 3. Passe da sombra: terreno e objetos visíveis, só profundidade, no shadow map.
-4. Faz bind do FBO (offscreen) ou do framebuffer padrão (janela) e limpa com a cor de fundo `0x00202830`, com profundidade em `GL_LESS`.
+4. Faz bind do FBO (offscreen) ou do framebuffer padrão (janela) e limpa com a cor de fundo (`rzSetBackgroundColor`, padrão 32, 40, 48), com profundidade em `GL_LESS`.
 5. Desenha o terreno em um draw: textura se houver atlas e mapa de blocos, senão as cores flat.
 6. Desenha os objetos.
 7. Faz `SwapBuffers` (janela) ou `glReadPixels` para o buffer do host (offscreen).
@@ -253,4 +254,4 @@ Sem API por enquanto: tudo fixo em constantes (`rz_internal.h`).
 - **Desempenho em CPU fraca:** no Allwinner D1, via llvmpipe, os 130 mil triângulos pequenos dominam. O próximo passo seria descarte de blocos do terreno fora do frustum e LOD por blocos.
 - **Escolha da diagonal do quad pela altura dos cantos**, de forma determinística.
 - **Winding dos polígonos do legado:** ainda desconhecido; define o culling e a luz de um lado só.
-- **Valores provisórios:** paleta, direção da luz, ambient, força do sombreamento das texturas, FOV, inclinação da visão geral, cor de fundo e cor dos objetos.
+- **Valores provisórios:** paleta, direção da luz, ambient, força do sombreamento das texturas, FOV, inclinação da visão geral.

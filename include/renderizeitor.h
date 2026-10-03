@@ -100,6 +100,10 @@ RZ_API int32_t RZ_CALL rzSetTileMap(RzContext* ctx, const uint8_t* data,
 
 RZ_API int32_t RZ_CALL rzSetTextureFilter(RzContext* ctx, int32_t filter);
 
+/* Cor de fundo (onde não há terreno nem objeto), 0 a 255 por canal. Vale a
+   partir do próximo rzRender. Padrão (32, 40, 48). */
+RZ_API int32_t RZ_CALL rzSetBackgroundColor(RzContext* ctx, uint8_t r, uint8_t g, uint8_t b);
+
 /* ------------------------------------------------------------------------ */
 /* Objetos                                                                  */
 /* ------------------------------------------------------------------------ */

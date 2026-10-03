@@ -30,7 +30,10 @@ constexpr int32_t kVertexCount   = kGridSize * kGridSize;       // 65.536
 constexpr int32_t kTriangleCount = kQuadsPerSide * kQuadsPerSide * 2; // 130.050
 constexpr int32_t kPaletteSize   = 766;                         // soma de 3 alturas: 0..765
 
-constexpr uint32_t kBackgroundColor = 0x00202830u;
+// Cor de fundo padrão (rzSetBackgroundColor), já em float para o glClearColor
+constexpr float kBackgroundR = 32.0f / 255.0f;
+constexpr float kBackgroundG = 40.0f / 255.0f;
+constexpr float kBackgroundB = 48.0f / 255.0f;
 
 constexpr float kPi              = 3.14159265358979f;
 constexpr float kFovYDegrees     = 60.0f;
@@ -203,6 +206,11 @@ struct RzContext {
 
     // Offscreen: FBO com cor e profundidade
     rz::GLuint fbo = 0, colorRb = 0, depthRb = 0;
+
+    // Cor de fundo em float (0..1), convertida só em rzSetBackgroundColor
+    float     backgroundR = rz::kBackgroundR;
+    float     backgroundG = rz::kBackgroundG;
+    float     backgroundB = rz::kBackgroundB;
 
     rz::TerrainProgram terrainProgram;
     rz::ObjectProgram  objectProgram;

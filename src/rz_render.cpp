@@ -237,9 +237,7 @@ void renderFrame(RzContext* ctx) {
 
     glBindFramebuffer(GL_FRAMEBUFFER, ctx->windowed ? 0 : ctx->fbo);
     glViewport(0, 0, ctx->width, ctx->height);
-    glClearColor(float((kBackgroundColor >> 16) & 0xFF) / 255.0f,
-                 float((kBackgroundColor >> 8) & 0xFF) / 255.0f,
-                 float(kBackgroundColor & 0xFF) / 255.0f, 0.0f);
+    glClearColor(ctx->backgroundR, ctx->backgroundG, ctx->backgroundB, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
