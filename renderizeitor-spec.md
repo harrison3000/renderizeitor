@@ -180,7 +180,8 @@ O modo normal é a perseguição (9.2): o host sempre define um alvo.
 
 ### 9.2 Perseguição "na corda" (`rzSetCameraTarget(id, vertex)`)
 
-- **Alvo:** o vértice `vertex` do objeto `id`, que não precisa estar em polígono. A câmera sempre olha para ele (lookAt).
+- **Alvo:** o vértice `vertex` do objeto `id`, que não precisa estar em polígono. A câmera olha para ele (lookAt), suavizado.
+- **Alvo suavizado:** a cada frame, o ponto olhado anda 50% do caminho até o vértice na horizontal (`kFollowLookXZ`) e 10% na vertical (`kFollowLookY`). Os pulos do alvo em terreno esburacado não fazem a câmera tremer; o atraso na horizontal fica em cerca de um frame de movimento. É esse ponto suavizado que puxa a corda e define a altura da câmera.
 - **Movimento horizontal:**
   - além do comprimento da corda (padrão 3 tiles), a câmera é puxada;
   - abaixo da metade dele, recua;

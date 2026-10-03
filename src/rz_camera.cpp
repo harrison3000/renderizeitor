@@ -153,8 +153,18 @@ Mat4 updateCamera(RzContext* ctx) {
 
     Vec3 eye, at;
     if (following) {
-        // Perseguição: câmera na corda, sempre olhando para o vértice-alvo
-        at = ctx->objects[target].world[ctx->cameraTargetVertex];
+        // Perseguição: câmera na corda, olhando para o vértice-alvo suavizado
+        // (o mesmo ponto puxa a corda, então a altura da câmera também não treme)
+        const Vec3 raw = ctx->objects[target].world[ctx->cameraTargetVertex];
+        if (!ctx->followInitialized) {
+            ctx->followLook = raw;
+        } else {
+            Vec3& look = ctx->followLook;
+            look.x += (raw.x - look.x) * kFollowLookXZ;
+            look.z += (raw.z - look.z) * kFollowLookXZ;
+            look.y += (raw.y - look.y) * kFollowLookY;
+        }
+        at = ctx->followLook;
         updateFollowCamera(ctx, at);
         eye = ctx->followEye;
     } else {

@@ -54,6 +54,10 @@ constexpr float kFollowStiffness = 0.08f;
 constexpr float kFollowClearance    = 0.5f;   // altura mínima desejada sobre o chão (tiles)
 constexpr float kFollowMinClearance = 0.1f;   // limite duro sobre o chão (tiles)
 constexpr float kFollowClimb        = 0.2f;   // amortecimento ao subir
+// Ponto olhado (alvo suavizado): o tremor do alvo em terreno esburacado não
+// chega à câmera. Forte na vertical, leve na horizontal (pouco atraso).
+constexpr float kFollowLookXZ       = 0.5f;
+constexpr float kFollowLookY        = 0.1f;
 
 constexpr int32_t kMaxWindowSize = 8192;
 
@@ -262,6 +266,7 @@ struct RzContext {
     bool     followInitialized = false;
     float    followAppliedDistance = 0.0f;   // corda com que followEye foi calculado
     rz::Vec3 followEye = { 0.0f, 0.0f, 0.0f };
+    rz::Vec3 followLook = { 0.0f, 0.0f, 0.0f };   // alvo suavizado: para onde a câmera olha
 
     // Objetos (id = índice no vetor; slots livres são reaproveitados)
     std::vector<rz::Object> objects;
