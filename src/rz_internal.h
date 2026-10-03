@@ -78,7 +78,11 @@ constexpr int32_t kSkirtExtent   = 88;     // tiles além de cada borda (kFogEnd
 constexpr float   kSkirtBlend    = 24.0f;  // tiles da altura da borda até a gerada
 constexpr float   kSkirtNoiseLow  = 60.0f; // amplitude do ruído (unidade do byte), período 32
 constexpr float   kSkirtNoiseHigh = 18.0f; // período 12
-constexpr int32_t kSkirtTileBand  = 8;     // blocos da continuação: de quads a até 8 tiles do ponto da borda mais próximo
+constexpr int32_t kSkirtTileBand  = 8;     // sorteio: quads a até 8 tiles do ponto da borda mais próximo
+constexpr int32_t kSkirtJitterPercent = 12;   // % das células que sorteiam em vez de continuar a borda
+constexpr float   kSkirtMeanderGrowth = 0.35f; // deslocamento ao longo da borda: até 0,35 x distância...
+constexpr float   kSkirtMeanderMax    = 12.0f; // ...limitado a 12 tiles
+constexpr int32_t kSkirtMeanderPeriod = 24;    // período do ruído do serpenteio (tiles)
 constexpr float   kBorderWallHeight = 4.0f;   // tiles acima do chão
 constexpr float   kBorderFadeFar    = 10.0f;  // alvo a 10 tiles: começa a aparecer
 constexpr float   kBorderFadeNear   = 3.0f;   // a 3 tiles: totalmente visível
@@ -403,6 +407,7 @@ void bindShadowMaps(const RzContext* ctx, const ShadowUniforms& u);
 bool  createBorder(RzContext* ctx);
 void  destroyBorder(RzContext* ctx);
 void  buildBorder(RzContext* ctx);                 // carga, no fim de buildTerrainMesh
+uint8_t skirtTile(const RzContext* ctx, int32_t c, int32_t r);   // bloco de uma célula da continuação
 float extendedGroundHeight(const RzContext* ctx, float x, float z);
 void  drawSkirt(const RzContext* ctx);             // programa do terreno em uso
 void  drawSkirtDepth(const RzContext* ctx);        // passe de sombra

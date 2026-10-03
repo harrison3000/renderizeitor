@@ -6,8 +6,10 @@
 //   - altura: parte da altura da borda (o ponto mais próximo do mapa) e, ao
 //     longo de kSkirtBlend tiles, vai para (média das bordas + ruído de valor
 //     em duas oitavas). Na emenda com o mapa, a altura é a da borda: sem degrau.
-//   - bloco de textura: o de um quad do mapa perto do ponto da borda mais
-//     próximo da célula (janela de kSkirtTileBand tiles), sorteado por hash.
+//   - bloco de textura: em geral continua o da borda logo "na frente", com o
+//     ponto de cópia serpenteando ao longo da borda (rios continuam como
+//     faixas que fazem curvas); uma parte das células sorteia um bloco perto
+//     da borda (skirtTile).
 //   - malha: células de 1 tile numa faixa de kSkirtFine tiles em volta do mapa
 //     e de kSkirtCoarse tiles daí em diante (longe, a neblina cobre). Na linha
 //     onde as duas se encontram, as alturas dos pontos intermediários são
@@ -116,26 +118,6 @@ void buildExtendedHeights(RzContext* ctx) {
     fixLine(false, kFineLo); fixLine(false, kFineHi);
 }
 
-// Bloco de uma célula da continuação: o de um quad do mapa perto do ponto da
-// borda mais próximo da célula, sorteado (hash) numa janela de
-// 2 x kSkirtTileBand quads ao longo da borda e kSkirtTileBand para dentro.
-uint8_t pickTile(const RzContext* ctx, int32_t c, int32_t r) {
-    if (ctx->tileMap.empty()) return 0;
-    const int32_t last = kQuadsPerSide - 1;                  // 254: último quad
-    const int32_t cc = c < 0 ? 0 : (c > last ? last : c);    // quad da borda mais próximo
-    const int32_t cr = r < 0 ? 0 : (r > last ? last : r);
-    const uint32_t h = hash2(c, r, 77u);
-    const int32_t along  = int32_t(h % uint32_t(2 * kSkirtTileBand + 1)) - kSkirtTileBand;
-    const int32_t inward = int32_t((h >> 16) % uint32_t(kSkirtTileBand));
-    int32_t qc = cc, qr = cr;
-    // para dentro a partir da borda (nos cantos, nas duas direções); ao longo
-    // da borda no outro eixo
-    if (c < 0) qc = inward; else if (c > last) qc = last - inward; else qc = cc + along;
-    if (r < 0) qr = inward; else if (r > last) qr = last - inward; else qr = cr + along;
-    qc = qc < 0 ? 0 : (qc > last ? last : qc);
-    qr = qr < 0 ? 0 : (qr > last ? last : qr);
-    return ctx->tileMap[qr * kGridSize + qc];
-}
 
 // Uma célula (c, r)-(c+s, r+s): dois triângulos com a diagonal do mapa
 void emitCell(const RzContext* ctx, std::vector<TerrainVertex>& out, const uint32_t* palette,
@@ -192,7 +174,7 @@ void buildSkirtMesh(RzContext* ctx) {
             for (int32_t c = kFineLo; c < kFineHi; ++c) {
                 if (r >= 0 && r < kQuadsPerSide && c >= 0 && c < kQuadsPerSide) continue;
                 if (regionOf(c, r) != region) continue;
-                emitCell(ctx, mesh, palette, c, r, 1, pickTile(ctx, c, r));
+                emitCell(ctx, mesh, palette, c, r, 1, skirtTile(ctx, c, r));
             }
         }
         // Faixa grossa (células de kSkirtCoarse tiles), menos a faixa fina
@@ -200,7 +182,7 @@ void buildSkirtMesh(RzContext* ctx) {
             for (int32_t c = lo; c < hi; c += kSkirtCoarse) {
                 if (r >= kFineLo && r < kFineHi && c >= kFineLo && c < kFineHi) continue;
                 if (regionOf(c, r) != region) continue;
-                emitCell(ctx, mesh, palette, c, r, kSkirtCoarse, pickTile(ctx, c, r));
+                emitCell(ctx, mesh, palette, c, r, kSkirtCoarse, skirtTile(ctx, c, r));
             }
         }
         ctx->skirtCount[region] = int32_t(mesh.size()) - ctx->skirtFirst[region];
@@ -252,6 +234,47 @@ void buildWallMesh(RzContext* ctx) {
 }
 
 } // namespace
+
+// Bloco de uma célula da continuação. Em geral continua o bloco do quad da
+// borda que está "na frente" da célula (rio continua rio), mas o ponto de onde
+// se copia vai serpenteando: ao longo da borda, ele se desloca por um ruído de
+// valor suave em (posição ao longo, distância para fora), com amplitude que
+// cresce com a distância (até kSkirtMeanderMax tiles). Células vizinhas têm
+// deslocamentos parecidos, então as faixas continuam juntas e fazem curvas em
+// vez de seguir em linha reta. Com chance kSkirtJitterPercent %, a célula
+// pega um bloco sorteado da janela perto da borda (kSkirtTileBand), para
+// quebrar a repetição. Nos cantos (fora nos dois eixos), copia o quad do canto.
+uint8_t skirtTile(const RzContext* ctx, int32_t c, int32_t r) {
+    if (ctx->tileMap.empty()) return 0;
+    const int32_t last = kQuadsPerSide - 1;                  // 254: último quad
+    const int32_t outC = c < 0 ? -c : (c > last ? c - last : 0);
+    const int32_t outR = r < 0 ? -r : (r > last ? r - last : 0);
+    const uint32_t h = hash2(c, r, 77u);
+
+    int32_t qc, qr;
+    if (h % 100u < uint32_t(kSkirtJitterPercent)) {
+        // sorteio na janela perto do ponto da borda mais próximo
+        const int32_t along  = int32_t((h >> 8) % uint32_t(2 * kSkirtTileBand + 1)) - kSkirtTileBand;
+        const int32_t inward = int32_t((h >> 20) % uint32_t(kSkirtTileBand));
+        qc = c < 0 ? inward : (c > last ? last - inward : c + along);
+        qr = r < 0 ? inward : (r > last ? last - inward : r + along);
+    } else {
+        // continuação, serpenteando ao longo da borda
+        auto meander = [](int32_t along, int32_t out, uint32_t seed) {
+            float amp = float(out) * kSkirtMeanderGrowth;
+            if (amp > kSkirtMeanderMax) amp = kSkirtMeanderMax;
+            const float n = valueNoise(float(along), float(out), kSkirtMeanderPeriod, seed) - 0.5f;
+            return int32_t(floorf(n * 2.0f * amp + 0.5f));
+        };
+        qc = c < 0 ? 0 : (c > last ? last : c);
+        qr = r < 0 ? 0 : (r > last ? last : r);
+        if (outR > 0 && outC == 0) qc += meander(c, outR, r < 0 ? 31u : 37u);   // norte/sul
+        if (outC > 0 && outR == 0) qr += meander(r, outC, c < 0 ? 41u : 43u);   // oeste/leste
+    }
+    qc = qc < 0 ? 0 : (qc > last ? last : qc);
+    qr = qr < 0 ? 0 : (qr > last ? last : qr);
+    return ctx->tileMap[qr * kGridSize + qc];
+}
 
 bool createBorder(RzContext* ctx) {
     // Continuação: mesmo formato de vértice do terreno
