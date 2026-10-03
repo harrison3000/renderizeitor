@@ -36,6 +36,7 @@ void freeObject(Object& o) {
     if (o.vbo) glDeleteBuffers(1, &o.vbo);
     if (o.vao) glDeleteVertexArrays(1, &o.vao);
     freeGlass(o);
+    freeWheels(o);
     o = Object{};
 }
 
@@ -174,6 +175,7 @@ bool objectInRange(const RzContext* ctx, const Object& o) {
 // Os fora do alcance ficam para quando entrarem (gpuDirty continua).
 void prepareObjects(RzContext* ctx) {
     for (Object& o : ctx->objects) {
+        if (o.alive && objectInRange(ctx, o)) prepareWheels(o);
         if (!drawable(o) || !objectInRange(ctx, o)) continue;
         const int32_t side = o.texture ? o.textureSize : ctx->fallbackSize;
         if (o.gpuDirty || o.uploadedSide != side) {   // textura trocada: UVs das cores mudam
@@ -195,6 +197,7 @@ void drawObjectsDepth(RzContext* ctx, int32_t onlyId, int32_t skipId) {
         if (!objectInRange(ctx, o)) continue;
         glBindVertexArray(o.vao);
         glDrawArrays(GL_TRIANGLES, 0, o.triangleCount() * 3);
+        drawWheelsDepth(o);
     }
 }
 
@@ -303,6 +306,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t i
     o.positioned = true;
     o.gpuDirty   = true;
     o.glassDirty = !o.glassStaging.empty();
+    o.wheelsDirty = !o.wheelStaging.empty();
     return RZ_OK;
 }
 

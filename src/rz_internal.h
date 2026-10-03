@@ -190,6 +190,11 @@ struct GlassVertex {
 };
 static_assert(sizeof(GlassVertex) == 28);
 
+// Rodas (rz_wheels.cpp): cilindros pretos finos
+constexpr int32_t  kWheelSegments = 12;
+constexpr float    kWheelWidth    = 0.25f;          // largura = 0,25 x diâmetro
+constexpr uint32_t kWheelColor    = 0x001C1C1Cu;    // quase preto (para a luz ainda aparecer)
+
 // Vidro: brilho especular "embaçado" (Blinn-Phong de expoente baixo)
 constexpr float kGlassSpecular  = 0.45f;
 constexpr float kGlassShininess = 12.0f;
@@ -221,6 +226,15 @@ struct Object {
     std::vector<GlassVertex> glassStaging; // triângulos do leque, preenchido no envio
     GLuint    glassVao = 0, glassVbo = 0;
     bool      glassDirty = false;
+
+    // Rodas (rz_wheels.cpp): staging vazio = sem rodas
+    uint16_t  wheelVertex[4] = {};
+    uint8_t   wheelFront[4] = {};
+    float     wheelDiameter[4] = {};    // mundo
+    float     wheelSteer[4] = {};       // radianos, positivo = esquerda
+    std::vector<TerrainVertex> wheelStaging;
+    GLuint    wheelVao = 0, wheelVbo = 0;
+    bool      wheelsDirty = false;
 
     GLuint    texture = 0;          // 0: usa a textura fallback do contexto
     int32_t   textureSize = 0;      // lado da textura (potência de 2)
@@ -414,6 +428,12 @@ float extendedGroundHeight(const RzContext* ctx, float x, float z);
 void  drawSkirt(const RzContext* ctx);             // programa do terreno em uso
 void  drawSkirtDepth(const RzContext* ctx);        // passe de sombra
 void  drawWall(const RzContext* ctx, const Mat4& viewProj);
+
+// rz_wheels.cpp
+void freeWheels(Object& o);
+void prepareWheels(Object& o);
+void drawWheelsDepth(const Object& o);
+void drawWheels(RzContext* ctx, const Mat4& viewProj);
 
 // rz_glass.cpp
 bool createGlassProgram(RzContext* ctx);

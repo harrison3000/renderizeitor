@@ -55,6 +55,7 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 | Terreno | `rzSetHeightmap` (256×256); `rzSetTerrainScale(cellSize, heightScale)` |
 | Texturas | `rzLoadTileAtlas(caminhoPcx)`; `rzSetTileMap` (256×256, NULL desliga as texturas); `rzSetTextureFilter` |
 | Objetos | `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count, paletteIndex)`, `rzAddObjectTexturedPolygon(id, indices, uvs, count)`, `rzAddObjectTranslucentPolygon(id, indices, count, tone)`, `rzLoadObjectTexture(id, caminhoPcx)`, `rzLoadFallbackTexture(caminhoPcx)`, `rzUpdateObjectVertices`, `rzDestroyObject` |
+| Rodas | `rzSetObjectWheels(id, hubVertices[4], front[4], diameters[4])`, `rzUpdateObjectWheels(id, steer[4])` |
 | Câmera | `rzSetCameraTarget(id, vertex)`, `rzSetCameraFollow(distance, height, stiffness)` |
 | Cena | `rzSetBackgroundColor(r, g, b)` (0..255; padrão 32, 40, 48) |
 | Frame | `rzRender` |
@@ -167,6 +168,11 @@ Limites:
   - Filtro multiplicativo (o que está atrás × cinza) + brilho especular embaçado (Blinn-Phong, expoente 12, força 0,45; `kGlassShininess`, `kGlassSpecular`) da luz direcional, que some na sombra (os três mapas) e de costas para a luz.
   - Um passe, `glBlendFunc(GL_ONE, GL_SRC_ALPHA)` com saída (brilho, cinza): destino = brilho + destino × cinza. Não precisa de ordenação (o filtro comuta; dois vidros sobrepostos em ordens diferentes diferem em no máximo 1 nível por arredondamento).
   - Depois dos objetos opacos e antes da parede de limite; sem gravar profundidade nem alfa de destino; mesmo culling dos objetos (só a face de fora); não projeta sombra; neblina (filtro → 1, brilho → 0). VBO próprio por objeto, criado no primeiro vidro.
+- **Rodas (`rzSetObjectWheels`, `rzUpdateObjectWheels`, `src/rz_wheels.cpp`):** 4 por objeto, por enquanto cilindros pretos finos (12 segmentos, largura 0,25 × diâmetro; `kWheelSegments`, `kWheelWidth`, `kWheelColor`).
+  - Definição: 4 índices de vértice (centro do cubo), 4 flags dianteira/traseira (`uint8_t`, exatamente 2 dianteiras) e 4 diâmetros em tiles (> 0). Chamar de novo redefine e zera o esterço.
+  - Referencial do carro tirado dos 4 cubos: frente = meio das dianteiras − meio das traseiras; eixo lateral = diferença dentro de cada par; "cima" = perpendicular aos dois, sempre com y ≥ 0. Vale para qualquer ordem dos índices.
+  - Esterço (`rzUpdateObjectWheels`): radianos, um por roda, positivo = à esquerda (anti-horário visto de cima), aplicado em volta do "cima" do carro. Qualquer roda pode esterçar; o exemplo só esterça as dianteiras.
+  - Malha refeita na CPU quando o esterço ou os vértices mudam; desenhada com o programa do chão sem textura (cor chapada com luz, sombra e neblina), sem culling; projeta sombra nos mapas 1 e 2.
 - **Na GPU:** um VBO por objeto (posição, cor e UV; 24 bytes por vértice), realocado a cada polígono acrescentado. Update, cor e polígono novo só marcam o objeto como alterado; o VBO é reenviado (sem alocar) no `rzRender` seguinte. Um `glDrawArrays` por objeto visível.
 - **Culling:** fixo, na convenção do legado: vista de fora, a face está em sentido horário; as faces em sentido anti-horário na tela são descartadas (o antigo `RZ_CULL_CCW`, validado no legado; `rzSetObjectCulling` saiu).
 - **Ids:** são índices num `std::vector`; os slots livres são reaproveitados.

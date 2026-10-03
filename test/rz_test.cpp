@@ -189,6 +189,7 @@ int main(int argc, char** argv) {
             err = rzLoadObjectTexture(ctx, vehicleId, carPath);
             if (err != RZ_OK) { std::fprintf(stderr, "rzLoadObjectTexture(%s) falhou: %d\n", carPath, err); return 1; }
         }
+        rztdSetVehicleWheels(ctx, vehicleId);
         if (follow) rzSetCameraTarget(ctx, vehicleId, RZTD_VEHICLE_TARGET);
 
         const int count = rztdGenerateBuildings(heightmap, heightScale, buildings, buildingColors,
@@ -225,6 +226,14 @@ int main(int argc, char** argv) {
         if (vehicleId >= 0) {
             placeVehicle(f);
             rzUpdateObjectVertices(ctx, vehicleId, vehicle.vertices);
+            // rodas dianteiras pela curvatura do percurso (rumo diminuindo = curva à esquerda)
+            float x0, z0, h0, x1, z1, h1;
+            rztdVehiclePath(float(f) / 8192.0f, &x0, &z0, &h0);
+            rztdVehiclePath(float(f + 8) / 8192.0f, &x1, &z1, &h1);
+            float dh = h1 - h0;
+            if (dh >  3.14159265f) dh -= 6.2831853f;
+            if (dh < -3.14159265f) dh += 6.2831853f;
+            rztdSteerVehicle(ctx, vehicleId, std::fmax(-0.45f, std::fmin(0.45f, -dh * 40.0f)));
         }
         const auto t0 = std::chrono::steady_clock::now();
         rzRender(ctx);

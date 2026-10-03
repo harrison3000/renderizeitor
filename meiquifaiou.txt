@@ -24,7 +24,7 @@ STATIC_LINK = -static-libgcc -static-libstdc++ -static
 SYSLIBS     = -lopengl32 -lgdi32
 
 SRCS = src/rz_api.cpp src/rz_math.cpp src/rz_terrain.cpp src/rz_camera.cpp \
-       src/rz_render.cpp src/rz_object.cpp src/rz_gl.cpp src/rz_platform_win32.cpp src/rz_pcx.cpp src/rz_texture.cpp src/rz_shadow.cpp src/rz_border.cpp src/rz_glass.cpp
+       src/rz_render.cpp src/rz_object.cpp src/rz_gl.cpp src/rz_platform_win32.cpp src/rz_pcx.cpp src/rz_texture.cpp src/rz_shadow.cpp src/rz_border.cpp src/rz_glass.cpp src/rz_wheels.cpp
 HDRS = include/renderizeitor.h src/rz_internal.h src/rz_gl.h src/rz_platform.h src/rz_shaders.h
 
 OBJ_STATIC = $(patsubst src/%.cpp,build/static/%.o,$(SRCS))

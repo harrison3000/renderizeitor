@@ -60,7 +60,7 @@ static int32_t  g_vehicleId = -1;
 static RztdMesh g_vehicle;
 static int32_t  g_follow = 1;
 static const uint8_t* g_heights;
-static float    g_carX, g_carZ, g_carHeading, g_carSpeed;
+static float    g_carX, g_carZ, g_carHeading, g_carSpeed, g_carSteer;
 #define HEIGHT_SCALE RZTD_HEIGHT_SCALE   /* padrão de rzSetTerrainScale */
 
 #define CAR_MAX_SPEED    0.06f            /* tiles/frame: ~3,6 tiles/s, ~60 km/h */
@@ -69,6 +69,8 @@ static float    g_carX, g_carZ, g_carHeading, g_carSpeed;
 #define CAR_BRAKE        0.003f
 #define CAR_FRICTION     0.97f            /* sem acelerador, a velocidade decai */
 #define CAR_TURN_RATE    0.045f           /* rad/frame na velocidade máxima */
+#define CAR_STEER_MAX    0.45f            /* rad: esterçamento visual das rodas dianteiras */
+#define CAR_STEER_RATE   0.06f            /* rad/frame para chegar lá */
 
 static void placeVehicle(void) {
     rztdVehicle(&g_vehicle, g_heights, HEIGHT_SCALE, g_carX, g_carZ, g_carHeading);
@@ -94,6 +96,13 @@ static void driveCar(int active) {
     turn = CAR_TURN_RATE * (g_carSpeed / CAR_MAX_SPEED);
     if (left)  g_carHeading -= turn;
     if (right) g_carHeading += turn;
+
+    /* Rodas dianteiras: vão até o máximo enquanto A/D estiver apertado, e voltam */
+    {
+        float want = left ? CAR_STEER_MAX : (right ? -CAR_STEER_MAX : 0.0f);
+        if (g_carSteer < want) { g_carSteer += CAR_STEER_RATE; if (g_carSteer > want) g_carSteer = want; }
+        if (g_carSteer > want) { g_carSteer -= CAR_STEER_RATE; if (g_carSteer < want) g_carSteer = want; }
+    }
 
     nx = g_carX + cosf(g_carHeading) * g_carSpeed;
     nz = g_carZ + sinf(g_carHeading) * g_carSpeed;
@@ -282,6 +291,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         err = rztdCreateObject(g_ctx, &g_vehicle, RZTD_CAR_V, RZTD_CAR_ROOF, &g_vehicleId);
         if (err == RZ_OK) {
             rzLoadObjectTexture(g_ctx, g_vehicleId, carPath);
+            rztdSetVehicleWheels(g_ctx, g_vehicleId);
             rzSetCameraTarget(g_ctx, g_vehicleId, RZTD_VEHICLE_TARGET);
         }
     }
@@ -339,6 +349,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         driveCar(GetForegroundWindow() == hwnd);
         placeVehicle();
         rzUpdateObjectVertices(g_ctx, g_vehicleId, g_vehicle.vertices);
+        rztdSteerVehicle(g_ctx, g_vehicleId, g_carSteer);
 
         g_cubeAngle += 0.03f;
         rztdSpinningCube(&g_cube, g_cubePos[0], g_cubePos[1], g_cubePos[2], 0.6f, g_cubeAngle);

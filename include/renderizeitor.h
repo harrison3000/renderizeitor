@@ -158,6 +158,23 @@ RZ_API int32_t RZ_CALL rzAddObjectTranslucentPolygon(RzContext* ctx, int32_t id,
                                                      const uint16_t* indices, int32_t count,
                                                      int32_t tone);
 
+/* Rodas (por enquanto, cilindros pretos finos). Quatro rodas, cada uma:
+   hubVertices[i]  vértice do objeto que é o centro da roda (acompanha
+                   rzUpdateObjectVertices);
+   front[i]        != 0 se dianteira (precisam ser duas dianteiras e duas
+                   traseiras: daí sai a frente do carro e a linha das rodas);
+   diameters[i]    diâmetro em tiles.
+   Chamar de novo troca as rodas (e zera o esterçamento). Fase de carga.
+   Erros: RZ_ERR_INVALID_ARG (vértice fora do objeto, diâmetro <= 0 ou não
+   finito, ou não forem 2 + 2). */
+RZ_API int32_t RZ_CALL rzSetObjectWheels(RzContext* ctx, int32_t id, const uint16_t* hubVertices,
+                                         const uint8_t* front, const float* diameters);
+
+/* Esterçamento de cada roda (4 floats, radianos; positivo vira para a
+   esquerda, anti-horário visto de cima). Não aloca. RZ_ERR_INVALID_ARG sem
+   rzSetObjectWheels antes ou com ângulo não finito. */
+RZ_API int32_t RZ_CALL rzUpdateObjectWheels(RzContext* ctx, int32_t id, const float* steer);
+
 /* Textura do objeto (uma por objeto), lida de um PCX de 8 bits (fase de carga).
    A textura é quadrada, W x W: W é a maior potência de 2 que cabe na largura
    da imagem (mínimo 256, máximo 4096 ou o limite do driver); o que sobra à

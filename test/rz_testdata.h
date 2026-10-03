@@ -408,6 +408,9 @@ static int rztdGenerateBuildings(const uint8_t* heights, float heightScale,
 /* ------------------------------------------------------------------------- */
 
 #define RZTD_VEHICLE_TARGET 16   /* vértice extra, fora dos polígonos: alvo da câmera */
+#define RZTD_WHEEL_FIRST    17   /* 4 vértices extras: centros das rodas (dianteira esq.,
+                                    dianteira dir., traseira esq., traseira dir.) */
+#define RZTD_WHEEL_DIAMETER 0.20f
 #define RZTD_VEHICLE_LENGTH 0.85f
 #define RZTD_VEHICLE_WIDTH  0.40f
 
@@ -491,8 +494,9 @@ static void rztdVehicleBox(RztdMesh* m, const RztdFrame* fr,
 }
 
 /* Veículo (~0,85 x 0,40 tile) em (x, z), virado para `heading` (radianos, no
-   plano xz), apoiado e inclinado no terreno. Carroceria + cabine, e o vértice
-   RZTD_VEHICLE_TARGET acima do centro do teto (alvo da câmera). */
+   plano xz), apoiado e inclinado no terreno. Carroceria + cabine, o vértice
+   RZTD_VEHICLE_TARGET acima do centro do teto (alvo da câmera) e os 4 centros
+   de roda a partir de RZTD_WHEEL_FIRST (só vértices; as rodas são do renderer). */
 static void rztdVehicle(RztdMesh* m, const uint8_t* heights, float heightScale,
                         float x, float z, float heading) {
     RztdFrame fr = rztdVehicleFrame(heights, heightScale, x, z, heading);
@@ -502,7 +506,30 @@ static void rztdVehicle(RztdMesh* m, const uint8_t* heights, float heightScale,
     rztdVehicleBox(m, &fr, -hl, hl, 0.03f, 0.20f, -hw, hw, 0);                  /* carroceria */
     rztdVehicleBox(m, &fr, -0.26f, 0.10f, 0.20f, 0.36f, -0.16f, 0.16f, 1);     /* cabine */
     rztdFrameVertex(m, &fr, 0.0f, 0.36f, 0.0f);                                 /* alvo */
+    {   /* centros das rodas: 0,27 à frente/atrás, por fora da carroceria */
+        const float wx = 0.27f, wy = 0.5f * RZTD_WHEEL_DIAMETER, wz = hw + 0.03f;
+        rztdFrameVertex(m, &fr,  wx, wy, -wz);
+        rztdFrameVertex(m, &fr,  wx, wy,  wz);
+        rztdFrameVertex(m, &fr, -wx, wy, -wz);
+        rztdFrameVertex(m, &fr, -wx, wy,  wz);
+    }
 }
+
+/* Rodas do veículo de teste no renderer (dianteiras = as duas primeiras) */
+#ifdef RENDERIZEITOR_H
+static int32_t rztdSetVehicleWheels(RzContext* ctx, int32_t id) {
+    const uint16_t hubs[4] = { RZTD_WHEEL_FIRST, RZTD_WHEEL_FIRST + 1, RZTD_WHEEL_FIRST + 2, RZTD_WHEEL_FIRST + 3 };
+    const uint8_t front[4] = { 1, 1, 0, 0 };
+    const float diam[4] = { RZTD_WHEEL_DIAMETER, RZTD_WHEEL_DIAMETER, RZTD_WHEEL_DIAMETER, RZTD_WHEEL_DIAMETER };
+    return rzSetObjectWheels(ctx, id, hubs, front, diam);
+}
+
+/* Esterçamento das dianteiras (radianos, positivo = esquerda) */
+static void rztdSteerVehicle(RzContext* ctx, int32_t id, float angle) {
+    const float steer[4] = { angle, angle, 0.0f, 0.0f };
+    rzUpdateObjectWheels(ctx, id, steer);
+}
+#endif
 
 /* Posição no percurso automático (volta em torno do centro da ilha) no
    instante t (em voltas, 1.0 = uma volta). Devolve x, z e o rumo. */

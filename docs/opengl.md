@@ -41,6 +41,7 @@ abaixo fica como registro do que mudou. A spec atual é `renderizeitor-spec.md`.
 | `src/rz_shadow.cpp` | Três shadow maps: terreno, objetos próximos, alvo da câmera |
 | `src/rz_border.cpp` | Continuação do terreno além do mapa e parede de limite |
 | `src/rz_glass.cpp` | Vidro: polígonos translúcidos (filtro cinza + brilho especular) |
+| `src/rz_wheels.cpp` | Rodas: 4 cilindros por objeto, com esterço |
 
 ## Desempenho (máquina de testes, 2 núcleos, 1280x720)
 
