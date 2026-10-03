@@ -61,7 +61,7 @@ void downsample(const uint32_t* src, uint32_t* dst, int32_t dstSide) {
 
 // Direção (normalizada) para a luz, fixa no mundo. Provisória.
 Vec3 lightDirection() {
-    Vec3 l = { -0.45f, 0.55f, -0.40f };   // elevação ~42° (antes 0.80: ~53°)
+    Vec3 l = { -0.45f, 0.45f, -0.40f };   // elevação :)
     const float inv = 1.0f / sqrtf(dot(l, l));
     return { l.x * inv, l.y * inv, l.z * inv };
 }

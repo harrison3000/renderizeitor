@@ -39,7 +39,7 @@ void main() {
 // texels, e o nível = floor(lod + limiar de Bayer 4x4) — o mesmo do software.
 // Com textura, a cor é multiplicada por um sombreamento leve (a luz flat do
 // triângulo atenuada por uShading) e, na sombra, por uShadowDim. Nas cores
-// flat, que já vêm iluminadas, a luz do triângulo cai para o ambiente.
+// flat, que já vêm iluminadas, a luz do triângulo cai para uShadowLight.
 // A saída tem alfa 0: no modo offscreen ele vira o byte reservado do RGBQUAD.
 constexpr const char* kTerrainFragmentShader = R"GLSL(#version 330 core
 flat in vec3  vColor;
@@ -62,7 +62,7 @@ uniform int   uShadowTargetOn;            // mapa 2 (objeto seguido) em uso
 uniform int   uTextured;
 uniform int   uFilter;
 uniform float uShading;
-uniform float uAmbient;
+uniform float uShadowLight;               // luz na sombra (kShadowLight)
 uniform float uShadowDim;                 // chão texturizado na sombra: fator fixo
 
 out vec4 fragColor;
@@ -100,7 +100,7 @@ void main() {
         return;
     }
     float lit   = shadowTerm();
-    float light = mix(min(uAmbient, vLight), vLight, lit);
+    float light = mix(min(uShadowLight, vLight), vLight, lit);
     vec3 color;
     if (uTextured == 0) {
         color = vColor * (light / max(vLight, 0.001));
@@ -172,7 +172,7 @@ uniform int   uShadowTargetOn;            // mapa 2 (objeto seguido) em uso
 uniform int   uFilter;
 uniform float uTexSize;
 uniform float uMaxLevel;
-uniform float uAmbient;
+uniform float uShadowLight;               // luz na sombra (kShadowLight)
 
 out vec4 fragColor;
 
@@ -222,7 +222,7 @@ void main() {
         texel = textureGrad(uTexture, vUV, dUVx, dUVy).rgb;
     }
     float lit = shadowTerm();
-    vec3 color = texel * mix(min(uAmbient, vLight), vLight, lit);
+    vec3 color = texel * mix(min(uShadowLight, vLight), vLight, lit);
     fragColor = vec4(mix(color, uFogColor, fog), 0.0);
 }
 )GLSL";

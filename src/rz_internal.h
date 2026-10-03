@@ -83,8 +83,8 @@ constexpr int32_t kSkirtJitterPercent = 12;   // % das células que sorteiam em 
 constexpr float   kSkirtMeanderGrowth = 0.35f; // deslocamento ao longo da borda: até 0,35 x distância...
 constexpr float   kSkirtMeanderMax    = 12.0f; // ...limitado a 12 tiles
 constexpr int32_t kSkirtMeanderPeriod = 24;    // período do ruído do serpenteio (tiles)
-constexpr float   kBorderWallHeight = 4.0f;   // tiles acima do chão
-constexpr float   kBorderFadeFar    = 10.0f;  // alvo a 10 tiles: começa a aparecer
+constexpr float   kBorderWallHeight = 6.0f;   // tiles acima do chão
+constexpr float   kBorderFadeFar    = 15.0f;  // alvo a 15 tiles: começa a aparecer
 constexpr float   kBorderFadeNear   = 3.0f;   // a 3 tiles: totalmente visível
 constexpr float   kBorderXSize      = 2.0f;   // lado de cada X (tiles)
 static_assert(kSkirtExtent >= int32_t(kFogEnd), "a continuação tem que ir até o fim da neblina");
@@ -103,7 +103,9 @@ constexpr int32_t kShadowTargetSize     = 256;
 constexpr float   kShadowTargetMargin   = 0.25f;  // tiles além da esfera do objeto seguido
 constexpr float   kShadowTargetStep     = 0.25f;  // passo da meia-largura da caixa do alvo
 constexpr int32_t kUnitShadowFirst      = 1;      // unidades de textura 1..3 (0: atlas/objeto)
-constexpr float   kShadowTexturedDim  = 0.6f;   // chão texturizado na sombra
+constexpr float   kShadowTexturedDim  = 0.48f;  // chão texturizado na sombra (era 0,6; 20 % mais escuro)
+constexpr float   kShadowLight        = kAmbient * 0.8f;   // luz na sombra (cores flat e objetos):
+                                                         // 20 % abaixo do ambiente
 constexpr float   kShadowOffsetFactor = 2.0f;   // glPolygonOffset no passe de profundidade
 constexpr float   kShadowOffsetUnits  = 4.0f;
 

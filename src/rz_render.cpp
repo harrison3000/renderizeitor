@@ -91,12 +91,12 @@ bool createRenderer(RzContext* ctx) {
     t.textured = glGetUniformLocation(t.program, "uTextured");
     t.filter   = glGetUniformLocation(t.program, "uFilter");
     t.shading  = glGetUniformLocation(t.program, "uShading");
-    t.ambient   = glGetUniformLocation(t.program, "uAmbient");
+    t.ambient   = glGetUniformLocation(t.program, "uShadowLight");
     const GLint shadowDim = glGetUniformLocation(t.program, "uShadowDim");
     glUseProgram(t.program);
     glUniform1i(t.atlas, kUnitAtlas);
     glUniform1f(t.shading, kTexturedShading);
-    glUniform1f(t.ambient, kAmbient);
+    glUniform1f(t.ambient, kShadowLight);
     glUniform1f(shadowDim, kShadowTexturedDim);
     initShadowUniforms(t.program, t.shadow);
     initFogUniforms(t.program, t.fog);
@@ -109,10 +109,10 @@ bool createRenderer(RzContext* ctx) {
     o.filter   = glGetUniformLocation(o.program, "uFilter");
     o.texSize  = glGetUniformLocation(o.program, "uTexSize");
     o.maxLevel = glGetUniformLocation(o.program, "uMaxLevel");
-    o.ambient   = glGetUniformLocation(o.program, "uAmbient");
+    o.ambient   = glGetUniformLocation(o.program, "uShadowLight");
     glUseProgram(o.program);
     glUniform1i(o.texture, kUnitAtlas);
-    glUniform1f(o.ambient, kAmbient);
+    glUniform1f(o.ambient, kShadowLight);
     initShadowUniforms(o.program, o.shadow);
     initFogUniforms(o.program, o.fog);
     if (!createFallbackTexture(ctx)) return false;

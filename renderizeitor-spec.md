@@ -219,7 +219,7 @@ Sem API; constantes `kSkirt*`/`kBorder*` em `rz_internal.h`, código em `src/rz_
   - Blocos de textura (`skirtTile`): em geral, a célula continua o bloco do quad da borda logo "na frente" (um rio continua rio), mas o ponto de cópia serpenteia ao longo da borda: deslocamento por ruído de valor suave em (posição ao longo, distância para fora), período 24, amplitude 0,35 × distância até 12 tiles. Vizinhas se deslocam juntas, então as faixas seguem coesas e fazem curvas. 12 % das células sorteiam um bloco numa janela de 8 tiles perto da borda, para quebrar a repetição. Nos cantos, o quad do canto. A altura não entra.
   - Malha: células de 1 tile numa faixa de 16 tiles em volta do mapa; de 4 tiles depois. Na linha entre as duas, os pontos intermediários ficam na reta entre os cantos das células grossas (sem frestas). ~49 mil triângulos, em 4 regiões (N, L, S, O); só as regiões a menos de 80 tiles do olho são desenhadas.
   - Só seguindo um alvo (com neblina). Projeta sombra no mapa 0. A câmera usa as mesmas alturas fora do mapa.
-- **Parede de limite:** em cima das quatro bordas, do chão (−0,5) até 4 tiles acima, semitransparente (vermelho, alfa 0,15) com X vermelhos de 2 tiles (alfa 0,85). Aparece só perto do alvo: alfa × (1 − smoothstep(3, 10, distância horizontal do alvo ao ponto da parede)). Desenhada depois do opaco, com blending, sem gravar profundidade nem alfa de destino; com neblina; não projeta nem recebe sombra.
+- **Parede de limite:** em cima das quatro bordas, do chão (−0,5) até 6 tiles acima, semitransparente (vermelho, alfa 0,15) com X vermelhos de 2 tiles (alfa 0,85). Aparece só perto do alvo: alfa × (1 − smoothstep(3, 15, distância horizontal do alvo ao ponto da parede)). Desenhada depois do opaco, com blending, sem gravar profundidade nem alfa de destino; com neblina; não projeta nem recebe sombra.
 
 ## 10. Frame (`rzRender`)
 
@@ -252,7 +252,7 @@ Tamanhos limitados a `GL_MAX_TEXTURE_SIZE` (o GL 3.3 só garante 1024). As resol
 - **Fora de alcance:** objetos fora da caixa do mapa 1 ou além da neblina não projetam sombra. Na visão geral, o mapa 1 cobre o terreno inteiro.
 - **Ressalva:** o mapa 1 não inclui o terreno; o relevo perto do carro faz sombra só pela resolução do mapa 0. Se ficar serrilhado demais, dá para desenhar no mapa 1 o pedaço de terreno da caixa (comentário em `rz_shadow.cpp`).
 - **Profundidade:** os três cobrem a esfera do terreno com folga (receptores dentro da faixa), 24 bits, `sampler2DShadow` com PCF 2×2 (`GL_LINEAR`), `glPolygonOffset(2, 4)`, sem culling. As caixas andam em passos inteiros de texels, para a sombra não tremer.
-- **Efeito:** na sombra, a luz flat cai para o ambiente (0,3) nas cores flat do terreno e nos objetos; no chão texturizado, a cor é multiplicada por 0,6 (`kShadowTexturedDim`).
+- **Efeito:** na sombra, a luz flat cai para 0,24 (`kShadowLight`, 80 % do ambiente) nas cores flat do terreno e nos objetos; no chão texturizado, a cor é multiplicada por 0,48 (`kShadowTexturedDim`).
 - **Custo (llvmpipe, `rz_test` 800×450, 120 frames):** ~40 ms/frame com a neblina (~37 sem ela, com a caixa do mapa 1 menor); redesenhando o terreno no mapa de sombra todo frame, ~61 ms.
 
 ## 11. Testes
