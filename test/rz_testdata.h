@@ -620,10 +620,13 @@ static void rztdFaceUVs(const RztdMesh* m, const uint16_t* ids, int n, float vMa
 static int rztdWriteObjectTextures(const char* prefix, char* wallPath, char* carPath, size_t cap) {
     static uint8_t wall[RZTD_WALL_W * RZTD_WALL_H], car[RZTD_CAR_W * RZTD_CAR_H];
     static uint8_t wallPal[768], carPal[768];
+    int n1, n2;
     rztdGenerateWallTexture(wall, wallPal);
     rztdGenerateCarTexture(car, carPal);
-    snprintf(wallPath, cap, "%srz_wall.pcx", prefix);
-    snprintf(carPath, cap, "%srz_car.pcx", prefix);
+    /* Caminho que não cabe em cap: falha em vez de gravar com o nome cortado */
+    n1 = snprintf(wallPath, cap, "%srz_wall.pcx", prefix);
+    n2 = snprintf(carPath, cap, "%srz_car.pcx", prefix);
+    if (n1 < 0 || (size_t)n1 >= cap || n2 < 0 || (size_t)n2 >= cap) return 0;
     return rztdWritePcx(wallPath, wall, RZTD_WALL_W, RZTD_WALL_H, wallPal) &&
            rztdWritePcx(carPath, car, RZTD_CAR_W, RZTD_CAR_H, carPal);
 }
