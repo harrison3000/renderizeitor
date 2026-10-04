@@ -64,7 +64,19 @@ typedef struct RzWheel {
     uint8_t  pad;
 } RzWheel;
 
-//TODO asserts de tamamnho aqui tmb
+/* Um sprite (ver rzSetSprites). 20 bytes. */
+typedef struct RzSprite {
+    uint32_t x, y, z;      /* centro, 8.24 (z para cima) */
+    float    size;         /* diâmetro em tiles */
+    uint8_t  color;        /* índice na paleta do jogo */
+    uint8_t  pad[3];
+} RzSprite;
+
+/* Tamanhos conferidos em compilação (C89: array de tamanho negativo) */
+typedef char RzAssertVertexSize[sizeof(RzVertex) == 12 ? 1 : -1];
+typedef char RzAssertTexVertexSize[sizeof(RzTexVertex) == 12 ? 1 : -1];
+typedef char RzAssertWheelSize[sizeof(RzWheel) == 8 ? 1 : -1];
+typedef char RzAssertSpriteSize[sizeof(RzSprite) == 20 ? 1 : -1];
 
 /* X(retorno, nome, parâmetros) */
 #define RZ_PLUGIN_FUNCTIONS(X)                                                                     \
@@ -93,6 +105,7 @@ typedef struct RzWheel {
     X(int32_t, rzLoadFallbackTexture, (RzContext* ctx, const char* pcxPath))                         \
     X(int32_t, rzUpdateObjectVertices, (RzContext* ctx, int32_t id, const RzVertex* vertices))       \
     X(int32_t, rzDestroyObject, (RzContext* ctx, int32_t id))                                        \
+    X(int32_t, rzSetSprites,    (RzContext* ctx, const RzSprite* sprites, int32_t count))            \
     X(int32_t, rzSetCameraTarget, (RzContext* ctx, int32_t id, int32_t vertex))                      \
     X(int32_t, rzSetCameraFollow, (RzContext* ctx, float distance, float height, float stiffness))   \
     X(int32_t, rzRender,        (RzContext* ctx))

@@ -4,7 +4,7 @@ rem Gera renderizeitor.dll, librenderizeitor.dll.a, rz_test.exe e rz_viewer.exe.
 setlocal
 
 set FLAGS=-std=c++23 -O2 -msse2 -mfpmath=sse -ffp-contract=off -fno-exceptions -fno-rtti -Wall -Wextra -Wdouble-promotion -Iinclude
-set SRCS=src\rz_api.cpp src\rz_math.cpp src\rz_terrain.cpp src\rz_camera.cpp src\rz_render.cpp src\rz_object.cpp src\rz_gl.cpp src\rz_platform_win32.cpp src\rz_pcx.cpp src\rz_texture.cpp src\rz_shadow.cpp src\rz_border.cpp src\rz_glass.cpp src\rz_wheels.cpp
+set SRCS=src\rz_api.cpp src\rz_math.cpp src\rz_terrain.cpp src\rz_camera.cpp src\rz_render.cpp src\rz_object.cpp src\rz_gl.cpp src\rz_platform_win32.cpp src\rz_pcx.cpp src\rz_texture.cpp src\rz_shadow.cpp src\rz_border.cpp src\rz_glass.cpp src\rz_wheels.cpp src\rz_sprites.cpp
 set LINK=-static-libgcc -static-libstdc++ -static
 set SYSLIBS=-lopengl32 -lgdi32
 

@@ -146,6 +146,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzLoadTileAtlas(RzContext* ctx, const char* pcxP
     applyTextureFilter(ctx);
     if (glGetError() != GL_NO_ERROR) return RZ_ERR_GL;
     ctx->hasAtlas = true;
+    setSpritePalette(ctx, paletteRGB);                // sprites: paleta do jogo
     return RZ_OK;
 }
 

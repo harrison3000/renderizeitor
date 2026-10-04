@@ -124,6 +124,7 @@ bool createRenderer(RzContext* ctx) {
     if (!createShadowMaps(ctx)) return false;
     if (!createBorder(ctx)) return false;
     if (!createGlassProgram(ctx)) return false;
+    if (!createSprites(ctx)) return false;
 
     // Malha do terreno: buffer de tamanho fixo, preenchido em buildTerrainMesh
     glGenVertexArrays(1, &ctx->terrainVao);
@@ -178,6 +179,7 @@ void destroyRenderer(RzContext* ctx) {
     destroyShadowMaps(ctx);
     destroyBorder(ctx);
     if (ctx->glassProgram.program) glDeleteProgram(ctx->glassProgram.program);
+    destroySprites(ctx);
 }
 
 // Estado do sampler do atlas e das texturas dos objetos para o filtro atual.
@@ -201,6 +203,7 @@ void applyTextureFilter(RzContext* ctx) {
 }
 
 void renderFrame(RzContext* ctx) {
+    ++ctx->frameCount;
     const Mat4 viewProj = updateCamera(ctx);
 
     prepareObjects(ctx);
@@ -236,6 +239,7 @@ void renderFrame(RzContext* ctx) {
     drawObjects(ctx, viewProj);
     drawWheels(ctx, viewProj);                    // rodas: programa do terreno, sem textura
     drawGlass(ctx, viewProj);                     // vidro: filtro + brilho, depois do opaco
+    drawSprites(ctx, viewProj);                   // fumaça etc.: alfa, de trás para frente
     drawWall(ctx, viewProj);                      // semitransparente: por último
 
     if (ctx->windowed) {

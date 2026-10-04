@@ -58,6 +58,7 @@ static float    g_cubeAngle = 0.0f;
    altura e a inclinação do terreno. Unidades: tiles e frames (60 fps). */
 static int32_t  g_vehicleId = -1;
 static RztdMesh g_vehicle;
+static RztdParticles g_particles;   /* sprites do carro (array compacto, como o legado) */
 static int32_t  g_follow = 1;
 static const uint8_t* g_heights;
 static float    g_carX, g_carZ, g_carHeading, g_carSpeed, g_carSteer;
@@ -350,6 +351,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         placeVehicle();
         rzUpdateObjectVertices(g_ctx, g_vehicleId, RZTD_VERTICES(&g_vehicle));
         rztdSteerVehicle(g_ctx, g_vehicleId, g_carSteer);
+        rztdStepParticles(g_ctx, &g_particles, &g_vehicle);   /* fumaça e detritos */
 
         g_cubeAngle += 0.03f;
         rztdSpinningCube(&g_cube, g_cubePos[0], g_cubePos[1], g_cubePos[2], 0.6f, g_cubeAngle);

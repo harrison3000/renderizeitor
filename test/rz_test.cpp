@@ -162,6 +162,7 @@ int main(int argc, char** argv) {
     int32_t cubeId = -1;
     float cubeX = 128.0f, cubeY = 0.0f, cubeZ = 128.0f;
     static RztdMesh vehicle;
+    static RztdParticles particles;      // fumaça e detritos (array compacto, como o legado)
     int32_t vehicleId = -1;
     const float heightScale = RZTD_HEIGHT_SCALE;   // padrão de rzSetTerrainScale
     auto placeVehicle = [&](int frame) {
@@ -234,6 +235,10 @@ int main(int argc, char** argv) {
             if (dh >  3.14159265f) dh -= 6.2831853f;
             if (dh < -3.14159265f) dh += 6.2831853f;
             rztdSteerVehicle(ctx, vehicleId, std::fmax(-0.45f, std::fmin(0.45f, -dh * 40.0f)));
+            if (rztdStepParticles(ctx, &particles, &vehicle) != RZ_OK) {
+                std::fprintf(stderr, "rzSetSprites falhou\n");
+                return 1;
+            }
         }
         const auto t0 = std::chrono::steady_clock::now();
         rzRender(ctx);

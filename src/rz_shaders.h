@@ -289,6 +289,46 @@ void main() {
 }
 )GLSL";
 
+// Sprites (rz_sprites.cpp): quad virado para a câmera, aberto no vertex
+// shader a partir do centro, do raio e do canto (-1/+1); alfa da textura de
+// ruído (array, uma camada por quadro); cor já com luz; neblina.
+constexpr const char* kSpriteVertexShader = R"GLSL(#version 330 core
+layout(location = 0) in vec4 aCenterRadius;
+layout(location = 1) in vec4 aCornerFrame;  // canto x, canto y (-1/+1), quadro, 0
+layout(location = 2) in vec4 aColor;        // B, G, R, 0 normalizados
+uniform mat4 uViewProj;
+uniform vec3 uRight, uUp;
+out vec3 vUV;
+flat out vec3 vColor;
+out vec3 vWorld;
+void main() {
+    vec3 p = aCenterRadius.xyz + (uRight * aCornerFrame.x + uUp * aCornerFrame.y) * aCenterRadius.w;
+    vUV = vec3(aCornerFrame.xy * 0.5 + 0.5, aCornerFrame.z);
+    vColor = aColor.bgr;
+    vWorld = p;
+    gl_Position = uViewProj * vec4(p, 1.0);
+}
+)GLSL";
+
+constexpr const char* kSpriteFragmentShader = R"GLSL(#version 330 core
+in vec3 vUV;
+flat in vec3 vColor;
+in vec3 vWorld;
+uniform sampler2DArray uNoise;
+uniform int   uFogOn;
+uniform float uFogStart, uFogEnd;
+uniform vec3  uFogColor;
+uniform vec3  uEye;
+out vec4 fragColor;
+void main() {
+    float a = texture(uNoise, vUV).r;
+    if (a <= 0.0) discard;
+    float fog = uFogOn != 0 ? smoothstep(uFogStart, uFogEnd, length(vWorld - uEye)) : 0.0;
+    if (fog >= 1.0) discard;
+    fragColor = vec4(mix(vColor, uFogColor, fog), a);
+}
+)GLSL";
+
 // Parede de limite (rz_border.cpp): semitransparente, com X vermelhos de
 // uXSize tiles; só perto do alvo (fade entre uFadeFar e uFadeNear, distância
 // horizontal do alvo ao ponto da parede); com neblina.

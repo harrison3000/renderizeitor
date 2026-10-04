@@ -59,6 +59,7 @@ constexpr GLenum GL_TEXTURE_COMPARE_MODE    = 0x884C;
 constexpr GLenum GL_TEXTURE_COMPARE_FUNC    = 0x884D;
 constexpr GLenum GL_COMPARE_REF_TO_TEXTURE  = 0x884E;
 constexpr GLenum GL_TEXTURE_2D_ARRAY        = 0x8C1A;
+constexpr GLenum GL_BYTE                    = 0x1400;
 constexpr GLenum GL_UNSIGNED_BYTE           = 0x1401;
 constexpr GLenum GL_FLOAT                   = 0x1406;
 constexpr GLenum GL_RED                     = 0x1903;

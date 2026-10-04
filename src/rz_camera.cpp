@@ -174,6 +174,9 @@ Mat4 updateCamera(RzContext* ctx) {
     }
 
     const Mat4 view = lookAt(eye, at);
+    ctx->camRight   = { view[0, 0], view[0, 1], view[0, 2] };
+    ctx->camUp      = { view[1, 0], view[1, 1], view[1, 2] };
+    ctx->camForward = { -view[2, 0], -view[2, 1], -view[2, 2] };
     const Vec3 toAt = at - eye;
     const float focusDist = sqrtf(dot(toAt, toAt));
 

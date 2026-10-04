@@ -54,8 +54,9 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 | Contexto | `rzCreate(w, h, pixels)` offscreen; `rzCreateWindow(hwndPai, x, y, w, h)` janela filha; `rzSetViewport` (só no modo janela); `rzDestroy` |
 | Terreno | `rzSetHeightmap` (256×256); `rzSetTerrainScale(cellSize, heightScale)` |
 | Texturas | `rzLoadTileAtlas(caminhoPcx)`; `rzSetTileMap` (256×256, NULL desliga as texturas); `rzSetTextureFilter` |
-| Objetos | `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count, paletteIndex)`, `rzAddObjectTexturedPolygon(id, indices, uvs, count)`, `rzAddObjectTranslucentPolygon(id, indices, count, tone)`, `rzLoadObjectTexture(id, caminhoPcx)`, `rzLoadFallbackTexture(caminhoPcx)`, `rzUpdateObjectVertices`, `rzDestroyObject` |
-| Rodas | `rzSetObjectWheels(id, hubVertices[4], front[4], diameters[4])`, `rzUpdateObjectWheels(id, steer)` |
+| Objetos | `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count, paletteIndex)`, `rzAddObjectTexturedPolygon(id, RzTexVertex* corners, count)`, `rzAddObjectTranslucentPolygon(id, indices, count, tone)`, `rzLoadObjectTexture(id, caminhoPcx)`, `rzLoadFallbackTexture(caminhoPcx)`, `rzUpdateObjectVertices(id, RzVertex*)`, `rzDestroyObject` |
+| Rodas | `rzSetObjectWheels(id, RzWheel[4])`, `rzUpdateObjectWheels(id, steer)` |
+| Sprites | `rzSetSprites(RzSprite*, count)` (array inteiro a cada chamada, até 1024) |
 | Câmera | `rzSetCameraTarget(id, vertex)`, `rzSetCameraFollow(distance, height, stiffness)` |
 | Cena | `rzSetBackgroundColor(r, g, b)` (0..255; padrão 32, 40, 48), `rzSetFog(start, end)` (tiles; padrão 30, 65) |
 | Frame | `rzRender` |
@@ -176,6 +177,15 @@ Limites:
 - **Na GPU:** um VBO por objeto (posição, cor e UV; 24 bytes por vértice), realocado a cada polígono acrescentado. Update, cor e polígono novo só marcam o objeto como alterado; o VBO é reenviado (sem alocar) no `rzRender` seguinte. Um `glDrawArrays` por objeto visível.
 - **Culling:** fixo, na convenção do legado: vista de fora, a face está em sentido horário; as faces em sentido anti-horário na tela são descartadas (o antigo `RZ_CULL_CCW`, validado no legado; `rzSetObjectCulling` saiu).
 - **Ids:** são índices num `std::vector`; os slots livres são reaproveitados.
+- **Structs da API:** `RzVertex` (x, y, z 8.24; 12 bytes), `RzTexVertex` (u, v, índice; 12), `RzWheel` (diâmetro, vértice do cubo, dianteira; 8), `RzSprite` (x, y, z 8.24, diâmetro, cor; 20). Só por ponteiro, layout fixo do maior para o menor com padding explícito, tamanho conferido em compilação nos dois cabeçalhos.
+
+### 8.1 Sprites (`rzSetSprites`, `src/rz_sprites.cpp`)
+
+- **Sem id:** o legado guarda um array compacto (quem morre faz os seguintes andarem), então cada chamada manda o array inteiro e substitui o anterior; o renderer não guarda estado por sprite. Até 1024 (`kMaxSprites`; mais é `RZ_ERR_SIZE`); size ≤ 0 ou não finito é `RZ_ERR_INVALID_ARG` (nada muda). Não aloca: feita para todo frame.
+- **Forma:** quad virado para a câmera, diâmetro `size` tiles, com o alfa de um ruído "spray do Paint" (3 cliques de pontinhos perto do centro) em 8 variações numa textura array 64×64 gerada na criação. O quadro de cada sprite avança a cada 4 `rzRender`, deslocado pela posição no array. Ampliação nearest (pontinhos de perto), redução trilinear.
+- **Cor:** índice na paleta do jogo, a do PCX de `rzLoadTileAtlas` (antes dele, cinza = índice), vezes a luz de uma face virada para cima (como o chão plano). Fumaça, detrito ou água: só a cor muda.
+- **Desenho:** depois do vidro (fumaça na frente de um vidro não fica tingida) e antes da parede; blending alfa comum, ordenado de trás para frente na CPU; sem gravar profundidade nem alfa de destino; sem culling; com neblina (os que estão todos além do fim nem entram). Não projeta nem recebe sombra.
+- **Exemplo:** `rztdStepParticles` (`rz_testdata.h`) imita o legado (array compacto): fumaça saindo do meio das rodas traseiras do carro (sobe, cresce, clareia) e detritos marrons que caem; no `rz_test` e no viewer.
 
 ## 9. Câmera
 

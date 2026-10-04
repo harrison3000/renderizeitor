@@ -47,10 +47,19 @@ typedef struct RzWheel {
     uint8_t  pad;
 } RzWheel;
 
+/* Um sprite (ver rzSetSprites). 20 bytes. */
+typedef struct RzSprite {
+    uint32_t x, y, z;      /* centro, 8.24 como RzVertex (z para cima) */
+    float    size;         /* diâmetro em tiles */
+    uint8_t  color;        /* índice na paleta do jogo */
+    uint8_t  pad[3];
+} RzSprite;
+
 /* Tamanhos conferidos em compilação (C89: array de tamanho negativo) */
 typedef char RzAssertVertexSize[sizeof(RzVertex) == 12 ? 1 : -1];
 typedef char RzAssertTexVertexSize[sizeof(RzTexVertex) == 12 ? 1 : -1];
 typedef char RzAssertWheelSize[sizeof(RzWheel) == 8 ? 1 : -1];
+typedef char RzAssertSpriteSize[sizeof(RzSprite) == 20 ? 1 : -1];
 
 #define RZ_OK               0
 #define RZ_ERR_INVALID_ARG  1   /* ponteiro nulo ou parâmetro fora de faixa */
@@ -242,6 +251,22 @@ RZ_API int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t id,
 
 /* Libera o objeto; o id pode ser reaproveitado por rzCreateObject. */
 RZ_API int32_t RZ_CALL rzDestroyObject(RzContext* ctx, int32_t id);
+
+/* ------------------------------------------------------------------------ */
+/* Sprites (fumaça, detritos, água espirrando)                              */
+/* ------------------------------------------------------------------------ */
+
+/* Substitui todos os sprites pelos count de `sprites` (copiados; 0 limpa).
+   Sem id: cada chamada é o array inteiro, na ordem que for (o legado pode
+   compactar o array quando um sprite morre). Cada um vira um quad virado
+   para a câmera, do tamanho `size`, com a forma de um ruído de spray
+   (8 variações que vão se alternando sozinhas a cada poucos frames) na cor
+   `color` da paleta do jogo (a do PCX de rzLoadTileAtlas; antes dele, cinza
+   = índice). Translúcidos, ordenados pelo renderer; com neblina; sem sombra.
+   Custo: baixo, não aloca; feita para ser chamada todo frame.
+   Erros (nada muda): RZ_ERR_INVALID_ARG (sprites nulo com count > 0, count
+   < 0, size <= 0 ou não finito), RZ_ERR_SIZE (count > 1024). */
+RZ_API int32_t RZ_CALL rzSetSprites(RzContext* ctx, const RzSprite* sprites, int32_t count);
 
 
 /* Faces: as que aparecem em sentido anti-horário na tela são descartadas

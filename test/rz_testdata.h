@@ -537,6 +537,104 @@ static int32_t rztdSetVehicleWheels(RzContext* ctx, int32_t id) {
 static void rztdSteerVehicle(RzContext* ctx, int32_t id, float angle) {
     rzUpdateObjectWheels(ctx, id, angle);
 }
+
+/* Fumaça e detritos do veículo de teste, como o legado guarda: um array
+   compacto, sem id (quando um morre, os seguintes andam uma posição).
+   A cada passo: emite fumaça do meio das rodas traseiras (sobe, cresce,
+   clareia) e, de vez em quando, um detrito (marrom, cai com gravidade);
+   move, mata os vencidos compactando, e manda o array com rzSetSprites. */
+#define RZTD_MAX_PARTICLES 512
+#define RZTD_SMOKE_COLOR   168   /* rampa cinza/branca (tipo 5) da paleta de teste */
+#define RZTD_DEBRIS_COLOR  132   /* rampa marrom (tipo 4) */
+typedef struct RztdParticles {
+    int      count;
+    uint32_t seed;
+    int      tick;
+    float    pos[RZTD_MAX_PARTICLES][3];   /* x (coluna), y (altura), z (linha), tiles */
+    float    vel[RZTD_MAX_PARTICLES][3];
+    float    life[RZTD_MAX_PARTICLES];     /* frames restantes */
+    float    maxLife[RZTD_MAX_PARTICLES];
+    uint8_t  debris[RZTD_MAX_PARTICLES];
+    RzSprite sprites[RZTD_MAX_PARTICLES];  /* o que vai para o renderer */
+} RztdParticles;
+
+static float rztdRand(RztdParticles* p) {
+    p->seed = p->seed * 1664525u + 1013904223u;
+    return (float)(p->seed >> 8) / 16777216.0f;
+}
+
+static void rztdEmit(RztdParticles* p, const float* at, int debris) {
+    int i;
+    if (p->count >= RZTD_MAX_PARTICLES) return;
+    i = p->count++;
+    p->pos[i][0] = at[0] + (rztdRand(p) - 0.5f) * 0.05f;
+    p->pos[i][1] = at[1];
+    p->pos[i][2] = at[2] + (rztdRand(p) - 0.5f) * 0.05f;
+    p->debris[i] = (uint8_t)debris;
+    if (debris) {
+        p->vel[i][0] = (rztdRand(p) - 0.5f) * 0.03f;
+        p->vel[i][1] = 0.02f + rztdRand(p) * 0.02f;
+        p->vel[i][2] = (rztdRand(p) - 0.5f) * 0.03f;
+        p->maxLife[i] = 40.0f;
+    } else {
+        p->vel[i][0] = (rztdRand(p) - 0.5f) * 0.004f;
+        p->vel[i][1] = 0.006f + rztdRand(p) * 0.004f;
+        p->vel[i][2] = (rztdRand(p) - 0.5f) * 0.004f;
+        p->maxLife[i] = 70.0f + rztdRand(p) * 40.0f;
+    }
+    p->life[i] = p->maxLife[i];
+}
+
+/* vehicle: a malha já posicionada neste frame (rodas a partir de RZTD_WHEEL_FIRST) */
+static int32_t rztdStepParticles(RzContext* ctx, RztdParticles* p, const RztdMesh* vehicle) {
+    const float* rl = vehicle->pos[RZTD_WHEEL_FIRST + 2];
+    const float* rr = vehicle->pos[RZTD_WHEEL_FIRST + 3];
+    float exhaust[3];
+    int i, k, alive;
+    exhaust[0] = 0.5f * (rl[0] + rr[0]);
+    exhaust[1] = 0.5f * (rl[1] + rr[1]) + 0.02f;
+    exhaust[2] = 0.5f * (rl[2] + rr[2]);
+    ++p->tick;
+    rztdEmit(p, exhaust, 0);
+    if (p->tick % 3 == 0) rztdEmit(p, exhaust, 0);
+    if (p->tick % 9 == 0) rztdEmit(p, (p->tick & 1) ? rl : rr, 1);
+
+    /* move e mata (compactando, como o legado) */
+    alive = 0;
+    for (i = 0; i < p->count; ++i) {
+        p->life[i] -= 1.0f;
+        if (p->life[i] <= 0.0f) continue;
+        for (k = 0; k < 3; ++k) p->pos[i][k] += p->vel[i][k];
+        if (p->debris[i]) {
+            p->vel[i][1] -= 0.0025f;                         /* gravidade */
+        } else {
+            p->vel[i][0] *= 0.98f; p->vel[i][2] *= 0.98f;
+        }
+        if (alive != i) {
+            for (k = 0; k < 3; ++k) { p->pos[alive][k] = p->pos[i][k]; p->vel[alive][k] = p->vel[i][k]; }
+            p->life[alive] = p->life[i]; p->maxLife[alive] = p->maxLife[i]; p->debris[alive] = p->debris[i];
+        }
+        ++alive;
+    }
+    p->count = alive;
+
+    for (i = 0; i < p->count; ++i) {
+        RzSprite* s = &p->sprites[i];
+        const float age = 1.0f - p->life[i] / p->maxLife[i];    /* 0 nasce, 1 morre */
+        memset(s, 0, sizeof(*s));
+        s->x = rztdFixed824(p->pos[i][0]);
+        s->y = rztdFixed824(p->pos[i][2]);
+        s->z = rztdFixed824(p->pos[i][1] > 0.0f ? p->pos[i][1] : 0.0f);
+        if (p->debris[i]) {
+            s->size  = 0.06f;
+            s->color = RZTD_DEBRIS_COLOR;
+        } else {
+            s->size  = 0.12f + age * 0.6f;
+            s->color = (uint8_t)(RZTD_SMOKE_COLOR + (int)(age * 20.0f));   /* clareia */
+        }
+    }
+    return rzSetSprites(ctx, p->sprites, p->count);
+}
 #endif
 
 /* Posição no percurso automático (volta em torno do centro da ilha) no

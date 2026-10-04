@@ -95,6 +95,16 @@ constexpr float   kFogMaxEnd = 120.0f;   // rzSetFog (a continuação vai a kSki
 static_assert(kFogEndDefault <= kFogMaxEnd && kFogMaxEnd <= float(kSkirtExtent),
               "a continuação tem que ir até o fim da neblina");
 
+// Sprites (rz_sprites.cpp): fumaça/detritos/água, quads virados para a câmera
+constexpr int32_t kMaxSprites          = 1024;
+constexpr int32_t kSpriteFrames        = 8;      // variações do ruído (textura array)
+constexpr int32_t kSpriteFrameTicks    = 4;      // frames de render por quadro
+constexpr int32_t kSpriteNoiseSize     = 64;     // lado da textura de ruído
+constexpr int32_t kSpriteClicks        = 3;      // "cliques do spray" por quadro
+constexpr int32_t kSpriteDotsPerClick  = 260;    // pontinhos por clique
+constexpr float   kSpriteClickRadius   = 0.36f;  // raio do clique (fração do lado)
+constexpr float   kSpriteClickJitter   = 0.10f;  // deslocamento do centro do clique
+
 // Sombras: três shadow maps da luz direcional (detalhes em rz_shadow.cpp):
 // 0 terreno inteiro (só o terreno), 1 objetos próximos, 2 objeto seguido.
 constexpr int32_t kShadowMaps           = 3;
@@ -286,6 +296,25 @@ struct WallProgram {
     FogUniforms fog;
 };
 
+struct SpriteProgram {
+    GLuint program = 0;
+    GLint  viewProj = -1, right = -1, up = -1, noise = -1;
+    FogUniforms fog;
+};
+
+// Sprite no mundo (rz_sprites.cpp), convertido em rzSetSprites
+struct Sprite {
+    Vec3     center;
+    float    radius;       // mundo
+    uint32_t color;        // 0x00RRGGBB, já com luz
+};
+struct SpriteKey { float depth; int32_t index; };    // ordenação de trás para frente
+struct SpriteVertex {      // 24 bytes; seis por sprite
+    float    x, y, z, radius;
+    int8_t   cornerX, cornerY, frame, pad;
+    uint32_t color;
+};
+
 struct DepthProgram {
     GLuint program = 0;
     GLint  lightViewProj = -1;
@@ -326,6 +355,16 @@ struct RzContext {
     rz::DepthProgram   depthProgram;
     rz::WallProgram    wallProgram;
     rz::GlassProgram   glassProgram;
+    rz::SpriteProgram  spriteProgram;
+
+    // Sprites (rz_sprites.cpp): o array do último rzSetSprites; vetores
+    // reservados na criação (kMaxSprites), sem alocar depois
+    std::vector<rz::Sprite>       sprites;
+    std::vector<rz::SpriteKey>    spriteOrder;
+    std::vector<rz::SpriteVertex> spriteStaging;
+    uint32_t   spritePalette[256] = {};              // 0x00RRGGBB com luz (atlas ou cinza)
+    rz::GLuint spriteVao = 0, spriteVbo = 0, spriteNoiseTex = 0;
+    uint32_t   frameCount = 0;                       // rzRender chamados (quadro do ruído)
 
     // Borda do mundo (rz_border.cpp), refeita com a malha do terreno
     std::vector<float> extHeights;      // (255 + 2 x 128 + 2)^2, unidade do byte
@@ -347,6 +386,9 @@ struct RzContext {
     // Do frame (updateCamera): olho e neblina
     rz::Vec3   eyePos = { 0.0f, 0.0f, 0.0f };
     rz::Vec3   targetPos = { 0.0f, 0.0f, 0.0f };     // vértice-alvo (parede de limite)
+    rz::Vec3   camRight   = { 1.0f, 0.0f, 0.0f };    // eixos da câmera (sprites)
+    rz::Vec3   camUp      = { 0.0f, 1.0f, 0.0f };
+    rz::Vec3   camForward = { 0.0f, 0.0f, -1.0f };
     bool       fogOn = false;                        // seguindo um alvo
     bool       shadowWholeTerrain = true;           // visão geral: mapa 1 = terreno inteiro
 
@@ -447,6 +489,12 @@ void drawWheels(RzContext* ctx, const Mat4& viewProj);
 bool createGlassProgram(RzContext* ctx);
 void freeGlass(Object& o);
 void drawGlass(RzContext* ctx, const Mat4& viewProj);
+
+// rz_sprites.cpp
+bool createSprites(RzContext* ctx);
+void destroySprites(RzContext* ctx);
+void setSpritePalette(RzContext* ctx, const uint8_t* paletteRGB);   // nullptr: rampa de cinza
+void drawSprites(RzContext* ctx, const Mat4& viewProj);
 
 // rz_render.cpp
 GLuint linkProgram(const char* vertexSource, const char* fragmentSource);
