@@ -100,6 +100,8 @@ typedef char RzAssertSpriteSize[sizeof(RzSprite) == 20 ? 1 : -1];
                                int32_t count))                                                     \
     X(int32_t, rzAddObjectTranslucentPolygon, (RzContext* ctx, int32_t id, const uint16_t* indices,  \
                                int32_t count, int32_t tone))                                       \
+    X(int32_t, rzAddObjectLine, (RzContext* ctx, int32_t id, uint16_t a, uint16_t b,                 \
+                               float thickness, int32_t paletteIndex))                               \
     X(int32_t, rzSetObjectWheels, (RzContext* ctx, int32_t id, const RzWheel* wheels))               \
     X(int32_t, rzUpdateObjectWheels, (RzContext* ctx, int32_t id, float steer))                      \
     X(int32_t, rzLoadObjectTexture, (RzContext* ctx, int32_t id, const char* pcxPath))               \

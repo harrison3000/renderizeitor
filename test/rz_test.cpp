@@ -191,6 +191,10 @@ int main(int argc, char** argv) {
             if (err != RZ_OK) { std::fprintf(stderr, "rzLoadObjectTexture(%s) falhou: %d\n", carPath, err); return 1; }
         }
         rztdSetVehicleWheels(ctx, vehicleId);
+        if (rztdAddVehicleAntenna(ctx, vehicleId) != RZ_OK) {
+            std::fprintf(stderr, "rzAddObjectLine falhou\n");
+            return 1;
+        }
         if (follow) rzSetCameraTarget(ctx, vehicleId, RZTD_VEHICLE_TARGET);
 
         const int count = rztdGenerateBuildings(heightmap, heightScale, buildings, buildingColors,

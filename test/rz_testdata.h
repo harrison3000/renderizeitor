@@ -411,6 +411,8 @@ static int rztdGenerateBuildings(const uint8_t* heights, float heightScale,
 #define RZTD_WHEEL_FIRST    17   /* 4 vértices extras: centros das rodas (dianteira esq.,
                                     dianteira dir., traseira esq., traseira dir.) */
 #define RZTD_WHEEL_DIAMETER 0.20f
+#define RZTD_ANTENNA_FIRST  21   /* 2 vértices extras: base e ponta da antena (rzAddObjectLine) */
+#define RZTD_ANTENNA_COLOR  34   /* preto do pneu, na paleta de rz_car.pcx */
 #define RZTD_VEHICLE_LENGTH 0.85f
 #define RZTD_VEHICLE_WIDTH  0.40f
 
@@ -496,7 +498,8 @@ static void rztdVehicleBox(RztdMesh* m, const RztdFrame* fr,
 /* Veículo (~0,85 x 0,40 tile) em (x, z), virado para `heading` (radianos, no
    plano xz), apoiado e inclinado no terreno. Carroceria + cabine, o vértice
    RZTD_VEHICLE_TARGET acima do centro do teto (alvo da câmera) e os 4 centros
-   de roda a partir de RZTD_WHEEL_FIRST (só vértices; as rodas são do renderer). */
+   de roda a partir de RZTD_WHEEL_FIRST (só vértices; as rodas são do renderer)
+   e a base e a ponta da antena a partir de RZTD_ANTENNA_FIRST (linha). */
 static void rztdVehicle(RztdMesh* m, const uint8_t* heights, float heightScale,
                         float x, float z, float heading) {
     RztdFrame fr = rztdVehicleFrame(heights, heightScale, x, z, heading);
@@ -513,6 +516,8 @@ static void rztdVehicle(RztdMesh* m, const uint8_t* heights, float heightScale,
         rztdFrameVertex(m, &fr, -wx, wy, -wz);
         rztdFrameVertex(m, &fr, -wx, wy,  wz);
     }
+    rztdFrameVertex(m, &fr, -0.38f, 0.20f, hw - 0.05f);                         /* antena: base */
+    rztdFrameVertex(m, &fr, -0.46f, 0.80f, hw - 0.05f);                         /*         ponta */
 }
 
 /* Rodas do veículo de teste no renderer (dianteiras = as duas primeiras) */
@@ -527,6 +532,11 @@ static int32_t rztdSetVehicleWheels(RzContext* ctx, int32_t id) {
         w[i].pad       = 0;
     }
     return rzSetObjectWheels(ctx, id, w);
+}
+
+/* Antena do veículo de teste: uma linha fina (fase de carga) */
+static int32_t rztdAddVehicleAntenna(RzContext* ctx, int32_t id) {
+    return rzAddObjectLine(ctx, id, RZTD_ANTENNA_FIRST, RZTD_ANTENNA_FIRST + 1, 0.02f, RZTD_ANTENNA_COLOR);
 }
 
 /* Posições da malha de teste no formato da API (RztdMesh guarda uint32_t

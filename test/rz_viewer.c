@@ -293,6 +293,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         if (err == RZ_OK) {
             rzLoadObjectTexture(g_ctx, g_vehicleId, carPath);
             rztdSetVehicleWheels(g_ctx, g_vehicleId);
+            rztdAddVehicleAntenna(g_ctx, g_vehicleId);
             rzSetCameraTarget(g_ctx, g_vehicleId, RZTD_VEHICLE_TARGET);
         }
     }
