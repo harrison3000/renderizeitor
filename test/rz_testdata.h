@@ -518,11 +518,20 @@ static void rztdVehicle(RztdMesh* m, const uint8_t* heights, float heightScale,
 /* Rodas do veículo de teste no renderer (dianteiras = as duas primeiras) */
 #ifdef RENDERIZEITOR_H
 static int32_t rztdSetVehicleWheels(RzContext* ctx, int32_t id) {
-    const uint16_t hubs[4] = { RZTD_WHEEL_FIRST, RZTD_WHEEL_FIRST + 1, RZTD_WHEEL_FIRST + 2, RZTD_WHEEL_FIRST + 3 };
-    const uint8_t front[4] = { 1, 1, 0, 0 };
-    const float diam[4] = { RZTD_WHEEL_DIAMETER, RZTD_WHEEL_DIAMETER, RZTD_WHEEL_DIAMETER, RZTD_WHEEL_DIAMETER };
-    return rzSetObjectWheels(ctx, id, hubs, front, diam);
+    RzWheel w[4];
+    int i;
+    for (i = 0; i < 4; ++i) {
+        w[i].diameter  = RZTD_WHEEL_DIAMETER;
+        w[i].hubVertex = (uint16_t)(RZTD_WHEEL_FIRST + i);
+        w[i].front     = (uint8_t)(i < 2);
+        w[i].pad       = 0;
+    }
+    return rzSetObjectWheels(ctx, id, w);
 }
+
+/* Posições da malha de teste no formato da API (RztdMesh guarda uint32_t
+   x, y, z seguidos, o mesmo layout de RzVertex) */
+#define RZTD_VERTICES(m) ((const RzVertex*)(m)->vertices)
 
 /* Esterçamento das dianteiras (radianos, positivo = esquerda) */
 static void rztdSteerVehicle(RzContext* ctx, int32_t id, float angle) {
@@ -696,6 +705,7 @@ static float rztdFaceUp(const RztdMesh* m, const uint16_t* ids, int n) {
 static int32_t rztdCreateObject(RzContext* ctx, const RztdMesh* m, float vMax, int paletteIndex,
                                 int32_t* outId) {
     float uv[(RZTD_MESH_MAX_INDEX + 1) * 2];
+    RzTexVertex corners[RZTD_MESH_MAX_INDEX + 1];
     int32_t err = rzCreateObject(ctx, m->vertexCount, outId);
     int pos = 0;
     while (err == RZ_OK && pos < m->indexCount) {
@@ -705,14 +715,23 @@ static int32_t rztdCreateObject(RzContext* ctx, const RztdMesh* m, float vMax, i
         n = end - pos;
         if (vMax > 0.0f && rztdFaceUp(m, m->indices + pos, n) <= 0.5f) {
             rztdFaceUVs(m, m->indices + pos, n, vMax, uv);
-            uv[n * 2] = uv[0]; uv[n * 2 + 1] = uv[1];            /* par do fechamento */
-            err = rzAddObjectTexturedPolygon(ctx, *outId, m->indices + pos, uv, n + 1);
+            {
+                int k;
+                for (k = 0; k <= n; ++k) {                        /* k == n: fechamento */
+                    const int s = k < n ? k : 0;
+                    corners[k].u = uv[s * 2];
+                    corners[k].v = uv[s * 2 + 1];
+                    corners[k].index = m->indices[pos + s];
+                    corners[k].pad = 0;
+                }
+            }
+            err = rzAddObjectTexturedPolygon(ctx, *outId, corners, n + 1);
         } else {
             err = rzAddObjectPolygon(ctx, *outId, m->indices + pos, n + 1, paletteIndex);
         }
         pos = end + 1;
     }
-    if (err == RZ_OK) err = rzUpdateObjectVertices(ctx, *outId, m->vertices);
+    if (err == RZ_OK) err = rzUpdateObjectVertices(ctx, *outId, RZTD_VERTICES(m));
     return err;
 }
 #endif

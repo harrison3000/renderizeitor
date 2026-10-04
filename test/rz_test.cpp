@@ -221,11 +221,11 @@ int main(int argc, char** argv) {
     for (int f = 0; f < frames; ++f) {
         if (cubeId >= 0) {
             rztdSpinningCube(&cube, cubeX, cubeY, cubeZ, 0.6f, float(f) * 0.05f);
-            rzUpdateObjectVertices(ctx, cubeId, cube.vertices);
+            rzUpdateObjectVertices(ctx, cubeId, RZTD_VERTICES(&cube));
         }
         if (vehicleId >= 0) {
             placeVehicle(f);
-            rzUpdateObjectVertices(ctx, vehicleId, vehicle.vertices);
+            rzUpdateObjectVertices(ctx, vehicleId, RZTD_VERTICES(&vehicle));
             // rodas dianteiras pela curvatura do percurso (rumo diminuindo = curva à esquerda)
             float x0, z0, h0, x1, z1, h1;
             rztdVehiclePath(float(f) / 8192.0f, &x0, &z0, &h0);

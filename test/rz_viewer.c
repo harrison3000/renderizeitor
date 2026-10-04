@@ -348,12 +348,12 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         /* O host move o carro e o cubo e avisa o renderer */
         driveCar(GetForegroundWindow() == hwnd);
         placeVehicle();
-        rzUpdateObjectVertices(g_ctx, g_vehicleId, g_vehicle.vertices);
+        rzUpdateObjectVertices(g_ctx, g_vehicleId, RZTD_VERTICES(&g_vehicle));
         rztdSteerVehicle(g_ctx, g_vehicleId, g_carSteer);
 
         g_cubeAngle += 0.03f;
         rztdSpinningCube(&g_cube, g_cubePos[0], g_cubePos[1], g_cubePos[2], 0.6f, g_cubeAngle);
-        rzUpdateObjectVertices(g_ctx, g_cubeId, g_cube.vertices);
+        rzUpdateObjectVertices(g_ctx, g_cubeId, RZTD_VERTICES(&g_cube));
         rzSetCameraFollow(g_ctx, g_followDist, g_followHeight, 0.08f);
 
         QueryPerformanceCounter(&t0);

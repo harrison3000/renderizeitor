@@ -23,6 +23,35 @@ extern "C" {
 
 typedef struct RzContext RzContext;
 
+/* Structs da API: passadas só por ponteiro (nunca por valor), layout fixo,
+   campos do maior para o menor, padding explícito (zerar). */
+
+/* Posição de um vértice, ponto fixo 8.24 sem sinal (1.0 = 1 tile), eixos do
+   legado: x = coluna, y = linha, z = altura (para cima). 12 bytes. */
+typedef struct RzVertex {
+    uint32_t x, y, z;
+} RzVertex;
+
+/* Canto de polígono texturizado: índice do vértice e UV. 12 bytes. */
+typedef struct RzTexVertex {
+    float    u, v;
+    uint16_t index;
+    uint16_t pad;
+} RzTexVertex;
+
+/* Uma roda (ver rzSetObjectWheels). 8 bytes. */
+typedef struct RzWheel {
+    float    diameter;     /* tiles */
+    uint16_t hubVertex;    /* vértice do objeto no centro da roda */
+    uint8_t  front;        /* != 0: dianteira */
+    uint8_t  pad;
+} RzWheel;
+
+/* Tamanhos conferidos em compilação (C89: array de tamanho negativo) */
+typedef char RzAssertVertexSize[sizeof(RzVertex) == 12 ? 1 : -1];
+typedef char RzAssertTexVertexSize[sizeof(RzTexVertex) == 12 ? 1 : -1];
+typedef char RzAssertWheelSize[sizeof(RzWheel) == 8 ? 1 : -1];
+
 #define RZ_OK               0
 #define RZ_ERR_INVALID_ARG  1   /* ponteiro nulo ou parâmetro fora de faixa */
 #define RZ_ERR_SIZE         2   /* dimensão acima do limite ou não suportada */
@@ -119,14 +148,14 @@ RZ_API int32_t RZ_CALL rzSetFog(RzContext* ctx, float start, float end);
 /* Objetos                                                                  */
 /* ------------------------------------------------------------------------ */
 
-/* Vértices: array de vertexCount * 3 uint32_t (três eixos por vértice), em
-   ponto fixo 8.24 sem sinal, coordenadas absolutas no mundo: 1.0 = 1 tile.
+/* Vértices: array de vertexCount RzVertex, em ponto fixo 8.24 sem sinal,
+   coordenadas absolutas no mundo: 1.0 = 1 tile.
    Eixos do legado: (x, y, z) = (coluna, linha, altura), z para cima.
 
    Montagem de um objeto (fase de carga):
      1. rzCreateObject(ctx, vertexCount, &id)       só a quantidade de vértices
      2. rzAddObjectPolygon(ctx, id, indices, n, cor)  uma vez por polígono, ou
-        rzAddObjectTexturedPolygon(ctx, id, indices, uvs, n)  (com UVs)
+        rzAddObjectTexturedPolygon(ctx, id, corners, n)  (com UVs)
      3. rzUpdateObjectVertices(ctx, id, vertices)   posições (e a cada frame)
    Os passos 2 e 3 podem vir em qualquer ordem e se repetir; o objeto só é
    desenhado depois da primeira rzUpdateObjectVertices. */
@@ -148,16 +177,16 @@ RZ_API int32_t RZ_CALL rzAddObjectPolygon(RzContext* ctx, int32_t id,
                                           const uint16_t* indices, int32_t count,
                                           int32_t paletteIndex);
 
-/* Igual a rzAddObjectPolygon, mas com UVs próprios em vez da cor: uvs tem count pares
-   (u, v) em float, um por índice (se houver fechamento, o último par é
-   descartado junto). u e v vão de 0 a 1, ambos na escala da LARGURA da
-   textura (ver rzLoadObjectTexture): v = 1 é a linha W, não a altura da
-   imagem. (0, 0) é o canto superior esquerdo. Fora de [0, 1], repete a borda.
-   UV não finito: RZ_ERR_INVALID_ARG. A cor do polígono é a textura vezes a
-   luz flat. Os UVs devem ficar fora das últimas 16 linhas (faixa de paleta). */
+/* Igual a rzAddObjectPolygon, mas com UVs próprios em vez da cor: corners
+   tem count cantos (índice do vértice + UV). Se o último canto repetir o
+   índice do primeiro (fechamento), ele é descartado. u e v vão de 0 a 1,
+   ambos na escala da LARGURA da textura (ver rzLoadObjectTexture): v = 1 é a
+   linha W, não a altura da imagem. (0, 0) é o canto superior esquerdo. Fora
+   de [0, 1], repete a borda. UV não finito: RZ_ERR_INVALID_ARG. A cor do
+   polígono é a textura vezes a luz flat. Os UVs devem ficar fora das últimas
+   16 linhas (faixa de paleta). */
 RZ_API int32_t RZ_CALL rzAddObjectTexturedPolygon(RzContext* ctx, int32_t id,
-                                                  const uint16_t* indices,
-                                                  const float* uvs, int32_t count);
+                                                  const RzTexVertex* corners, int32_t count);
 
 /* Polígono translúcido (vidro) em tom de cinza. tone 0..15: o que está atrás
    é multiplicado por tone/15 (0 = preto, 15 = transparente), mais um brilho
@@ -169,17 +198,16 @@ RZ_API int32_t RZ_CALL rzAddObjectTranslucentPolygon(RzContext* ctx, int32_t id,
                                                      const uint16_t* indices, int32_t count,
                                                      int32_t tone);
 
-/* Rodas (por enquanto, cilindros pretos finos). Quatro rodas, cada uma:
-   hubVertices[i]  vértice do objeto que é o centro da roda (acompanha
-                   rzUpdateObjectVertices);
-   front[i]        != 0 se dianteira (precisam ser duas dianteiras e duas
-                   traseiras: daí sai a frente do carro e a linha das rodas);
-   diameters[i]    diâmetro em tiles.
+/* Rodas (por enquanto, cilindros pretos finos). wheels: 4 RzWheel, cada uma:
+   hubVertex  vértice do objeto que é o centro da roda (acompanha
+              rzUpdateObjectVertices);
+   front      != 0 se dianteira (precisam ser duas dianteiras e duas
+              traseiras: daí sai a frente do carro e a linha das rodas);
+   diameter   diâmetro em tiles.
    Chamar de novo troca as rodas (e zera o esterçamento). Fase de carga.
    Erros: RZ_ERR_INVALID_ARG (vértice fora do objeto, diâmetro <= 0 ou não
    finito, ou não forem 2 + 2). */
-RZ_API int32_t RZ_CALL rzSetObjectWheels(RzContext* ctx, int32_t id, const uint16_t* hubVertices,
-                                         const uint8_t* front, const float* diameters);
+RZ_API int32_t RZ_CALL rzSetObjectWheels(RzContext* ctx, int32_t id, const RzWheel* wheels);
 
 /* Esterçamento das duas rodas dianteiras (radianos; positivo vira para a
    esquerda, anti-horário visto de cima); as traseiras ficam retas. Não aloca.
@@ -206,10 +234,11 @@ RZ_API int32_t RZ_CALL rzLoadObjectTexture(RzContext* ctx, int32_t id, const cha
    pcxPath == NULL volta ao xadrez magenta gerado pela DLL. */
 RZ_API int32_t RZ_CALL rzLoadFallbackTexture(RzContext* ctx, const char* pcxPath);
 
-/* Posições de todos os vértices (vertexCount * 3 uint32_t). Copia e recalcula
-   a iluminação; não aloca. */
+/* Posições de todos os vértices (vertexCount RzVertex; mesmo layout de um
+   array de vertexCount * 3 uint32_t). Copia e recalcula a iluminação; não
+   aloca. */
 RZ_API int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t id,
-                                              const uint32_t* vertices);
+                                              const RzVertex* vertices);
 
 /* Libera o objeto; o id pode ser reaproveitado por rzCreateObject. */
 RZ_API int32_t RZ_CALL rzDestroyObject(RzContext* ctx, int32_t id);

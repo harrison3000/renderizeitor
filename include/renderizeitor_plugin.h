@@ -45,7 +45,26 @@ typedef struct RzContext RzContext;
 #define RZ_FILTER_MIP_LINEAR  3
 #define RZ_FILTER_TRILINEAR   4
 
+typedef struct RzVertex {
+    uint32_t x, y, z;
+} RzVertex;
 
+/* Canto de polígono texturizado: índice do vértice e UV. 12 bytes. */
+typedef struct RzTexVertex {
+    float    u, v;
+    uint16_t index;
+    uint16_t pad;
+} RzTexVertex;
+
+/* Uma roda (ver rzSetObjectWheels). 8 bytes. */
+typedef struct RzWheel {
+    float    diameter;     /* tiles */
+    uint16_t hubVertex;    /* vértice do objeto no centro da roda */
+    uint8_t  front;        /* != 0: dianteira */
+    uint8_t  pad;
+} RzWheel;
+
+//TODO asserts de tamamnho aqui tmb
 
 /* X(retorno, nome, parâmetros) */
 #define RZ_PLUGIN_FUNCTIONS(X)                                                                     \
@@ -64,16 +83,15 @@ typedef struct RzContext RzContext;
     X(int32_t, rzCreateObject,  (RzContext* ctx, int32_t vertexCount, int32_t* outId))               \
     X(int32_t, rzAddObjectPolygon, (RzContext* ctx, int32_t id, const uint16_t* indices,             \
                                int32_t count, int32_t paletteIndex))                               \
-    X(int32_t, rzAddObjectTexturedPolygon, (RzContext* ctx, int32_t id, const uint16_t* indices,     \
-                               const float* uvs, int32_t count))                                   \
+    X(int32_t, rzAddObjectTexturedPolygon, (RzContext* ctx, int32_t id, const RzTexVertex* corners,  \
+                               int32_t count))                                                     \
     X(int32_t, rzAddObjectTranslucentPolygon, (RzContext* ctx, int32_t id, const uint16_t* indices,  \
                                int32_t count, int32_t tone))                                       \
-    X(int32_t, rzSetObjectWheels, (RzContext* ctx, int32_t id, const uint16_t* hubVertices,          \
-                               const uint8_t* front, const float* diameters))                     \
+    X(int32_t, rzSetObjectWheels, (RzContext* ctx, int32_t id, const RzWheel* wheels))               \
     X(int32_t, rzUpdateObjectWheels, (RzContext* ctx, int32_t id, float steer))                      \
     X(int32_t, rzLoadObjectTexture, (RzContext* ctx, int32_t id, const char* pcxPath))               \
     X(int32_t, rzLoadFallbackTexture, (RzContext* ctx, const char* pcxPath))                         \
-    X(int32_t, rzUpdateObjectVertices, (RzContext* ctx, int32_t id, const uint32_t* vertices))       \
+    X(int32_t, rzUpdateObjectVertices, (RzContext* ctx, int32_t id, const RzVertex* vertices))       \
     X(int32_t, rzDestroyObject, (RzContext* ctx, int32_t id))                                        \
     X(int32_t, rzSetCameraTarget, (RzContext* ctx, int32_t id, int32_t vertex))                      \
     X(int32_t, rzSetCameraFollow, (RzContext* ctx, float distance, float height, float stiffness))   \

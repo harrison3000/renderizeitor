@@ -42,12 +42,12 @@ void freeObject(Object& o) {
 
 // 8.24 -> mundo. O legado tem z para cima, (coluna, linha, altura); o renderer
 // tem y para cima: (x, y, z) = (coluna, altura, linha).
-void loadPositions(const RzContext* ctx, Object& o, const uint32_t* vertices) {
+void loadPositions(const RzContext* ctx, Object& o, const RzVertex* vertices) {
     const float scale = ctx->cellSize * kFixed824ToFloat;
     for (int32_t i = 0; i < o.vertexCount(); ++i) {
-        const float col = float(vertices[i * 3 + 0]) * scale;
-        const float row = float(vertices[i * 3 + 1]) * scale;
-        const float up  = float(vertices[i * 3 + 2]) * scale;
+        const float col = float(vertices[i].x) * scale;
+        const float row = float(vertices[i].y) * scale;
+        const float up  = float(vertices[i].z) * scale;
         o.world[i] = Vec3{ col, up, row };
     }
 
@@ -111,19 +111,21 @@ void uploadObject(Object& o, int32_t side) {
                     o.staging.data());
 }
 
-// Corpo comum de rzAddObjectPolygon (uvs = nullptr, cor = paletteIndex) e
-// rzAddObjectTexturedPolygon (paletteIndex = -1).
-int32_t addPolygon(RzContext* ctx, int32_t id, const uint16_t* indices, const float* uvs,
+// Corpo comum de rzAddObjectPolygon (indices, cor = paletteIndex) e
+// rzAddObjectTexturedPolygon (corners com índice + UV, paletteIndex = -1).
+// Exatamente um de indices/corners não é nulo.
+int32_t addPolygon(RzContext* ctx, int32_t id, const uint16_t* indices, const RzTexVertex* corners,
                    int32_t count, int32_t paletteIndex) {
-    if (!validId(ctx, id) || !indices || count < 0) return RZ_ERR_INVALID_ARG;
-    if (!uvs && (paletteIndex < 0 || paletteIndex > 255)) return RZ_ERR_INVALID_ARG;
+    if (!validId(ctx, id) || (!indices && !corners) || count < 0) return RZ_ERR_INVALID_ARG;
+    if (!corners && (paletteIndex < 0 || paletteIndex > 255)) return RZ_ERR_INVALID_ARG;
     Object& o = ctx->objects[id];
+    auto indexAt = [&](int32_t i) { return corners ? corners[i].index : indices[i]; };
 
     int32_t n = count;
-    if (n > 1 && indices[n - 1] == indices[0]) --n;          // fechamento do legado
+    if (n > 1 && indexAt(n - 1) == indexAt(0)) --n;          // fechamento do legado
     for (int32_t i = 0; i < n; ++i) {
-        if (indices[i] >= o.vertexCount()) return RZ_ERR_INVALID_ARG;
-        if (uvs && !(std::isfinite(uvs[i * 2]) && std::isfinite(uvs[i * 2 + 1]))) {
+        if (indexAt(i) >= o.vertexCount()) return RZ_ERR_INVALID_ARG;
+        if (corners && !(std::isfinite(corners[i].u) && std::isfinite(corners[i].v))) {
             return RZ_ERR_INVALID_ARG;
         }
     }
@@ -136,10 +138,12 @@ int32_t addPolygon(RzContext* ctx, int32_t id, const uint16_t* indices, const fl
     const int32_t  first   = int32_t(o.indices.size());
     o.polygonStart.push_back(first);
     o.polygonLength.push_back(n);
-    o.polygonPalette.push_back(int16_t(uvs ? -1 : paletteIndex));
-    o.indices.insert(o.indices.end(), indices, indices + n);
-    if (uvs) o.uvs.insert(o.uvs.end(), uvs, uvs + n * 2);
-    else     o.uvs.resize(o.uvs.size() + size_t(n) * 2, 0.0f);
+    o.polygonPalette.push_back(int16_t(corners ? -1 : paletteIndex));
+    for (int32_t i = 0; i < n; ++i) {
+        o.indices.push_back(indexAt(i));
+        o.uvs.push_back(corners ? corners[i].u : 0.0f);
+        o.uvs.push_back(corners ? corners[i].v : 0.0f);
+    }
     for (int32_t i = 1; i + 1 < n; ++i) {
         o.triangles.push_back({ first, first + i, first + i + 1, polygon });
     }
@@ -291,14 +295,13 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzAddObjectPolygon(RzContext* ctx, int32_t id,
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzAddObjectTexturedPolygon(RzContext* ctx, int32_t id,
-                                                           const uint16_t* indices,
-                                                           const float* uvs, int32_t count) {
-    if (!uvs) return RZ_ERR_INVALID_ARG;
-    return addPolygon(ctx, id, indices, uvs, count, -1);
+                                                           const RzTexVertex* corners, int32_t count) {
+    if (!corners) return RZ_ERR_INVALID_ARG;
+    return addPolygon(ctx, id, nullptr, corners, count, -1);
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t id,
-                                                       const uint32_t* vertices) {
+                                                       const RzVertex* vertices) {
     if (!validId(ctx, id) || !vertices) return RZ_ERR_INVALID_ARG;
     Object& o = ctx->objects[id];
     loadPositions(ctx, o, vertices);

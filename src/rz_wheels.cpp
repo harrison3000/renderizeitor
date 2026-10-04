@@ -156,15 +156,14 @@ using namespace rz;
 
 extern "C" {
 
-RZ_API RZ_ENTRY int32_t RZ_CALL rzSetObjectWheels(RzContext* ctx, int32_t id, const uint16_t* hubVertices,
-                                                  const uint8_t* front, const float* diameters) {
-    if (!validId(ctx, id) || !hubVertices || !front || !diameters) return RZ_ERR_INVALID_ARG;
+RZ_API RZ_ENTRY int32_t RZ_CALL rzSetObjectWheels(RzContext* ctx, int32_t id, const RzWheel* wheels) {
+    if (!validId(ctx, id) || !wheels) return RZ_ERR_INVALID_ARG;
     Object& o = ctx->objects[id];
     int32_t fronts = 0;
     for (int32_t i = 0; i < 4; ++i) {
-        if (hubVertices[i] >= o.vertexCount()) return RZ_ERR_INVALID_ARG;
-        if (!(diameters[i] > 0.0f && diameters[i] < 1.0e6f)) return RZ_ERR_INVALID_ARG;
-        if (front[i]) ++fronts;
+        if (wheels[i].hubVertex >= o.vertexCount()) return RZ_ERR_INVALID_ARG;
+        if (!(wheels[i].diameter > 0.0f && wheels[i].diameter < 1.0e6f)) return RZ_ERR_INVALID_ARG;
+        if (wheels[i].front) ++fronts;
     }
     if (fronts != 2) return RZ_ERR_INVALID_ARG;               // duas dianteiras e duas traseiras
     if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
@@ -172,9 +171,9 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetObjectWheels(RzContext* ctx, int32_t id, co
     const float cs = ctx->cellSize;
     o.wheelSteer = 0.0f;
     for (int32_t i = 0; i < 4; ++i) {
-        o.wheelVertex[i]   = hubVertices[i];
-        o.wheelFront[i]    = front[i] ? 1 : 0;
-        o.wheelDiameter[i] = diameters[i] * cs;
+        o.wheelVertex[i]   = wheels[i].hubVertex;
+        o.wheelFront[i]    = wheels[i].front ? 1 : 0;
+        o.wheelDiameter[i] = wheels[i].diameter * cs;
     }
     if (!o.wheelVao) {                                          // carga: aloca uma vez
         o.wheelStaging.resize(size_t(4) * kWheelVertices);
