@@ -125,8 +125,8 @@ void emitCell(const RzContext* ctx, std::vector<TerrainVertex>& out, const uint3
     const float cs = ctx->cellSize, hs = ctx->heightScale;
     const Vec3 light = lightDirection();
     struct Corner { int32_t dc, dr; };
-    constexpr Corner kCorners[2][3] = { { { 0, 0 }, { 0, 1 }, { 1, 1 } },
-                                        { { 0, 0 }, { 1, 1 }, { 1, 0 } } };
+    constexpr Corner kCorners[2][3] = { { { 0, 0 }, { 0, 1 }, { 1, 0 } },     // mesma do mapa (1 3 2, 2 3 4)
+                                        { { 1, 0 }, { 0, 1 }, { 1, 1 } } };
     for (const auto& tri : kCorners) {
         Vec3 p[3];
         float sum = 0.0f;

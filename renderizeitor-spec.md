@@ -106,9 +106,9 @@ Limites:
 
 ### 7.1 Malha
 
-- **Tamanho:** 255×255 quads, ou 130.050 triângulos. Cada quad é dividido pela diagonal (c, r)–(c+1, r+1):
-  - A = (c, r), (c, r+1), (c+1, r+1)
-  - B = (c, r), (c+1, r+1), (c+1, r)
+- **Tamanho:** 255×255 quads, ou 130.050 triângulos. Cada quad é dividido pela diagonal (c+1, r)–(c, r+1), igual ao legado (cantos 1 2 / 3 4 → triângulos 1 3 2 e 2 3 4):
+  - A = (c, r), (c, r+1), (c+1, r)
+  - B = (c+1, r), (c, r+1), (c+1, r+1)
 - **Montagem:** a malha é montada na CPU (`buildTerrainMesh`) e enviada a um VBO estático, sem índices. São 20 bytes por vértice:
   - posição float;
   - cor flat do triângulo;

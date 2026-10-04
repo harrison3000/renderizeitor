@@ -101,7 +101,9 @@ void buildPalette(uint32_t* palette) {
 }
 
 // Malha do terreno (spec 7.1), um vértice por canto de triângulo:
-//   A = (c, r), (c, r+1), (c+1, r+1)      B = (c, r), (c+1, r+1), (c+1, r)
+// diagonal do legado, (c+1, r)–(c, r+1). Cantos  1 2  ->  A = 1 3 2, B = 2 3 4:
+//                                                  3 4
+//   A = (c, r), (c, r+1), (c+1, r)      B = (c+1, r), (c, r+1), (c+1, r+1)
 // Cor flat: paleta pela soma das 3 alturas, iluminada pela normal da face.
 // u ao longo da coluna, v ao longo da linha; bloco do quad pelo mapa de blocos.
 // Remontada em rzSetHeightmap, rzSetTerrainScale e rzSetTileMap (carga).
@@ -118,8 +120,8 @@ bool buildTerrainMesh(RzContext* ctx) {
     const float hs = ctx->heightScale;
 
     struct Corner { int32_t dc, dr; };
-    constexpr Corner kCorners[2][3] = { { { 0, 0 }, { 0, 1 }, { 1, 1 } },     // A
-                                        { { 0, 0 }, { 1, 1 }, { 1, 0 } } };   // B
+    constexpr Corner kCorners[2][3] = { { { 0, 0 }, { 0, 1 }, { 1, 0 } },     // A = 1 3 2
+                                        { { 1, 0 }, { 0, 1 }, { 1, 1 } } };   // B = 2 3 4
     TerrainVertex* v = mesh.data();
     for (int32_t r = 0; r < kQuadsPerSide; ++r) {
         for (int32_t c = 0; c < kQuadsPerSide; ++c) {
