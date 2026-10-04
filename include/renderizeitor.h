@@ -101,7 +101,11 @@ RZ_API int32_t RZ_CALL rzSetViewport(RzContext* ctx, int32_t x, int32_t y,
 
 RZ_API void    RZ_CALL rzDestroy(RzContext* ctx);
 
-/* Copia os dados. Nesta versão só aceita width == height == 256. */
+/* Alturas: 256x256 bytes, data[row*256 + col]. Nesta versão só aceita
+   width == height == 256. Copia os dados e monta tudo (malha, borda, sombra
+   do relevo): fase de carga, custa dezenas de ms. O ponteiro também fica
+   guardado para rzUpdateTerrain: o buffer tem que continuar válido até a
+   próxima rzSetHeightmap ou rzDestroy. */
 RZ_API int32_t RZ_CALL rzSetHeightmap(RzContext* ctx, const uint8_t* data,
                                       int32_t width, int32_t height);
 
@@ -123,9 +127,24 @@ RZ_API int32_t RZ_CALL rzLoadTileAtlas(RzContext* ctx, const char* pcxPath);
 
 /* Mapa de blocos: 256x256 bytes, data[row*256 + col] = bloco do quad (col, row).
    A última linha e a última coluna (255) não têm quad e são ignoradas.
-   data == NULL desliga as texturas (volta às cores flat). Copia os dados. */
+   data == NULL desliga as texturas (volta às cores flat). Copia os dados e
+   refaz os blocos de todos os quads (mais barata que rzSetHeightmap: não
+   mexe no relevo nem na sombra). O ponteiro fica guardado para
+   rzUpdateTerrain (mesma regra de validade de rzSetHeightmap). */
 RZ_API int32_t RZ_CALL rzSetTileMap(RzContext* ctx, const uint8_t* data,
                                     int32_t width, int32_t height);
+
+/* Atualização rápida do terreno durante o jogo: relê os buffers passados a
+   rzSetHeightmap e rzSetTileMap (o host altera os próprios arrays e chama
+   esta) e refaz só o que mudou: os quads afetados (um retângulo, reenviado
+   como uma faixa de linhas) e, na sombra do relevo, só a área deles. Mudança
+   de altura na borda do mapa (linha/coluna 0 ou 255) refaz também a borda
+   do mundo e a sombra inteira (como rzSetHeightmap); bloco a menos de 8
+   quads da borda refaz a malha da continuação.
+   Custo: proporcional à área alterada (comparar os 2 x 64 KB é desprezível);
+   sem mudança, nada. Não aloca. Pode ser chamada todo frame.
+   Erros: RZ_ERR_INVALID_ARG sem rzSetHeightmap antes. */
+RZ_API int32_t RZ_CALL rzUpdateTerrain(RzContext* ctx);
 
 /* Filtragem das texturas (chão e objetos). A ampliação (perto) é sempre
    nearest; muda a redução (longe), que evita o "shimmering" dos polígonos

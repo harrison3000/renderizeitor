@@ -98,6 +98,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetHeightmap(RzContext* ctx, const uint8_t* da
     if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
 
     ctx->heights.assign(data, data + kVertexCount);
+    ctx->heightSource = data;                  // relido por rzUpdateTerrain
     updateTerrainBounds(ctx);
     return buildTerrainMesh(ctx) ? RZ_OK : RZ_ERR_GL;
 }
@@ -155,17 +156,25 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetTileMap(RzContext* ctx, const uint8_t* data
     if (!ctx) return RZ_ERR_INVALID_ARG;
     if (!data) {
         ctx->hasTileMap = false;     // a malha mantém os blocos; só deixam de ser usados
+        ctx->tileSource = nullptr;
         return RZ_OK;
     }
     if (width != kGridSize || height != kGridSize) return RZ_ERR_SIZE;
 
     ctx->tileMap.assign(data, data + kVertexCount);
-    if (ctx->hasTerrain()) {          // o bloco vai no vértice
-        if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
-        if (!buildTerrainMesh(ctx)) return RZ_ERR_GL;
-    }
+    ctx->tileSource = data;          // relido por rzUpdateTerrain
     ctx->hasTileMap = true;
+    if (ctx->hasTerrain()) {          // o bloco vai no vértice (relevo e sombra ficam)
+        if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
+        if (!rebuildTerrainTiles(ctx)) return RZ_ERR_GL;
+    }
     return RZ_OK;
+}
+
+RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateTerrain(RzContext* ctx) {
+    if (!ctx || !ctx->hasTerrain() || !ctx->heightSource) return RZ_ERR_INVALID_ARG;
+    if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
+    return updateTerrain(ctx) ? RZ_OK : RZ_ERR_GL;
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzSetBackgroundColor(RzContext* ctx, uint8_t r, uint8_t g, uint8_t b) {

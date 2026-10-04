@@ -41,6 +41,7 @@ constexpr GLenum GL_CW                      = 0x0900;
 constexpr GLenum GL_CCW                     = 0x0901;
 constexpr GLenum GL_CULL_FACE               = 0x0B44;
 constexpr GLenum GL_DEPTH_TEST              = 0x0B71;
+constexpr GLenum GL_SCISSOR_TEST            = 0x0C11;
 constexpr GLenum GL_LEQUAL                  = 0x0203;
 constexpr GLenum GL_LESS                    = 0x0201;
 constexpr GLenum GL_UNPACK_ALIGNMENT        = 0x0CF5;
@@ -116,6 +117,7 @@ constexpr GLenum GL_FRAMEBUFFER_COMPLETE    = 0x8CD5;
     X(void, glFramebufferTexture2D, (GLenum target, GLenum attachment, GLenum texTarget,           \
                                      GLuint texture, GLint level))                                 \
     X(void, glViewport, (GLint x, GLint y, GLsizei w, GLsizei h))                                  \
+    X(void, glScissor, (GLint x, GLint y, GLsizei w, GLsizei h))                                   \
     X(void, glClearColor, (GLfloat r, GLfloat g, GLfloat b, GLfloat a))                            \
     X(void, glClear, (GLbitfield mask))                                                            \
     X(void, glEnable, (GLenum cap))                                                                \

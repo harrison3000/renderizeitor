@@ -111,6 +111,7 @@ constexpr int32_t kShadowMaps           = 3;
 // Tamanhos pedidos; limitados a GL_MAX_TEXTURE_SIZE na criação (ctx->shadowSize).
 // Resoluções parecidas entre os mapas, para a sombra do alvo não destoar das outras.
 constexpr int32_t kShadowTerrainSize    = 4096;   // ~0,09 tile/texel
+constexpr int32_t kShadowScissorMargin  = 4;     // texels em volta da área refeita do mapa 0
 constexpr int32_t kShadowNearSize       = 2048;
 constexpr float   kShadowNearHalfExtent = 48.0f;  // tiles: 96 x 96, ~0,047 tile/texel
 constexpr float   kShadowNearAhead      = 32.0f;  // centro da caixa: 32 tiles à frente do olho
@@ -369,6 +370,7 @@ struct RzContext {
     // Borda do mundo (rz_border.cpp), refeita com a malha do terreno
     std::vector<float> extHeights;      // (255 + 2 x 128 + 2)^2, unidade do byte
     rz::GLuint skirtVao = 0, skirtVbo = 0;
+    std::vector<rz::TerrainVertex> skirtStaging;    // malha da continuação na CPU (reaproveitada)
     int32_t    skirtVertexCount = 0;
     int32_t    skirtFirst[4] = {}, skirtCount[4] = {};   // regiões N, L, S, O (drawSkirt)
     rz::GLuint wallVao = 0, wallVbo = 0;
@@ -379,7 +381,9 @@ struct RzContext {
     rz::GLuint shadowTex[rz::kShadowMaps] = {};
     rz::Mat4   shadowMatrix[rz::kShadowMaps] = {};     // do frame; contíguas (glUniformMatrix4fv)
     int32_t    shadowSize[rz::kShadowMaps] = {};      // lado de cada mapa (já limitado pelo driver)
-    bool       terrainShadowDirty = true;            // mapa 0 precisa ser refeito
+    bool       terrainShadowDirty = true;            // mapa 0 precisa ser refeito...
+    bool       terrainShadowAll   = true;            // ...inteiro, ou só a caixa abaixo (mundo)
+    rz::Vec3   terrainShadowLo = { 0.0f, 0.0f, 0.0f }, terrainShadowHi = { 0.0f, 0.0f, 0.0f };
     bool       shadowTargetOn = false;               // mapa 2 em uso (câmera seguindo)
     rz::Vec3   shadowFocus = { 0.0f, 0.0f, 0.0f };   // centro da caixa do mapa 1 (do frame)
 
@@ -402,6 +406,9 @@ struct RzContext {
     float     heightScale = rz::kDefaultHeightScale;
     rz::GLuint terrainVao = 0;
     rz::GLuint terrainVbo = 0;         // 130.050 x 3 TerrainVertex, remontado na carga
+    std::vector<rz::TerrainVertex> terrainStaging;  // a mesma malha na CPU (rzUpdateTerrain)
+    const uint8_t* heightSource = nullptr;  // buffers do host (rzSetHeightmap/rzSetTileMap),
+    const uint8_t* tileSource   = nullptr;  // relidos por rzUpdateTerrain
     bool hasTerrain() const { return !heights.empty(); }
 
     // Texturas (opcionais; sem as duas, desenha com as cores flat)
@@ -444,7 +451,9 @@ namespace rz {
 // rz_terrain.cpp
 void buildPalette(uint32_t* palette);
 void updateTerrainBounds(RzContext* ctx);
-bool buildTerrainMesh(RzContext* ctx);
+bool buildTerrainMesh(RzContext* ctx);      // malha inteira + borda + sombra (carga)
+bool rebuildTerrainTiles(RzContext* ctx);   // só blocos (rzSetTileMap)
+bool updateTerrain(RzContext* ctx);         // rzUpdateTerrain: só o que mudou
 void buildAtlasLevels(uint32_t* tiles, const uint8_t* indices, const uint8_t* paletteRGB);
 void downsample(const uint32_t* src, uint32_t* dst, int32_t dstSide);
 uint32_t shadeFlat(uint32_t base, Vec3 normal, bool twoSided);
@@ -467,12 +476,16 @@ bool createShadowMaps(RzContext* ctx);
 void destroyShadowMaps(RzContext* ctx);
 void renderShadowMaps(RzContext* ctx);
 void initShadowUniforms(GLuint program, ShadowUniforms& u);
+void markTerrainShadowAll(RzContext* ctx);                     // mapa 0 inteiro no próximo frame
+void markTerrainShadowBox(RzContext* ctx, Vec3 lo, Vec3 hi);   // só a caixa (mundo), acumulando
 void bindShadowMaps(const RzContext* ctx, const ShadowUniforms& u);
 
 // rz_border.cpp
 bool  createBorder(RzContext* ctx);
 void  destroyBorder(RzContext* ctx);
 void  buildBorder(RzContext* ctx);                 // carga, no fim de buildTerrainMesh
+void  rebuildSkirtMesh(RzContext* ctx);            // só a malha da continuação (blocos)
+void  setExtendedHeight(RzContext* ctx, int32_t gc, int32_t gr, float height);   // ponto do mapa
 uint8_t skirtTile(const RzContext* ctx, int32_t c, int32_t r);   // bloco de uma célula da continuação
 float extendedGroundHeight(const RzContext* ctx, float x, float z);
 void  drawSkirt(const RzContext* ctx);             // programa do terreno em uso

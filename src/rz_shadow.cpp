@@ -2,8 +2,11 @@
 // com a mesma view da luz, fixa, olhando para o centro do terreno).
 //
 //   0 terreno   só o terreno projeta; cobre o terreno inteiro; refeito só
-//               quando o terreno muda (terrainShadowDirty, marcado por
-//               buildTerrainMesh). Sombra do relevo em qualquer distância e
+//               quando o terreno muda (terrainShadowDirty): inteiro na carga
+//               (markTerrainShadowAll) ou, em rzUpdateTerrain, só o retângulo
+//               do mapa onde cai a caixa alterada (markTerrainShadowBox, com
+//               scissor: o terreno inteiro é enviado, mas só esses texels são
+//               limpos e rasterizados). Sombra do relevo em qualquer distância e
 //               sobre os objetos (carro entrando na sombra do morro).
 //   1 próximos  objetos numa caixa à frente do olho (kShadowNearAhead), que
 //               cobre a parte visível antes da neblina, MENOS o alvo da câmera
@@ -127,8 +130,30 @@ bool createShadowMaps(RzContext* ctx) {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         if (!ok) return false;
     }
-    ctx->terrainShadowDirty = true;
+    markTerrainShadowAll(ctx);
     return true;
+}
+
+void markTerrainShadowAll(RzContext* ctx) {
+    ctx->terrainShadowDirty = true;
+    ctx->terrainShadowAll = true;
+}
+
+// Acumula (união) até o próximo frame. As alturas antigas entram na caixa:
+// um morro que baixou também apaga a profundidade de onde ele estava.
+void markTerrainShadowBox(RzContext* ctx, Vec3 lo, Vec3 hi) {
+    if (ctx->terrainShadowDirty) {
+        if (ctx->terrainShadowAll) return;
+        Vec3& a = ctx->terrainShadowLo;
+        Vec3& b = ctx->terrainShadowHi;
+        a = { fminf(a.x, lo.x), fminf(a.y, lo.y), fminf(a.z, lo.z) };
+        b = { fmaxf(b.x, hi.x), fmaxf(b.y, hi.y), fmaxf(b.z, hi.z) };
+        return;
+    }
+    ctx->terrainShadowDirty = true;
+    ctx->terrainShadowAll = false;
+    ctx->terrainShadowLo = lo;
+    ctx->terrainShadowHi = hi;
 }
 
 void destroyShadowMaps(RzContext* ctx) {
@@ -185,13 +210,39 @@ void renderShadowMaps(RzContext* ctx) {
     glPolygonOffset(kShadowOffsetFactor, kShadowOffsetUnits);
 
     if (ctx->terrainShadowDirty) {
-        beginPass(ctx, 0, ctx->shadowMatrix[0]);
+        bool scissor = false;
+        if (!ctx->terrainShadowAll) {
+            // retângulo de texels onde a caixa (8 cantos) cai no mapa, + folga
+            // para o PCF e o polygon offset
+            const Mat4& m = ctx->shadowMatrix[0];
+            const int32_t size = ctx->shadowSize[0];
+            float x0 = 1.0e30f, y0 = 1.0e30f, x1 = -1.0e30f, y1 = -1.0e30f;
+            for (int32_t k = 0; k < 8; ++k) {
+                const Vec3 p = { (k & 1) ? ctx->terrainShadowHi.x : ctx->terrainShadowLo.x,
+                                 (k & 2) ? ctx->terrainShadowHi.y : ctx->terrainShadowLo.y,
+                                 (k & 4) ? ctx->terrainShadowHi.z : ctx->terrainShadowLo.z };
+                const float sx = (m[0, 0] * p.x + m[0, 1] * p.y + m[0, 2] * p.z + m[0, 3]) * 0.5f + 0.5f;
+                const float sy = (m[1, 0] * p.x + m[1, 1] * p.y + m[1, 2] * p.z + m[1, 3]) * 0.5f + 0.5f;
+                x0 = fminf(x0, sx); x1 = fmaxf(x1, sx);
+                y0 = fminf(y0, sy); y1 = fmaxf(y1, sy);
+            }
+            const int32_t ix0 = int32_t(floorf(x0 * float(size))) - kShadowScissorMargin;
+            const int32_t iy0 = int32_t(floorf(y0 * float(size))) - kShadowScissorMargin;
+            const int32_t ix1 = int32_t(ceilf(x1 * float(size))) + kShadowScissorMargin;
+            const int32_t iy1 = int32_t(ceilf(y1 * float(size))) + kShadowScissorMargin;
+            glEnable(GL_SCISSOR_TEST);
+            glScissor(ix0, iy0, ix1 - ix0, iy1 - iy0);
+            scissor = true;
+        }
+        beginPass(ctx, 0, ctx->shadowMatrix[0]);    // o clear respeita o scissor
         if (ctx->hasTerrain()) {
             glBindVertexArray(ctx->terrainVao);
             glDrawArrays(GL_TRIANGLES, 0, kTriangleCount * 3);
             drawSkirtDepth(ctx);                 // a continuação também projeta
         }
+        if (scissor) glDisable(GL_SCISSOR_TEST);
         ctx->terrainShadowDirty = false;
+        ctx->terrainShadowAll = false;
     }
 
     beginPass(ctx, 1, ctx->shadowMatrix[1]);

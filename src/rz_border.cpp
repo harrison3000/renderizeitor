@@ -176,7 +176,8 @@ void buildSkirtMesh(RzContext* ctx) {
     uint32_t palette[kPaletteSize];
     buildPalette(palette);
 
-    std::vector<TerrainVertex> mesh;                         // carga: aloca
+    std::vector<TerrainVertex>& mesh = ctx->skirtStaging;   // reaproveitado (aloca só na 1ª)
+    mesh.clear();
     mesh.reserve(size_t(60000) * 3);
     // Região da célula: 0 norte (r < 0, com os cantos), 2 sul (r >= 255),
     // 3 oeste (c < 0), 1 leste (c >= 255). Cada uma fica contígua no buffer,
@@ -205,10 +206,14 @@ void buildSkirtMesh(RzContext* ctx) {
         }
         ctx->skirtCount[region] = int32_t(mesh.size()) - ctx->skirtFirst[region];
     }
-    ctx->skirtVertexCount = int32_t(mesh.size());
     glBindBuffer(GL_ARRAY_BUFFER, ctx->skirtVbo);
-    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(mesh.size() * sizeof(TerrainVertex)), mesh.data(),
-                 GL_STATIC_DRAW);
+    if (ctx->skirtVertexCount == int32_t(mesh.size())) {     // mesmo tamanho: sem realocar
+        glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(mesh.size() * sizeof(TerrainVertex)), mesh.data());
+    } else {
+        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(mesh.size() * sizeof(TerrainVertex)), mesh.data(),
+                     GL_STATIC_DRAW);
+    }
+    ctx->skirtVertexCount = int32_t(mesh.size());
 }
 
 // Parede: um quad por tile em cada um dos quatro lados, da altura da borda
@@ -340,6 +345,17 @@ void destroyBorder(RzContext* ctx) {
     if (ctx->wallVao) glDeleteVertexArrays(1, &ctx->wallVao);
     if (ctx->wallVbo) glDeleteBuffers(1, &ctx->wallVbo);
     if (ctx->wallProgram.program) glDeleteProgram(ctx->wallProgram.program);
+}
+
+// Só a malha da continuação (blocos perto da borda mudaram; rzUpdateTerrain)
+void rebuildSkirtMesh(RzContext* ctx) {
+    buildSkirtMesh(ctx);
+}
+
+// Um ponto do mapa (dentro) na cópia estendida, que é igual à altura dele
+// (rzUpdateTerrain, mudança no interior: a borda de fora não depende dele)
+void setExtendedHeight(RzContext* ctx, int32_t gc, int32_t gr, float height) {
+    if (!ctx->extHeights.empty()) ext(ctx, gc, gr) = height;
 }
 
 // Carga (chamada no fim de buildTerrainMesh): alturas estendidas, malha da

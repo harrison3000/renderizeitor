@@ -52,8 +52,8 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 | Grupo | Funções |
 |---|---|
 | Contexto | `rzCreate(w, h, pixels)` offscreen; `rzCreateWindow(hwndPai, x, y, w, h)` janela filha; `rzSetViewport` (só no modo janela); `rzDestroy` |
-| Terreno | `rzSetHeightmap` (256×256); `rzSetTerrainScale(cellSize, heightScale)` |
-| Texturas | `rzLoadTileAtlas(caminhoPcx)`; `rzSetTileMap` (256×256, NULL desliga as texturas); `rzSetTextureFilter` |
+| Terreno | `rzSetHeightmap` (256×256; guarda o ponteiro); `rzSetTerrainScale(cellSize, heightScale)`; `rzUpdateTerrain()` (relê os buffers e refaz só o que mudou) |
+| Texturas | `rzLoadTileAtlas(caminhoPcx)`; `rzSetTileMap` (256×256, NULL desliga as texturas; guarda o ponteiro); `rzSetTextureFilter` |
 | Objetos | `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count, paletteIndex)`, `rzAddObjectTexturedPolygon(id, RzTexVertex* corners, count)`, `rzAddObjectTranslucentPolygon(id, indices, count, tone)`, `rzLoadObjectTexture(id, caminhoPcx)`, `rzLoadFallbackTexture(caminhoPcx)`, `rzUpdateObjectVertices(id, RzVertex*)`, `rzDestroyObject` |
 | Rodas | `rzSetObjectWheels(id, RzWheel[4])`, `rzUpdateObjectWheels(id, steer)` |
 | Sprites | `rzSetSprites(RzSprite*, count)` (array inteiro a cada chamada, até 256) |
@@ -116,7 +116,8 @@ Limites:
   - (u, v) do canto do quad;
   - camada do atlas.
 - **Por que sem índices:** a cor e o bloco são do triângulo e do quad, não do ponto da grade.
-- **Quando é remontada:** em `rzSetHeightmap`, `rzSetTerrainScale` e `rzSetTileMap`.
+- **Quando é remontada:** inteira (com a borda e a sombra do relevo) em `rzSetHeightmap` e `rzSetTerrainScale`; `rzSetTileMap` só refaz os blocos dos quads e da continuação (sem relevo nem sombra).
+- **Mudança durante o jogo (`rzUpdateTerrain`):** `rzSetHeightmap`/`rzSetTileMap` guardam o ponteiro do host (tem que continuar válido); o host altera os próprios arrays e chama `rzUpdateTerrain`, que compara com as cópias (2 × 64 KB) e refaz só o retângulo de quads afetados (a malha inteira fica também na CPU; a faixa de linhas do retângulo é reenviada com `glBufferSubData`). Na sombra do relevo (mapa 0), só a área da caixa alterada (alturas antigas e novas) é limpa e redesenhada, com scissor. Altura num ponto da borda do mapa refaz a borda do mundo e a sombra inteira; bloco a menos de 8 quads da borda refaz a malha da continuação. Resultado idêntico pixel a pixel ao de refazer tudo (testado). Custo medido (llvmpipe): ~0,2 ms por cratera pequena, contra ~30 ms + sombra inteira de `rzSetHeightmap` + `rzSetTileMap`.
 - **Culling:** de face traseira, `GL_BACK` com frente CCW.
 
 ### 7.2 Cor e luz

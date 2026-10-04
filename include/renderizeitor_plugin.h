@@ -89,6 +89,7 @@ typedef char RzAssertSpriteSize[sizeof(RzSprite) == 20 ? 1 : -1];
     X(int32_t, rzSetTerrainScale, (RzContext* ctx, float cellSize, float heightScale))               \
     X(int32_t, rzLoadTileAtlas, (RzContext* ctx, const char* pcxPath))                               \
     X(int32_t, rzSetTileMap,    (RzContext* ctx, const uint8_t* data, int32_t width, int32_t height)) \
+    X(int32_t, rzUpdateTerrain, (RzContext* ctx))                                                      \
     X(int32_t, rzSetTextureFilter, (RzContext* ctx, int32_t filter))                                 \
     X(int32_t, rzSetBackgroundColor, (RzContext* ctx, uint8_t r, uint8_t g, uint8_t b))              \
     X(int32_t, rzSetFog,        (RzContext* ctx, float start, float end))                            \
