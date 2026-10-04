@@ -192,7 +192,7 @@ static_assert(sizeof(GlassVertex) == 28);
 
 // Rodas (rz_wheels.cpp): cilindros pretos finos
 constexpr int32_t  kWheelSegments = 12;
-constexpr float    kWheelWidth    = 0.25f;          // largura = 0,25 x diâmetro
+constexpr float    kWheelWidth    = 0.4f;           // largura = 0,4 x diâmetro (12:30)
 constexpr uint32_t kWheelColor    = 0x001C1C1Cu;    // quase preto (para a luz ainda aparecer)
 
 // Vidro: brilho especular "embaçado" (Blinn-Phong de expoente baixo)
@@ -231,7 +231,7 @@ struct Object {
     uint16_t  wheelVertex[4] = {};
     uint8_t   wheelFront[4] = {};
     float     wheelDiameter[4] = {};    // mundo
-    float     wheelSteer[4] = {};       // radianos, positivo = esquerda
+    float     wheelSteer = 0.0f;        // dianteiras; radianos, positivo = esquerda
     std::vector<TerrainVertex> wheelStaging;
     GLuint    wheelVao = 0, wheelVbo = 0;
     bool      wheelsDirty = false;

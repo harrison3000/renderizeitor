@@ -3,15 +3,17 @@
 // rzSetObjectWheels: para cada roda, o vértice do objeto que é o centro do
 // cubo (hub), se é dianteira ou traseira e o diâmetro (tiles). Precisam ser
 // duas dianteiras e duas traseiras.
-// rzUpdateObjectWheels: ângulo de esterçamento de cada roda (radianos;
-// positivo vira para a esquerda, anti-horário visto de cima).
+// rzUpdateObjectWheels: ângulo de esterçamento das duas dianteiras (radianos;
+// positivo vira para a esquerda, anti-horário visto de cima). Traseiras retas.
 //
 // Referencial do carro, refeito a cada envio a partir dos quatro cubos:
 //   frente f = meio das dianteiras − meio das traseiras;
 //   cima   u = perpendicular a f e à linha entre as rodas, apontando para +y;
 //   direita r = f x u.
-// Cada roda: cilindro de diâmetro d e largura kWheelWidth x d, eixo = r girado
-// em torno de u pelo esterçamento. kWheelSegments lados.
+// Cada roda: cilindro de diâmetro d e largura kWheelWidth x d, eixo = r (nas
+// dianteiras, girado em torno de u pelo esterçamento). kWheelSegments lados;
+// o anel (cos/sen) e as duas orientações (dianteira, traseira) são calculados
+// uma vez por envio.
 //
 // Desenho: com o programa do terreno no modo sem textura (cor flat iluminada,
 // sombras e neblina de graça), sem culling (cilindro fechado: o depth resolve).
@@ -69,27 +71,35 @@ void buildWheels(Object& o) {
     if (u.y < 0.0f) u = scale(u, -1.0f);
     if (dot(u, u) == 0.0f) u = { 0.0f, 1.0f, 0.0f };
 
+    // anel unitário (fechado: ring[kWheelSegments] = ring[0])
+    float ringC[kWheelSegments + 1], ringS[kWheelSegments + 1];
+    for (int32_t k = 0; k <= kWheelSegments; ++k) {
+        const float a = 2.0f * kPi * float(k % kWheelSegments) / float(kWheelSegments);
+        ringC[k] = cosf(a);
+        ringS[k] = sinf(a);
+    }
+    // orientações: [0] traseira (reta), [1] dianteira (esterçada; positivo = esquerda)
+    const float s = sinf(o.wheelSteer), c = cosf(o.wheelSteer);
+    const Vec3 fwd[2]  = { f, scale(f, c) + scale(cross(u, f), s) };
+    const Vec3 axis[2] = { normalized(cross(fwd[0], u)), normalized(cross(fwd[1], u)) };
+
     TerrainVertex* out = o.wheelStaging.data();
     for (int32_t i = 0; i < 4; ++i) {
-        // esterçamento: gira a frente em torno de u (positivo = esquerda)
-        const float s = sinf(o.wheelSteer[i]), c = cosf(o.wheelSteer[i]);
-        const Vec3 fw = scale(f, c) + scale(cross(u, f), s);   // frente da roda
-        const Vec3 axis = normalized(cross(fw, u));            // eixo (direita)
+        const int32_t which = o.wheelFront[i];
+        const Vec3 fw = fwd[which], ax = axis[which];
         const float radius = 0.5f * o.wheelDiameter[i];
-        const Vec3 half = scale(axis, 0.5f * kWheelWidth * o.wheelDiameter[i]);
+        const Vec3 half = scale(ax, 0.5f * kWheelWidth * o.wheelDiameter[i]);
         const Vec3 p = hub[i];
         for (int32_t k = 0; k < kWheelSegments; ++k) {
-            const float a0 = 2.0f * kPi * float(k) / float(kWheelSegments);
-            const float a1 = 2.0f * kPi * float(k + 1) / float(kWheelSegments);
-            const Vec3 r0 = scale(fw, cosf(a0) * radius) + scale(u, sinf(a0) * radius);
-            const Vec3 r1 = scale(fw, cosf(a1) * radius) + scale(u, sinf(a1) * radius);
+            const Vec3 r0 = scale(fw, ringC[k] * radius)     + scale(u, ringS[k] * radius);
+            const Vec3 r1 = scale(fw, ringC[k + 1] * radius) + scale(u, ringS[k + 1] * radius);
             const Vec3 n  = normalized(r0 + r1);               // normal do lado
             const Vec3 o0 = p + half + r0, o1 = p + half + r1; // lado de fora (+eixo)
             const Vec3 i0 = p - half + r0, i1 = p - half + r1; // lado de dentro
             emitTriangle(out, i0, o0, o1, n);
             emitTriangle(out, i0, o1, i1, n);
-            emitTriangle(out, p + half, o1, o0, axis);         // tampas
-            emitTriangle(out, p - half, i0, i1, scale(axis, -1.0f));
+            emitTriangle(out, p + half, o1, o0, ax);           // tampas
+            emitTriangle(out, p - half, i0, i1, scale(ax, -1.0f));
         }
     }
     glBindBuffer(GL_ARRAY_BUFFER, o.wheelVbo);
@@ -160,11 +170,11 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetObjectWheels(RzContext* ctx, int32_t id, co
     if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
 
     const float cs = ctx->cellSize;
+    o.wheelSteer = 0.0f;
     for (int32_t i = 0; i < 4; ++i) {
         o.wheelVertex[i]   = hubVertices[i];
         o.wheelFront[i]    = front[i] ? 1 : 0;
         o.wheelDiameter[i] = diameters[i] * cs;
-        o.wheelSteer[i]    = 0.0f;
     }
     if (!o.wheelVao) {                                          // carga: aloca uma vez
         o.wheelStaging.resize(size_t(4) * kWheelVertices);
@@ -189,15 +199,14 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetObjectWheels(RzContext* ctx, int32_t id, co
     return glGetError() == GL_NO_ERROR ? RZ_OK : RZ_ERR_GL;
 }
 
-RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateObjectWheels(RzContext* ctx, int32_t id, const float* steer) {
-    if (!validId(ctx, id) || !steer) return RZ_ERR_INVALID_ARG;
+RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateObjectWheels(RzContext* ctx, int32_t id, float steer) {
+    if (!validId(ctx, id) || !std::isfinite(steer)) return RZ_ERR_INVALID_ARG;
     Object& o = ctx->objects[id];
     if (o.wheelStaging.empty()) return RZ_ERR_INVALID_ARG;     // sem rzSetObjectWheels
-    for (int32_t i = 0; i < 4; ++i) {
-        if (!std::isfinite(steer[i])) return RZ_ERR_INVALID_ARG;
+    if (steer != o.wheelSteer) {
+        o.wheelSteer = steer;
+        o.wheelsDirty = true;
     }
-    for (int32_t i = 0; i < 4; ++i) o.wheelSteer[i] = steer[i];
-    o.wheelsDirty = true;
     return RZ_OK;
 }
 

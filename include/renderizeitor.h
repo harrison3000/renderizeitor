@@ -170,10 +170,10 @@ RZ_API int32_t RZ_CALL rzAddObjectTranslucentPolygon(RzContext* ctx, int32_t id,
 RZ_API int32_t RZ_CALL rzSetObjectWheels(RzContext* ctx, int32_t id, const uint16_t* hubVertices,
                                          const uint8_t* front, const float* diameters);
 
-/* Esterçamento de cada roda (4 floats, radianos; positivo vira para a
-   esquerda, anti-horário visto de cima). Não aloca. RZ_ERR_INVALID_ARG sem
-   rzSetObjectWheels antes ou com ângulo não finito. */
-RZ_API int32_t RZ_CALL rzUpdateObjectWheels(RzContext* ctx, int32_t id, const float* steer);
+/* Esterçamento das duas rodas dianteiras (radianos; positivo vira para a
+   esquerda, anti-horário visto de cima); as traseiras ficam retas. Não aloca.
+   RZ_ERR_INVALID_ARG sem rzSetObjectWheels antes ou com ângulo não finito. */
+RZ_API int32_t RZ_CALL rzUpdateObjectWheels(RzContext* ctx, int32_t id, float steer);
 
 /* Textura do objeto (uma por objeto), lida de um PCX de 8 bits (fase de carga).
    A textura é quadrada, W x W: W é a maior potência de 2 que cabe na largura

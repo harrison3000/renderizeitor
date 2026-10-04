@@ -526,8 +526,7 @@ static int32_t rztdSetVehicleWheels(RzContext* ctx, int32_t id) {
 
 /* Esterçamento das dianteiras (radianos, positivo = esquerda) */
 static void rztdSteerVehicle(RzContext* ctx, int32_t id, float angle) {
-    const float steer[4] = { angle, angle, 0.0f, 0.0f };
-    rzUpdateObjectWheels(ctx, id, steer);
+    rzUpdateObjectWheels(ctx, id, angle);
 }
 #endif
 
