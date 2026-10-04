@@ -76,8 +76,8 @@ void initFogUniforms(GLuint program, FogUniforms& u) {
 // Neblina do frame: liga só seguindo um alvo; cor = fundo
 void bindFog(const RzContext* ctx, const FogUniforms& u) {
     glUniform1i(u.on, ctx->fogOn ? 1 : 0);
-    glUniform1f(u.start, kFogStart * ctx->cellSize);
-    glUniform1f(u.end, kFogEnd * ctx->cellSize);
+    glUniform1f(u.start, ctx->fogStart * ctx->cellSize);
+    glUniform1f(u.end, ctx->fogEnd * ctx->cellSize);
     glUniform3f(u.color, ctx->backgroundR, ctx->backgroundG, ctx->backgroundB);
     glUniform3f(u.eye, ctx->eyePos.x, ctx->eyePos.y, ctx->eyePos.z);
 }

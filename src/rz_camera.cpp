@@ -186,8 +186,8 @@ Mat4 updateCamera(RzContext* ctx) {
     if (nearPlane > 0.5f * focusDist) nearPlane = 0.5f * focusDist;
     if (nearPlane < 0.002f * radius) nearPlane = 0.002f * radius;   // ~0,36 tile: chão perto da câmera
     float farPlane = terrainDist + radius;
-    // Com neblina, nada além de kFogEnd aparece: o far encosta nela (melhor precisão)
-    const float fogFar = kFogEnd * ctx->cellSize * 1.02f;
+    // Com neblina, nada além do fim dela aparece: o far encosta nele (melhor precisão)
+    const float fogFar = ctx->fogEnd * ctx->cellSize * 1.02f;
     if (following && farPlane > fogFar) farPlane = fogFar;
     if (farPlane < nearPlane * 2.0f) farPlane = nearPlane * 2.0f;
     ctx->nearPlane = nearPlane;

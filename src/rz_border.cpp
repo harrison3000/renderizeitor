@@ -10,10 +10,11 @@
 //     ponto de cópia serpenteando ao longo da borda (rios continuam como
 //     faixas que fazem curvas); uma parte das células sorteia um bloco perto
 //     da borda (skirtTile).
-//   - malha: células de 1 tile numa faixa de kSkirtFine tiles em volta do mapa
-//     e de kSkirtCoarse tiles daí em diante (longe, a neblina cobre). Na linha
-//     onde as duas se encontram, as alturas dos pontos intermediários são
-//     interpoladas, para não abrir frestas (T-junctions).
+//   - malha em faixas (kSkirtBands): células de 1 tile até 8 tiles da borda,
+//     de 2 até 16, de 4 até 32 e de 16 até kSkirtExtent (128); longe, a
+//     neblina cobre. Nas linhas onde duas faixas se encontram, as alturas dos
+//     pontos intermediários são interpoladas, para não abrir frestas
+//     (T-junctions).
 //   - só é desenhada seguindo um alvo (com neblina); projeta sombra no mapa 0.
 //   - groundHeight (câmera) usa as mesmas alturas, com a mesma resolução.
 //
@@ -32,11 +33,25 @@ namespace rz {
 
 namespace {
 
-constexpr int32_t kExtSide = kQuadsPerSide + 2 * kSkirtExtent + 1;   // pontos por lado (433)
-constexpr int32_t kFineLo = -kSkirtFine;                             // -16
-constexpr int32_t kFineHi = kQuadsPerSide + kSkirtFine + 1;          // 272 (288 = 72 x 4)
-static_assert((kFineHi - kFineLo) % kSkirtCoarse == 0, "faixa fina alinhada às células grossas");
-static_assert((kSkirtExtent - kSkirtFine) % kSkirtCoarse == 0, "faixa grossa alinhada");
+constexpr int32_t kExtLo  = -kSkirtExtent;                           // -128 (origem das grades)
+constexpr int32_t kExtHi  = kQuadsPerSide + kSkirtExtent + 1;        // 384
+constexpr int32_t kExtSide = kExtHi - kExtLo + 1;                    // pontos por lado (513)
+// Contorno da faixa i: de bandLo(i) a bandHi(i) nos dois eixos
+constexpr int32_t bandLo(int32_t i) { return -kSkirtBands[i].limit; }
+constexpr int32_t bandHi(int32_t i) { return kQuadsPerSide + kSkirtBands[i].limit + 1; }
+// grades alinhadas a kExtLo; o contorno de cada faixa fecha em células
+// inteiras dela e da de fora; passos crescentes e múltiplos
+constexpr bool bandsAligned() {
+    for (int32_t i = 0; i < kSkirtBandCount; ++i) {
+        const int32_t s = kSkirtBands[i].step;
+        const int32_t outer = i + 1 < kSkirtBandCount ? kSkirtBands[i + 1].step : s;
+        if ((bandLo(i) - kExtLo) % outer != 0 || (bandHi(i) - kExtLo) % outer != 0) return false;
+        if (outer % s != 0) return false;
+        if (i > 0 && kSkirtBands[i].limit <= kSkirtBands[i - 1].limit) return false;
+    }
+    return kSkirtBands[0].step == 1;
+}
+static_assert(bandsAligned(), "faixas da continuação desalinhadas");
 
 struct WallVertex {
     float x, y, z;
@@ -66,7 +81,7 @@ float& ext(RzContext* ctx, int32_t gx, int32_t gz) {
     return ctx->extHeights[size_t(gz + kSkirtExtent) * kExtSide + size_t(gx + kSkirtExtent)];
 }
 
-// Alturas (unidade do byte, float) de -kSkirtExtent a 255 + kSkirtExtent
+// Alturas (unidade do byte, float) de -kSkirtExtent a 255 + kSkirtExtent + 1
 void buildExtendedHeights(RzContext* ctx) {
     ctx->extHeights.assign(size_t(kExtSide) * kExtSide, 0.0f);
     const uint8_t* h = ctx->heights.data();
@@ -79,8 +94,8 @@ void buildExtendedHeights(RzContext* ctx) {
     }
     const float base = sum / float(4 * kGridSize);
 
-    for (int32_t gz = -kSkirtExtent; gz <= kQuadsPerSide + kSkirtExtent; ++gz) {
-        for (int32_t gx = -kSkirtExtent; gx <= kQuadsPerSide + kSkirtExtent; ++gx) {
+    for (int32_t gz = kExtLo; gz <= kExtHi; ++gz) {            // kExtHi: canto de fora da última célula
+        for (int32_t gx = kExtLo; gx <= kExtHi; ++gx) {
             const int32_t cx = gx < 0 ? 0 : (gx > kQuadsPerSide ? kQuadsPerSide : gx);
             const int32_t cz = gz < 0 ? 0 : (gz > kQuadsPerSide ? kQuadsPerSide : gz);
             const float edge = float(h[cz * kGridSize + cx]);
@@ -102,20 +117,25 @@ void buildExtendedHeights(RzContext* ctx) {
         }
     }
 
-    // Emenda fina/grossa: nas linhas da borda da faixa fina, os pontos entre
-    // os cantos das células grossas ficam na reta entre eles (sem frestas)
-    auto fixLine = [&](bool alongX, int32_t fixed) {
-        for (int32_t s = kFineLo; s < kFineHi; s += kSkirtCoarse) {
+    // Emendas entre faixas: nas linhas do contorno de uma faixa (lo..hi), os
+    // pontos entre os cantos das células da faixa de fora (passo step) ficam
+    // na reta entre eles (sem frestas)
+    auto fixLine = [&](bool alongX, int32_t fixed, int32_t lo, int32_t hi, int32_t step) {
+        for (int32_t s = lo; s < hi; s += step) {
             const float a = alongX ? ext(ctx, s, fixed) : ext(ctx, fixed, s);
-            const float b = alongX ? ext(ctx, s + kSkirtCoarse, fixed) : ext(ctx, fixed, s + kSkirtCoarse);
-            for (int32_t k = 1; k < kSkirtCoarse; ++k) {
-                const float v = a + (b - a) * float(k) / float(kSkirtCoarse);
+            const float b = alongX ? ext(ctx, s + step, fixed) : ext(ctx, fixed, s + step);
+            for (int32_t k = 1; k < step; ++k) {
+                const float v = a + (b - a) * float(k) / float(step);
                 if (alongX) ext(ctx, s + k, fixed) = v; else ext(ctx, fixed, s + k) = v;
             }
         }
     };
-    fixLine(true, kFineLo);  fixLine(true, kFineHi);
-    fixLine(false, kFineLo); fixLine(false, kFineHi);
+    auto fixRing = [&](int32_t lo, int32_t hi, int32_t step) {
+        fixLine(true, lo, lo, hi, step);  fixLine(true, hi, lo, hi, step);
+        fixLine(false, lo, lo, hi, step); fixLine(false, hi, lo, hi, step);
+    };
+    for (int32_t i = 0; i + 1 < kSkirtBandCount; ++i)     // faixa i / faixa i+1
+        fixRing(bandLo(i), bandHi(i), kSkirtBands[i + 1].step);
 }
 
 
@@ -166,23 +186,21 @@ void buildSkirtMesh(RzContext* ctx) {
         if (r >= kQuadsPerSide) return 2;
         return c < 0 ? 3 : 1;
     };
-    const int32_t lo = -kSkirtExtent, hi = kQuadsPerSide + kSkirtExtent;
     for (int32_t region = 0; region < 4; ++region) {
         ctx->skirtFirst[region] = int32_t(mesh.size());
-        // Faixa fina (células de 1 tile), menos o próprio mapa
-        for (int32_t r = kFineLo; r < kFineHi; ++r) {
-            for (int32_t c = kFineLo; c < kFineHi; ++c) {
-                if (r >= 0 && r < kQuadsPerSide && c >= 0 && c < kQuadsPerSide) continue;
-                if (regionOf(c, r) != region) continue;
-                emitCell(ctx, mesh, palette, c, r, 1, skirtTile(ctx, c, r));
-            }
-        }
-        // Faixa grossa (células de kSkirtCoarse tiles), menos a faixa fina
-        for (int32_t r = lo; r < hi; r += kSkirtCoarse) {
-            for (int32_t c = lo; c < hi; c += kSkirtCoarse) {
-                if (r >= kFineLo && r < kFineHi && c >= kFineLo && c < kFineHi) continue;
-                if (regionOf(c, r) != region) continue;
-                emitCell(ctx, mesh, palette, c, r, kSkirtCoarse, skirtTile(ctx, c, r));
+        // Cada faixa, menos o que está dentro da anterior (a primeira: menos o mapa)
+        for (int32_t i = 0; i < kSkirtBandCount; ++i) {
+            const int32_t step = kSkirtBands[i].step;
+            const int32_t lo = i + 1 < kSkirtBandCount ? bandLo(i) : kExtLo;
+            const int32_t hi = i + 1 < kSkirtBandCount ? bandHi(i) : kExtHi;
+            const int32_t inLo = i > 0 ? bandLo(i - 1) : 0;
+            const int32_t inHi = i > 0 ? bandHi(i - 1) : kQuadsPerSide;
+            for (int32_t r = lo; r < hi; r += step) {
+                for (int32_t c = lo; c < hi; c += step) {
+                    if (r >= inLo && r < inHi && c >= inLo && c < inHi) continue;
+                    if (regionOf(c, r) != region) continue;
+                    emitCell(ctx, mesh, palette, c, r, step, skirtTile(ctx, c, r));
+                }
             }
         }
         ctx->skirtCount[region] = int32_t(mesh.size()) - ctx->skirtFirst[region];
@@ -333,16 +351,18 @@ void buildBorder(RzContext* ctx) {
 }
 
 // Altura estendida (mundo) em (x, z), bilinear na resolução da malha
-// (1 tile no mapa e na faixa fina, kSkirtCoarse tiles depois)
+// (o passo da faixa onde o ponto está; 1 tile no mapa)
 float extendedGroundHeight(const RzContext* ctx, float x, float z) {
     const float invCell = 1.0f / ctx->cellSize;
     float gx = x * invCell, gz = z * invCell;
     const float lo = float(-kSkirtExtent), hi = float(kQuadsPerSide + kSkirtExtent) - 0.001f;
     gx = fminf(fmaxf(gx, lo), hi);
     gz = fminf(fmaxf(gz, lo), hi);
-    const bool fine = gx >= float(kFineLo) && gx < float(kFineHi) && gz >= float(kFineLo) && gz < float(kFineHi);
-    const float step = fine ? 1.0f : float(kSkirtCoarse);
-    const float ox = float(-kSkirtExtent);                     // grade grossa alinhada a -kSkirtExtent
+    auto inside = [&](int32_t a, int32_t b) { return gx >= float(a) && gx < float(b) && gz >= float(a) && gz < float(b); };
+    float step = float(kSkirtBands[kSkirtBandCount - 1].step);
+    for (int32_t i = kSkirtBandCount - 2; i >= 0; --i)
+        if (inside(bandLo(i), bandHi(i))) step = float(kSkirtBands[i].step);
+    const float ox = float(kExtLo);                            // grades alinhadas a kExtLo
     const float cx = floorf((gx - ox) / step) * step + ox;
     const float cz = floorf((gz - ox) / step) * step + ox;
     const float fx = (gx - cx) / step, fz = (gz - cz) / step;
@@ -355,7 +375,7 @@ float extendedGroundHeight(const RzContext* ctx, float x, float z) {
 }
 
 // Continuação (programa do terreno já em uso, com os mesmos uniforms). Só as
-// regiões a menos de kFogEnd do olho (na horizontal): no meio do mapa, nenhuma.
+// regiões a menos do fim da neblina do olho (na horizontal): no meio do mapa, nenhuma.
 void drawSkirt(const RzContext* ctx) {
     if (!ctx->fogOn || ctx->skirtVertexCount == 0) return;
     const float cs = ctx->cellSize;
@@ -364,7 +384,7 @@ void drawSkirt(const RzContext* ctx) {
     // retângulos (x0, x1, z0, z1) das regiões 0 norte, 1 leste, 2 sul, 3 oeste
     const float rect[4][4] = { { lo, hi, lo, m0 }, { m1, hi, m0, m1 },
                                { lo, hi, m1, hi }, { lo, m0, m0, m1 } };
-    const float reach = kFogEnd * cs;
+    const float reach = ctx->fogEnd * cs;
     glBindVertexArray(ctx->skirtVao);
     for (int32_t i = 0; i < 4; ++i) {
         const float dx = fmaxf(fmaxf(rect[i][0] - ctx->eyePos.x, 0.0f), ctx->eyePos.x - rect[i][1]);

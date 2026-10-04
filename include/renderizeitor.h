@@ -104,6 +104,17 @@ RZ_API int32_t RZ_CALL rzSetTextureFilter(RzContext* ctx, int32_t filter);
    partir do próximo rzRender. Padrão (32, 40, 48). */
 RZ_API int32_t RZ_CALL rzSetBackgroundColor(RzContext* ctx, uint8_t r, uint8_t g, uint8_t b);
 
+/* Neblina (draw distance), em tiles de distância 3D ao olho: limpa até
+   start, some na cor de fundo em end; além de end nada é desenhado. Só vale
+   seguindo um alvo (rzSetCameraTarget). Padrão 30 e 65.
+   Custo: desprezível (só guarda os dois valores; nada é refeito na CPU nem
+   na GPU), vale a partir do próximo rzRender. Pode ser chamada a qualquer
+   momento, inclusive todo frame ao longo do percurso (ex.: fechar a neblina
+   num trecho).
+   Erros: RZ_ERR_INVALID_ARG se não for 0 <= start < end <= 120 (o terreno
+   continua 120 tiles além da borda do mapa; mais que isso faltaria chão). */
+RZ_API int32_t RZ_CALL rzSetFog(RzContext* ctx, float start, float end);
+
 /* ------------------------------------------------------------------------ */
 /* Objetos                                                                  */
 /* ------------------------------------------------------------------------ */

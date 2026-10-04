@@ -167,7 +167,7 @@ static bool drawable(const Object& o) {
 bool objectInRange(const RzContext* ctx, const Object& o) {
     if (!ctx->fogOn) return true;
     const Vec3 d = o.center - ctx->eyePos;
-    const float reach = (kFogEnd + kFogCullMargin) * ctx->cellSize + o.radius;
+    const float reach = (ctx->fogEnd + kFogCullMargin) * ctx->cellSize + o.radius;
     return dot(d, d) <= reach * reach;
 }
 

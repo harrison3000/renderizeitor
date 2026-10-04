@@ -57,7 +57,7 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 | Objetos | `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count, paletteIndex)`, `rzAddObjectTexturedPolygon(id, indices, uvs, count)`, `rzAddObjectTranslucentPolygon(id, indices, count, tone)`, `rzLoadObjectTexture(id, caminhoPcx)`, `rzLoadFallbackTexture(caminhoPcx)`, `rzUpdateObjectVertices`, `rzDestroyObject` |
 | Rodas | `rzSetObjectWheels(id, hubVertices[4], front[4], diameters[4])`, `rzUpdateObjectWheels(id, steer)` |
 | Câmera | `rzSetCameraTarget(id, vertex)`, `rzSetCameraFollow(distance, height, stiffness)` |
-| Cena | `rzSetBackgroundColor(r, g, b)` (0..255; padrão 32, 40, 48) |
+| Cena | `rzSetBackgroundColor(r, g, b)` (0..255; padrão 32, 40, 48), `rzSetFog(start, end)` (tiles; padrão 30, 65) |
 | Frame | `rzRender` |
 
 Erros:
@@ -205,16 +205,16 @@ O modo normal é a perseguição (9.2): o host sempre define um alvo.
 
 ### 9.3 Planos near/far (os dois modos)
 
-`near = dist(câmera, centro) − R` e `far = dist(câmera, centro) + R`. O near é limitado a no máximo metade da distância ao ponto observado e a no mínimo 0.002·R. Seguindo um alvo (com neblina), o far fica em no máximo 80 tiles × 1,02.
+`near = dist(câmera, centro) − R` e `far = dist(câmera, centro) + R`. O near é limitado a no máximo metade da distância ao ponto observado e a no mínimo 0.002·R. Seguindo um alvo (com neblina), o far fica em no máximo o fim da neblina × 1,02.
 
 ### 9.4 Neblina por distância
 
-Sem API por enquanto (constantes `kFogStart`, `kFogEnd` em `rz_internal.h`).
+`rzSetFog(start, end)` em tiles; padrão 30 e 65 (`kFogStartDefault`, `kFogEndDefault`). Custo desprezível (só guarda os valores; uniforms, far plane e cortes são lidos a cada `rzRender`): pode mudar a qualquer momento, até todo frame. Válido: 0 ≤ start < end ≤ 120 (`kFogMaxEnd`; a continuação do terreno vai até 128).
 
-- **Faixa:** limpa até 40 tiles; de 40 a 80, `smoothstep`; além de 80, só a cor de fundo (`rzSetBackgroundColor`). (Primeiro foi 80–130; 40–80 ficou melhor nos testes do usuário.)
+- **Faixa:** limpa até start; de start a end, `smoothstep`; além de end, só a cor de fundo (`rzSetBackgroundColor`). (Histórico do padrão: 80–130, 40–80, agora 30–65.)
 - **Distância:** 3D, do pixel até o olho, calculada por pixel nos dois shaders (terreno e objetos).
 - **Só seguindo um alvo.** Na visão geral não há neblina (a câmera fica longe demais).
-- **Cortes:** pixel só de neblina sai direto, sem textura nem sombra (as derivadas da textura são calculadas antes desse desvio; a leitura usa `textureGrad`). Objetos com a esfera envolvente toda além de 80 + 10 tiles não são enviados nem desenhados, na tela e nas sombras.
+- **Cortes:** pixel só de neblina sai direto, sem textura nem sombra (as derivadas da textura são calculadas antes desse desvio; a leitura usa `textureGrad`). Objetos com a esfera envolvente toda além de end + 10 tiles não são enviados nem desenhados, na tela e nas sombras.
 
 ### 9.5 Borda do mundo (continuação e parede)
 
@@ -223,7 +223,7 @@ Sem API; constantes `kSkirt*`/`kBorder*` em `rz_internal.h`, código em `src/rz_
 - **Continuação:** terreno gerado até 88 tiles além de cada borda (o fim da neblina + 8).
   - Altura: a da borda (ponto mais próximo do mapa) indo, ao longo de 24 tiles, para a média das bordas + ruído de valor (duas oitavas, períodos 32 e 12). Sem degrau na emenda.
   - Blocos de textura (`skirtTile`): em geral, a célula continua o bloco do quad da borda logo "na frente" (um rio continua rio), mas o ponto de cópia serpenteia ao longo da borda: deslocamento por ruído de valor suave em (posição ao longo, distância para fora), período 24, amplitude 0,35 × distância até 12 tiles. Vizinhas se deslocam juntas, então as faixas seguem coesas e fazem curvas. 12 % das células sorteiam um bloco numa janela de 8 tiles perto da borda, para quebrar a repetição. Nos cantos, o quad do canto. A altura não entra.
-  - Malha: células de 1 tile numa faixa de 16 tiles em volta do mapa; de 4 tiles depois. Na linha entre as duas, os pontos intermediários ficam na reta entre os cantos das células grossas (sem frestas). ~49 mil triângulos, em 4 regiões (N, L, S, O); só as regiões a menos de 80 tiles do olho são desenhadas.
+  - Malha em faixas (`kSkirtBands`): células de 1 tile até 8 tiles da borda, de 2 até 16, de 4 até 32 e de 16 até 128 (`kSkirtExtent`; 128 para as células de 16 fecharem alinhadas; a neblina vai até 120). Nas linhas entre faixas, os pontos intermediários ficam na reta entre os cantos das células de fora (sem frestas). ~26 mil triângulos, em 4 regiões (N, L, S, O); só as regiões a menos do fim da neblina do olho são desenhadas.
   - Só seguindo um alvo (com neblina). Projeta sombra no mapa 0. A câmera usa as mesmas alturas fora do mapa.
 - **Parede de limite:** em cima das quatro bordas, do chão (−0,5) até 6 tiles acima, semitransparente (vermelho, alfa 0,15) com X vermelhos de 2 tiles (alfa 0,85). Aparece só perto do alvo: alfa × (1 − smoothstep(3, 15, distância horizontal do alvo ao ponto da parede)). Desenhada depois do opaco, com blending, sem gravar profundidade nem alfa de destino; com neblina; não projeta nem recebe sombra.
 

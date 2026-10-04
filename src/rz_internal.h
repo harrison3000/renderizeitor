@@ -62,19 +62,23 @@ constexpr float kFollowLookY        = 0.1f;
 constexpr int32_t kMaxWindowSize = 8192;
 
 // Neblina por distância (só seguindo um alvo; a visão geral fica sem): limpa
-// até kFogStart, some na cor de fundo em kFogEnd (tiles, distância 3D ao olho,
-// curva smoothstep). Além de kFogEnd nada é desenhado.
-constexpr float kFogStart = 40.0f;
-constexpr float kFogEnd   = 80.0f;
-constexpr float kFogCullMargin = 10.0f;   // tiles: objetos além de kFogEnd + raio + margem
+// até o início, some na cor de fundo no fim (tiles, distância 3D ao olho,
+// curva smoothstep). Além do fim nada é desenhado. Padrão 30..65; muda em
+// runtime com rzSetFog (RzContext::fogStart/fogEnd), fim limitado a kFogMaxEnd.
+constexpr float kFogStartDefault = 30.0f;
+constexpr float kFogEndDefault   = 65.0f;
+constexpr float kFogCullMargin = 10.0f;   // tiles: objetos além do fim + raio + margem
                                           // não entram nem na tela nem nas sombras
                                           // (a margem cobre sombras longas para dentro)
 
 // Borda do mundo (rz_border.cpp): continuação do terreno além do mapa, até o
 // alcance da neblina + folga, e parede de limite com X vermelhos.
-constexpr int32_t kSkirtFine     = 16;     // faixa de células de 1 tile em volta do mapa
-constexpr int32_t kSkirtCoarse   = 4;      // depois, células de 4 tiles
-constexpr int32_t kSkirtExtent   = 88;     // tiles além de cada borda (kFogEnd + 8)
+// Faixas da malha da continuação, de dentro para fora: até `limit` tiles da
+// borda, células de `step` tiles. A última vai até kSkirtExtent.
+struct SkirtBand { int32_t limit, step; };
+constexpr SkirtBand kSkirtBands[] = { { 8, 1 }, { 16, 2 }, { 32, 4 }, { 128, 16 } };
+constexpr int32_t kSkirtBandCount = int32_t(sizeof(kSkirtBands) / sizeof(kSkirtBands[0]));
+constexpr int32_t kSkirtExtent   = kSkirtBands[kSkirtBandCount - 1].limit;   // 128: alinha as células de 16
 constexpr float   kSkirtBlend    = 24.0f;  // tiles da altura da borda até a gerada
 constexpr float   kSkirtNoiseLow  = 60.0f; // amplitude do ruído (unidade do byte), período 32
 constexpr float   kSkirtNoiseHigh = 18.0f; // período 12
@@ -87,7 +91,9 @@ constexpr float   kBorderWallHeight = 6.0f;   // tiles acima do chão
 constexpr float   kBorderFadeFar    = 15.0f;  // alvo a 15 tiles: começa a aparecer
 constexpr float   kBorderFadeNear   = 3.0f;   // a 3 tiles: totalmente visível
 constexpr float   kBorderXSize      = 2.0f;   // lado de cada X (tiles)
-static_assert(kSkirtExtent >= int32_t(kFogEnd), "a continuação tem que ir até o fim da neblina");
+constexpr float   kFogMaxEnd = 120.0f;   // rzSetFog (a continuação vai a kSkirtExtent, com folga)
+static_assert(kFogEndDefault <= kFogMaxEnd && kFogMaxEnd <= float(kSkirtExtent),
+              "a continuação tem que ir até o fim da neblina");
 
 // Sombras: três shadow maps da luz direcional (detalhes em rz_shadow.cpp):
 // 0 terreno inteiro (só o terreno), 1 objetos próximos, 2 objeto seguido.
@@ -309,6 +315,8 @@ struct RzContext {
     rz::GLuint fbo = 0, colorRb = 0, depthRb = 0;
 
     // Cor de fundo em float (0..1), convertida só em rzSetBackgroundColor
+    float     fogStart = rz::kFogStartDefault;   // tiles (rzSetFog)
+    float     fogEnd   = rz::kFogEndDefault;
     float     backgroundR = rz::kBackgroundR;
     float     backgroundG = rz::kBackgroundG;
     float     backgroundB = rz::kBackgroundB;
@@ -320,7 +328,7 @@ struct RzContext {
     rz::GlassProgram   glassProgram;
 
     // Borda do mundo (rz_border.cpp), refeita com a malha do terreno
-    std::vector<float> extHeights;      // (255 + 2 x 88 + 1)^2, unidade do byte
+    std::vector<float> extHeights;      // (255 + 2 x 128 + 2)^2, unidade do byte
     rz::GLuint skirtVao = 0, skirtVbo = 0;
     int32_t    skirtVertexCount = 0;
     int32_t    skirtFirst[4] = {}, skirtCount[4] = {};   // regiões N, L, S, O (drawSkirt)
