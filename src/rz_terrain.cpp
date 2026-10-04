@@ -190,84 +190,69 @@ bool rebuildTerrainTiles(RzContext* ctx) {
 }
 
 // rzUpdateTerrain: relê os buffers do host (ponteiros guardados), compara com
-// as cópias e refaz só o necessário:
-//   - quads cujos cantos (altura) ou bloco mudaram: um retângulo envolvente,
-//     reenviado como uma faixa contígua de linhas;
-//   - altura num canto da borda do mapa: a borda inteira (o relevo de fora
-//     parte das alturas da borda e da média delas) e a sombra inteira;
-//   - bloco a menos de kSkirtTileBand quads da borda: a malha da continuação
-//     (ela copia/sorteia blocos dessa faixa);
-//   - altura no interior: a cópia estendida (câmera) e, no mapa de sombra do
-//     terreno, só a área afetada (ver markTerrainShadowBox).
+// as cópias e, para cada ponto/quad que mudou (no jogo são poucos):
+//   - altura: refaz e reenvia os 4 quads em volta do ponto, atualiza a cópia
+//     estendida (câmera) e marca a sombra do relevo só ali (com as alturas
+//     antiga e nova); se o ponto é da borda do mapa, só move junto o y das
+//     vértices do terreno de fora que estão em cima dele (moveSkirtEdgeVertex;
+//     o resto de fora não é recalculado: aceito, rzSetHeightmap refaz tudo);
+//   - bloco: refaz e reenvia o quad; se está a menos de kSkirtTileBand quads
+//     da borda, refaz a malha da continuação (ela copia/sorteia dessa faixa).
 // Sem mudança, não faz nada. Não aloca.
 bool updateTerrain(RzContext* ctx) {
-    int32_t qc0 = kQuadsPerSide, qr0 = kQuadsPerSide, qc1 = -1, qr1 = -1;   // retângulo de quads
-    auto touchQuad = [&](int32_t c, int32_t r) {
-        if (c < 0 || r < 0 || c > kLastQuad || r > kLastQuad) return;
-        if (c < qc0) qc0 = c;
-        if (c > qc1) qc1 = c;
-        if (r < qr0) qr0 = r;
-        if (r > qr1) qr1 = r;
+    const float cs = ctx->cellSize, hs = ctx->heightScale;
+    auto refreshQuads = [&](int32_t c0, int32_t r0, int32_t c1, int32_t r1) {   // inclusivos, recortados
+        if (c0 < 0) c0 = 0;
+        if (r0 < 0) r0 = 0;
+        if (c1 > kLastQuad) c1 = kLastQuad;
+        if (r1 > kLastQuad) r1 = kLastQuad;
+        buildQuads(ctx, c0, r0, c1, r1);
+        for (int32_t r = r0; r <= r1; ++r) uploadQuads(ctx, c0, r, c1, r);
     };
-    bool edgeHeight = false, edgeTile = false, heightChanged = false;
-    float yLo = 1.0e30f, yHi = -1.0e30f;           // alturas antigas dos pontos mudados (byte)
 
     if (ctx->heightSource) {
         const uint8_t* src = ctx->heightSource;
         uint8_t* h = ctx->heights.data();
-        for (int32_t gr = 0; gr < kGridSize; ++gr) {
-            for (int32_t gc = 0; gc < kGridSize; ++gc) {
-                const int32_t i = gr * kGridSize + gc;
-                if (src[i] == h[i]) continue;
-                const float old = float(h[i]);
-                if (old < yLo) yLo = old;
-                if (old > yHi) yHi = old;
-                h[i] = src[i];
-                heightChanged = true;
-                setExtendedHeight(ctx, gc, gr, float(src[i]));
-                if (gc == 0 || gr == 0 || gc == kQuadsPerSide || gr == kQuadsPerSide) edgeHeight = true;
-                touchQuad(gc - 1, gr - 1); touchQuad(gc, gr - 1);
-                touchQuad(gc - 1, gr);     touchQuad(gc, gr);
-            }
+        for (int32_t i = 0; i < kVertexCount; ++i) {
+            if (src[i] == h[i]) continue;
+            const int32_t gc = i % kGridSize, gr = i / kGridSize;
+            const float yOld = float(h[i]) * hs, yNew = float(src[i]) * hs;
+            h[i] = src[i];
+            setExtendedHeight(ctx, gc, gr, float(src[i]));
+            refreshQuads(gc - 1, gr - 1, gc, gr);
+            if (gc == 0 || gr == 0 || gc == kQuadsPerSide || gr == kQuadsPerSide) moveSkirtEdgeVertex(ctx, gc, gr);
+            // sombra: caixa dos quads em volta (1 tile para cada lado), com a
+            // altura antiga, a nova e a dos 8 vizinhos
+            float lo = yOld < yNew ? yOld : yNew, hi = yOld < yNew ? yNew : yOld;
+            for (int32_t dr = -1; dr <= 1; ++dr)
+                for (int32_t dc = -1; dc <= 1; ++dc) {
+                    const int32_t c = gc + dc, r = gr + dr;
+                    if (c < 0 || r < 0 || c > kQuadsPerSide || r > kQuadsPerSide) continue;
+                    const float y = float(h[r * kGridSize + c]) * hs;
+                    if (y < lo) lo = y;
+                    if (y > hi) hi = y;
+                }
+            markTerrainShadowBox(ctx, { float(gc - 1) * cs, lo, float(gr - 1) * cs },
+                                      { float(gc + 1) * cs, hi, float(gr + 1) * cs });
         }
     }
     if (ctx->tileSource && ctx->hasTileMap) {
         const uint8_t* src = ctx->tileSource;
         uint8_t* t = ctx->tileMap.data();
+        bool edgeTile = false;
         for (int32_t r = 0; r < kQuadsPerSide; ++r) {
             for (int32_t c = 0; c < kQuadsPerSide; ++c) {
                 const int32_t i = r * kGridSize + c;
                 if (src[i] == t[i]) continue;
                 t[i] = src[i];
-                touchQuad(c, r);
+                refreshQuads(c, r, c, r);
                 if (c < kSkirtTileBand || r < kSkirtTileBand ||
                     c > kLastQuad - kSkirtTileBand || r > kLastQuad - kSkirtTileBand) edgeTile = true;
             }
         }
-    }
-    if (qc1 < 0) return true;                      // nada mudou
-
-    buildQuads(ctx, qc0, qr0, qc1, qr1);
-    uploadQuads(ctx, qc0, qr0, qc1, qr1);
-    if (edgeHeight) {
-        buildBorder(ctx);
-        markTerrainShadowAll(ctx);
-    } else {
+        // ~3 ms (llvmpipe). Otimização futura possível: só os triângulos de fora
+        // que copiam deste quad (ver spec 12 e o branch super_complicated_border_update)
         if (edgeTile) rebuildSkirtMesh(ctx);
-        if (heightChanged) {
-            // caixa no mundo dos quads afetados, com as alturas antigas e novas
-            const uint8_t* h = ctx->heights.data();
-            for (int32_t gr = qr0; gr <= qr1 + 1; ++gr) {
-                for (int32_t gc = qc0; gc <= qc1 + 1; ++gc) {
-                    const float y = float(h[gr * kGridSize + gc]);
-                    if (y < yLo) yLo = y;
-                    if (y > yHi) yHi = y;
-                }
-            }
-            const float cs = ctx->cellSize, hs = ctx->heightScale;
-            markTerrainShadowBox(ctx, { float(qc0) * cs, yLo * hs, float(qr0) * cs },
-                                      { float(qc1 + 1) * cs, yHi * hs, float(qr1 + 1) * cs });
-        }
     }
     return glGetError() == GL_NO_ERROR;
 }

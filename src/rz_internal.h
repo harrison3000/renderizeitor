@@ -485,6 +485,7 @@ bool  createBorder(RzContext* ctx);
 void  destroyBorder(RzContext* ctx);
 void  buildBorder(RzContext* ctx);                 // carga, no fim de buildTerrainMesh
 void  rebuildSkirtMesh(RzContext* ctx);            // só a malha da continuação (blocos)
+void  moveSkirtEdgeVertex(RzContext* ctx, int32_t gc, int32_t gr);   // ponto da borda mudou: só o y
 void  setExtendedHeight(RzContext* ctx, int32_t gc, int32_t gr, float height);   // ponto do mapa
 uint8_t skirtTile(const RzContext* ctx, int32_t c, int32_t r);   // bloco de uma célula da continuação
 float extendedGroundHeight(const RzContext* ctx, float x, float z);

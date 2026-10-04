@@ -136,12 +136,15 @@ RZ_API int32_t RZ_CALL rzSetTileMap(RzContext* ctx, const uint8_t* data,
 
 /* Atualização rápida do terreno durante o jogo: relê os buffers passados a
    rzSetHeightmap e rzSetTileMap (o host altera os próprios arrays e chama
-   esta) e refaz só o que mudou: os quads afetados (um retângulo, reenviado
-   como uma faixa de linhas) e, na sombra do relevo, só a área deles. Mudança
-   de altura na borda do mapa (linha/coluna 0 ou 255) refaz também a borda
-   do mundo e a sombra inteira (como rzSetHeightmap); bloco a menos de 8
-   quads da borda refaz a malha da continuação.
-   Custo: proporcional à área alterada (comparar os 2 x 64 KB é desprezível);
+   esta) e refaz só o que mudou, ponto a ponto (feita para poucas mudanças
+   por vez): os 4 quads em volta de cada altura alterada (ou o quad de cada
+   bloco alterado) e, na sombra do relevo, só a área deles. Mudança
+   de altura na borda do mapa (linha/coluna 0 ou 255) só move junto a vértice
+   do terreno de fora que está em cima daquele ponto (o resto de fora não é
+   recalculado: para mudanças pequenas; rzSetHeightmap refaz tudo); bloco a
+   menos de 8 quads da borda refaz a malha da continuação.
+   Custo: proporcional ao número de pontos alterados (comparar os 2 x 64 KB
+   é desprezível);
    sem mudança, nada. Não aloca. Pode ser chamada todo frame.
    Erros: RZ_ERR_INVALID_ARG sem rzSetHeightmap antes. */
 RZ_API int32_t RZ_CALL rzUpdateTerrain(RzContext* ctx);

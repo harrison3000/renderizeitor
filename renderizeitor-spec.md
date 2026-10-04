@@ -117,7 +117,7 @@ Limites:
   - camada do atlas.
 - **Por que sem índices:** a cor e o bloco são do triângulo e do quad, não do ponto da grade.
 - **Quando é remontada:** inteira (com a borda e a sombra do relevo) em `rzSetHeightmap` e `rzSetTerrainScale`; `rzSetTileMap` só refaz os blocos dos quads e da continuação (sem relevo nem sombra).
-- **Mudança durante o jogo (`rzUpdateTerrain`):** `rzSetHeightmap`/`rzSetTileMap` guardam o ponteiro do host (tem que continuar válido); o host altera os próprios arrays e chama `rzUpdateTerrain`, que compara com as cópias (2 × 64 KB) e refaz só o retângulo de quads afetados (a malha inteira fica também na CPU; a faixa de linhas do retângulo é reenviada com `glBufferSubData`). Na sombra do relevo (mapa 0), só a área da caixa alterada (alturas antigas e novas) é limpa e redesenhada, com scissor. Altura num ponto da borda do mapa refaz a borda do mundo e a sombra inteira; bloco a menos de 8 quads da borda refaz a malha da continuação. Resultado idêntico pixel a pixel ao de refazer tudo (testado). Custo medido (llvmpipe): ~0,2 ms por cratera pequena, contra ~30 ms + sombra inteira de `rzSetHeightmap` + `rzSetTileMap`.
+- **Mudança durante o jogo (`rzUpdateTerrain`):** `rzSetHeightmap`/`rzSetTileMap` guardam o ponteiro do host (tem que continuar válido); o host altera os próprios arrays e chama `rzUpdateTerrain`, que compara com as cópias (2 × 64 KB) e trata ponto a ponto (no jogo são raros e pequenos): altura → refaz e reenvia os 4 quads em volta, a cópia estendida (câmera) e a sombra do relevo só ali (scissor no mapa 0); bloco → refaz o quad. Ponto na borda do mapa: só o y das vértices do terreno de fora que estão em cima dele acompanha (sem fresta); o resto de fora, cores e parede não são recalculados (imperfeito, aceito; `rzSetHeightmap` refaz tudo). Bloco a menos de 8 quads da borda refaz a malha da continuação. Mudanças no interior: resultado idêntico pixel a pixel ao de refazer tudo (testado). Custo (llvmpipe): ~0,2 ms por ponto, contra ~30 ms + sombra inteira de `rzSetHeightmap` + `rzSetTileMap`. (Uma versão que recalculava a vizinhança de fora com exatidão ficou no branch `super_complicated_border_update`.)
 - **Culling:** de face traseira, `GL_BACK` com frente CCW.
 
 ### 7.2 Cor e luz
@@ -300,7 +300,7 @@ Tamanhos limitados a `GL_MAX_TEXTURE_SIZE` (o GL 3.3 só garante 1024). As resol
 
 ## 12. Roadmap e decisões em aberto
 
-- **`rzUpdateHeightmap(ctx, data, x, y, w, h)`:** atualizaria só a região alterada da malha (`glBufferSubData` dos quads com col em [x−1, x+w−1] e row em [y−1, y+h−1], limitados a [0, 254]).
+- **Bloco perto da borda no `rzUpdateTerrain` (~3 ms):** hoje um bloco alterado a menos de 8 quads da borda refaz a malha inteira da continuação (`rebuildSkirtMesh`). Otimização possível: refazer só o bloco dos triângulos de fora que copiam/sorteiam daquele quad (faixa ao longo da borda a até meandro + 8, e o quadrante do canto); uma versão disso (com índice espacial) está no branch `super_complicated_border_update`.
 - **Sombras:** APIs de configuração (tamanho do mapa, caixa, força) e otimizações (só redesenhar quando a luz/caixa muda, terreno simplificado no passe da sombra, cascatas). Iluminação por pixel.
 - **Terreno em blocos:** reorganizar a malha em blocos (ex.: 16×16 quads) e desenhar só os que estão dentro da neblina e do campo de visão; o maior ganho possível no llvmpipe.
 - **Overlay/HUD:** para o legado desenhar por cima da janela GL.

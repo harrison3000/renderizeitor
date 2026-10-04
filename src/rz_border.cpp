@@ -347,6 +347,23 @@ void destroyBorder(RzContext* ctx) {
     if (ctx->wallProgram.program) glDeleteProgram(ctx->wallProgram.program);
 }
 
+// Um ponto da borda do mapa mudou de altura (rzUpdateTerrain): só as vértices
+// da continuação que estão em cima dele acompanham (sem fresta com o mapa).
+// O resto do terreno de fora, as cores e a parede ficam como estavam
+// (aceito: as mudanças no jogo são raras e pequenas; rzSetHeightmap refaz tudo).
+void moveSkirtEdgeVertex(RzContext* ctx, int32_t gc, int32_t gr) {
+    const float x = float(gc) * ctx->cellSize, z = float(gr) * ctx->cellSize;
+    const float y = float(ctx->heights[size_t(gr) * kGridSize + size_t(gc)]) * ctx->heightScale;
+    std::vector<TerrainVertex>& mesh = ctx->skirtStaging;
+    glBindBuffer(GL_ARRAY_BUFFER, ctx->skirtVbo);
+    for (size_t i = 0; i < mesh.size(); ++i) {
+        if (mesh[i].x != x || mesh[i].z != z) continue;     // mesma conta da montagem: igualdade exata
+        mesh[i].y = y;
+        glBufferSubData(GL_ARRAY_BUFFER, GLintptr(i * sizeof(TerrainVertex)), GLsizeiptr(sizeof(float) * 3),
+                        &mesh[i]);
+    }
+}
+
 // Só a malha da continuação (blocos perto da borda mudaram; rzUpdateTerrain)
 void rebuildSkirtMesh(RzContext* ctx) {
     buildSkirtMesh(ctx);
