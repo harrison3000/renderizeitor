@@ -543,7 +543,7 @@ static void rztdSteerVehicle(RzContext* ctx, int32_t id, float angle) {
    A cada passo: emite fumaça do meio das rodas traseiras (sobe, cresce,
    clareia) e, de vez em quando, um detrito (marrom, cai com gravidade);
    move, mata os vencidos compactando, e manda o array com rzSetSprites. */
-#define RZTD_MAX_PARTICLES 512
+#define RZTD_MAX_PARTICLES 256   /* = máximo de rzSetSprites */
 #define RZTD_SMOKE_COLOR   168   /* rampa cinza/branca (tipo 5) da paleta de teste */
 #define RZTD_DEBRIS_COLOR  132   /* rampa marrom (tipo 4) */
 typedef struct RztdParticles {

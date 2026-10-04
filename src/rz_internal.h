@@ -96,11 +96,11 @@ static_assert(kFogEndDefault <= kFogMaxEnd && kFogMaxEnd <= float(kSkirtExtent),
               "a continuação tem que ir até o fim da neblina");
 
 // Sprites (rz_sprites.cpp): fumaça/detritos/água, quads virados para a câmera
-constexpr int32_t kMaxSprites          = 1024;
+constexpr int32_t kMaxSprites          = 256;    // máximo validado no legado
 constexpr int32_t kSpriteFrames        = 8;      // variações do ruído (textura array)
 constexpr int32_t kSpriteFrameTicks    = 4;      // frames de render por quadro
 constexpr int32_t kSpriteNoiseSize     = 64;     // lado da textura de ruído
-constexpr int32_t kSpriteClicks        = 3;      // "cliques do spray" por quadro
+constexpr int32_t kSpriteClicks        = 2;      // "cliques do spray" por quadro
 constexpr int32_t kSpriteDotsPerClick  = 260;    // pontinhos por clique
 constexpr float   kSpriteClickRadius   = 0.36f;  // raio do clique (fração do lado)
 constexpr float   kSpriteClickJitter   = 0.10f;  // deslocamento do centro do clique

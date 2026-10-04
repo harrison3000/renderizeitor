@@ -265,7 +265,7 @@ RZ_API int32_t RZ_CALL rzDestroyObject(RzContext* ctx, int32_t id);
    = índice). Translúcidos, ordenados pelo renderer; com neblina; sem sombra.
    Custo: baixo, não aloca; feita para ser chamada todo frame.
    Erros (nada muda): RZ_ERR_INVALID_ARG (sprites nulo com count > 0, count
-   < 0, size <= 0 ou não finito), RZ_ERR_SIZE (count > 1024). */
+   < 0, size <= 0 ou não finito), RZ_ERR_SIZE (count > 256). */
 RZ_API int32_t RZ_CALL rzSetSprites(RzContext* ctx, const RzSprite* sprites, int32_t count);
 
 
