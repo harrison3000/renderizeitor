@@ -9,7 +9,6 @@
  *   Seta cima / baixo       sobe / desce a câmera (altura acima do carro)
  *   PgUp / PgDn             aproxima / afasta a câmera (comprimento da corda)
  *   T                       liga / desliga as texturas
- *   F                       filtro: nearest -> mipmap -> mip+dither -> mip linear -> trilinear
  *   C                       câmera segue o veículo / visão geral do terreno
  *   R                       volta a câmera aos valores iniciais
  *   Esc                     sai
@@ -45,7 +44,6 @@ static RzContext* g_ctx;
 static float   g_followDist   = FOLLOW_DIST_DEFAULT;
 static float   g_followHeight = FOLLOW_HEIGHT_DEFAULT;
 static int32_t g_textures = 1;
-static int32_t g_filter = RZ_FILTER_MIP_DITHER;
 
 /* Objetos: construções paradas e um cubo que este "host" gira a cada frame */
 static int32_t  g_cubeId = -1;
@@ -140,9 +138,6 @@ static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         } else if (wp == 'T' && !(lp & (1 << 30))) {
             g_textures = !g_textures;
             rzSetTileMap(g_ctx, g_textures ? g_tileMap : NULL, 256, 256);
-        } else if (wp == 'F' && !(lp & (1 << 30))) {
-            g_filter = (g_filter + 1) % 5;
-            rzSetTextureFilter(g_ctx, g_filter);
         } else if (wp == 'R') {
             g_followDist = FOLLOW_DIST_DEFAULT;
             g_followHeight = FOLLOW_HEIGHT_DEFAULT;
@@ -184,18 +179,16 @@ static void updateTitle(HWND hwnd, int32_t renderUs, int32_t fps) {
     int32_t rope10 = (int32_t)(g_followDist * 10.0f);
     int32_t height10 = (int32_t)(g_followHeight * 10.0f);
     int32_t absHeight10 = height10 < 0 ? -height10 : height10;
-    static const char* const filterNames[5] = { "nearest", "mipmap", "mip+dither", "mip linear", "trilinear" };
-    const char* filter = filterNames[g_filter];
 
     if (g_follow) {
         wsprintfA(title,
-                  "Renderizeitor  |  %d fps  |  render %d.%02d ms  |  seguindo: corda %d.%d  altura %s%d.%d  |  %s",
+                  "Renderizeitor  |  %d fps  |  render %d.%02d ms  |  seguindo: corda %d.%d  altura %s%d.%d",
                   fps, renderUs / 1000, (renderUs % 1000) / 10,
                   rope10 / 10, rope10 % 10,
-                  height10 < 0 ? "-" : "", absHeight10 / 10, absHeight10 % 10, filter);
+                  height10 < 0 ? "-" : "", absHeight10 / 10, absHeight10 % 10);
     } else {
-        wsprintfA(title, "Renderizeitor  |  %d fps  |  render %d.%02d ms  |  visao geral  |  %s",
-                  fps, renderUs / 1000, (renderUs % 1000) / 10, filter);
+        wsprintfA(title, "Renderizeitor  |  %d fps  |  render %d.%02d ms  |  visao geral",
+                  fps, renderUs / 1000, (renderUs % 1000) / 10);
     }
     SetWindowTextA(hwnd, title);
 }

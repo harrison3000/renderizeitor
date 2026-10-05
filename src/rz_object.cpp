@@ -218,17 +218,13 @@ void drawObjects(RzContext* ctx, const Mat4& viewProj) {
             glCullFace(GL_FRONT);
             glUseProgram(prog.program);
             glUniformMatrix4fv(prog.viewProj, 1, GL_TRUE, viewProj.e);
-            glUniform1i(prog.filter, ctx->textureFilter);
             bindShadowMaps(ctx, prog.shadow);           // deixa a unidade 0 ativa
             bindFog(ctx, prog.fog);
             programBound = true;
         }
         // Textura própria ou fallback
         const GLuint  texture = o.texture ? o.texture : ctx->fallbackTex;
-        const int32_t side    = o.texture ? o.textureSize : ctx->fallbackSize;
         glBindTexture(GL_TEXTURE_2D, texture);
-        glUniform1f(prog.texSize, float(side));
-        glUniform1f(prog.maxLevel, float(mipLevels(side) - 1));
         glBindVertexArray(o.vao);
         glDrawArrays(GL_TRIANGLES, 0, o.triangleCount() * 3);
     }

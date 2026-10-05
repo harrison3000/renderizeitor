@@ -33,10 +33,9 @@ void main() {
 }
 )GLSL";
 
-// Filtros (RZ_FILTER_*): 0 nearest, 1 mipmap, 2 mipmap com dither, 3 mipmap
-// linear entre níveis, 4 trilinear. 0, 1, 3 e 4 são só estado do sampler; o
-// dither (2) escolhe o nível no shader: lod = log2 da maior derivada de uv em
-// texels, e o nível = floor(lod + limiar de Bayer 4x4) — o mesmo do software.
+// Filtro fixo, só estado do sampler: nearest dentro do nível de mipmap e
+// mistura linear entre níveis (GL_NEAREST_MIPMAP_LINEAR); textureGrad com as
+// derivadas tiradas antes do desvio da neblina.
 // Com textura, a cor é multiplicada por um sombreamento leve (a luz flat do
 // triângulo atenuada por uShading) e, na sombra, por uShadowDim. Nas cores
 // flat, que já vêm iluminadas, a luz do triângulo cai para uShadowLight.
@@ -60,7 +59,6 @@ uniform sampler2DArray  uAtlas;
 uniform sampler2DShadow uShadow0, uShadow1, uShadow2;
 uniform int   uShadowTargetOn;            // mapa 2 (objeto seguido) em uso
 uniform int   uTextured;
-uniform int   uFilter;
 uniform float uShading;
 uniform float uShadowLight;               // luz na sombra (kShadowLight)
 uniform float uShadowDim;                 // chão texturizado na sombra: fator fixo
@@ -88,8 +86,6 @@ float fogFactor() {
     return smoothstep(uFogStart, uFogEnd, length(vWorld - uEye));
 }
 
-const float kBayer[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0,
-                                   3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
 
 void main() {
     // Derivadas antes de qualquer desvio: a neblina sai cedo em parte dos pixels
@@ -108,19 +104,7 @@ void main() {
         return;
     }
     vec3 uvw = vec3(vUV, float(vLayer));
-    vec3 texel;
-    if (uFilter == 2) {
-        vec2 dx = dUVx * 16.0;
-        vec2 dy = dUVy * 16.0;
-        float rho2 = max(dot(dx, dx), dot(dy, dy));
-        float lod = clamp(0.5 * log2(max(rho2, 1e-12)), 0.0, 4.0);
-        ivec2 p = ivec2(gl_FragCoord.xy) & 3;
-        float threshold = (kBayer[p.y * 4 + p.x] + 0.5) / 16.0;
-        float level = min(floor(lod + threshold), 4.0);
-        texel = textureLod(uAtlas, uvw, level).rgb;
-    } else {
-        texel = textureGrad(uAtlas, uvw, dUVx, dUVy).rgb;
-    }
+    vec3 texel = textureGrad(uAtlas, uvw, dUVx, dUVy).rgb;   // nearest no nível, linear entre níveis
     color = texel * mix(1.0, vLight, uShading) * mix(uShadowDim, 1.0, lit);
     fragColor = vec4(mix(color, uFogColor, fog), 0.0);
 }
@@ -151,8 +135,7 @@ void main() {
 }
 )GLSL";
 
-// Mesmos filtros do chão; no dither (2) o nível vem das derivadas de uv em
-// texels (uTexSize) e do limiar de Bayer 4x4, limitado a uMaxLevel.
+// Mesmo filtro do chão (estado do sampler).
 constexpr const char* kObjectFragmentShader = R"GLSL(#version 330 core
 flat in float vLight;
 in vec2 vUV;
@@ -169,9 +152,6 @@ uniform vec3  uEye;
 uniform sampler2D       uTexture;
 uniform sampler2DShadow uShadow0, uShadow1, uShadow2;
 uniform int   uShadowTargetOn;            // mapa 2 (objeto seguido) em uso
-uniform int   uFilter;
-uniform float uTexSize;
-uniform float uMaxLevel;
 uniform float uShadowLight;               // luz na sombra (kShadowLight)
 
 out vec4 fragColor;
@@ -197,8 +177,6 @@ float fogFactor() {
     return smoothstep(uFogStart, uFogEnd, length(vWorld - uEye));
 }
 
-const float kBayer[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0,
-                                   3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
 
 void main() {
     // Derivadas antes de qualquer desvio: a neblina sai cedo em parte dos pixels
@@ -208,19 +186,7 @@ void main() {
         fragColor = vec4(uFogColor, 0.0);
         return;
     }
-    vec3 texel;
-    if (uFilter == 2) {
-        vec2 dx = dUVx * uTexSize;
-        vec2 dy = dUVy * uTexSize;
-        float rho2 = max(dot(dx, dx), dot(dy, dy));
-        float lod = clamp(0.5 * log2(max(rho2, 1e-12)), 0.0, uMaxLevel);
-        ivec2 p = ivec2(gl_FragCoord.xy) & 3;
-        float threshold = (kBayer[p.y * 4 + p.x] + 0.5) / 16.0;
-        float level = min(floor(lod + threshold), uMaxLevel);
-        texel = textureLod(uTexture, vUV, level).rgb;
-    } else {
-        texel = textureGrad(uTexture, vUV, dUVx, dUVy).rgb;
-    }
+    vec3 texel = textureGrad(uTexture, vUV, dUVx, dUVy).rgb;  // nearest no nível, linear entre níveis
     float lit = shadowTerm();
     vec3 color = texel * mix(min(uShadowLight, vLight), vLight, lit);
     fragColor = vec4(mix(color, uFogColor, fog), 0.0);

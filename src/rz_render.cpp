@@ -89,7 +89,6 @@ bool createRenderer(RzContext* ctx) {
     t.viewProj = glGetUniformLocation(t.program, "uViewProj");
     t.atlas    = glGetUniformLocation(t.program, "uAtlas");
     t.textured = glGetUniformLocation(t.program, "uTextured");
-    t.filter   = glGetUniformLocation(t.program, "uFilter");
     t.shading  = glGetUniformLocation(t.program, "uShading");
     t.ambient   = glGetUniformLocation(t.program, "uShadowLight");
     const GLint shadowDim = glGetUniformLocation(t.program, "uShadowDim");
@@ -106,9 +105,6 @@ bool createRenderer(RzContext* ctx) {
     if (!o.program) return false;
     o.viewProj = glGetUniformLocation(o.program, "uViewProj");
     o.texture  = glGetUniformLocation(o.program, "uTexture");
-    o.filter   = glGetUniformLocation(o.program, "uFilter");
-    o.texSize  = glGetUniformLocation(o.program, "uTexSize");
-    o.maxLevel = glGetUniformLocation(o.program, "uMaxLevel");
     o.ambient   = glGetUniformLocation(o.program, "uShadowLight");
     glUseProgram(o.program);
     glUniform1i(o.texture, kUnitAtlas);
@@ -182,26 +178,6 @@ void destroyRenderer(RzContext* ctx) {
     destroySprites(ctx);
 }
 
-// Estado do sampler do atlas e das texturas dos objetos para o filtro atual.
-// Ampliação sempre nearest.
-void applyTextureFilter(RzContext* ctx) {
-    if (ctx->fallbackTex) applyFilter2D(ctx->fallbackTex, ctx->fallbackSize, ctx->textureFilter);
-    for (const Object& o : ctx->objects) {
-        if (o.alive && o.texture) applyFilter2D(o.texture, o.textureSize, ctx->textureFilter);
-    }
-    if (!ctx->atlasTex) return;
-    GLenum minFilter = GL_NEAREST_MIPMAP_NEAREST;     // mipmap; também o do dither (textureLod)
-    switch (ctx->textureFilter) {
-        case RZ_FILTER_NEAREST:    minFilter = GL_NEAREST; break;
-        case RZ_FILTER_MIP_LINEAR: minFilter = GL_NEAREST_MIPMAP_LINEAR; break;
-        case RZ_FILTER_TRILINEAR:  minFilter = GL_LINEAR_MIPMAP_LINEAR; break;
-        default: break;
-    }
-    glBindTexture(GL_TEXTURE_2D_ARRAY, ctx->atlasTex);
-    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GLint(minFilter));
-    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-}
-
 void renderFrame(RzContext* ctx) {
     ++ctx->frameCount;
     const Mat4 viewProj = updateCamera(ctx);
@@ -225,7 +201,6 @@ void renderFrame(RzContext* ctx) {
         bindShadowMaps(ctx, t.shadow);
         bindFog(ctx, t.fog);
         glUniform1i(t.textured, textured ? 1 : 0);
-        glUniform1i(t.filter, ctx->textureFilter);
         glActiveTexture(GL_TEXTURE0 + GLenum(kUnitAtlas));
         glBindTexture(GL_TEXTURE_2D_ARRAY, textured ? ctx->atlasTex : 0);
 

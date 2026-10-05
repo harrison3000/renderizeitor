@@ -149,16 +149,9 @@ RZ_API int32_t RZ_CALL rzSetTileMap(RzContext* ctx, const uint8_t* data,
    Erros: RZ_ERR_INVALID_ARG sem rzSetHeightmap antes. */
 RZ_API int32_t RZ_CALL rzUpdateTerrain(RzContext* ctx);
 
-/* Filtragem das texturas (chão e objetos). A ampliação (perto) é sempre
-   nearest; muda a redução (longe), que evita o "shimmering" dos polígonos
-   distantes. */
-#define RZ_FILTER_NEAREST     0   /* sem mipmap */
-#define RZ_FILTER_MIPMAP      1   /* nearest no nível mais próximo */
-#define RZ_FILTER_MIP_DITHER  2   /* nearest, dither ordenado entre os dois níveis vizinhos (padrão) */
-#define RZ_FILTER_MIP_LINEAR  3   /* nearest dentro do nível, mistura linear entre níveis */
-#define RZ_FILTER_TRILINEAR   4   /* bilinear dentro do nível, linear entre níveis */
-
-RZ_API int32_t RZ_CALL rzSetTextureFilter(RzContext* ctx, int32_t filter);
+/* Filtragem das texturas (chão e objetos): fixa. Ampliação (perto) nearest;
+   redução (longe) nearest dentro do nível de mipmap e mistura linear entre
+   níveis (evita o "shimmering" dos polígonos distantes). */
 
 /* Cor de fundo (onde não há terreno nem objeto), 0 a 255 por canal. Vale a
    partir do próximo rzRender. Padrão (32, 40, 48). */

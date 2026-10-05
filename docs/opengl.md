@@ -11,7 +11,7 @@ abaixo fica como registro do que mudou. A spec atual é `renderizeitor-spec.md`.
 | Saída | `rzCreate(w, h, pixels)` | igual (offscreen: FBO + `glReadPixels` para o buffer do host) **ou** `rzCreateWindow(hwndPai, x, y, w, h)`: janela filha, sem cópia |
 | Redimensionar | — | `rzSetViewport(ctx, x, y, w, h)` (só janela) |
 | Erro novo | — | `RZ_ERR_GL` (sem OpenGL 3.3, falha de contexto/shader/janela) |
-| Filtros | 0 nearest, 1 mipmap, 2 mip+dither | + 3 `RZ_FILTER_MIP_LINEAR` (nearest no nível, linear entre níveis), 4 `RZ_FILTER_TRILINEAR`; ampliação sempre nearest |
+| Filtros | 0 nearest, 1 mipmap, 2 mip+dither | fixo: nearest no nível, linear entre níveis (o antigo `RZ_FILTER_MIP_LINEAR`); ampliação nearest; `rzSetTextureFilter` saiu |
 | `heightScale` padrão | 0,25 | 16/255 (byte 255 = 16 tiles, como no legado) |
 | Eixos dos objetos | `RZ_AXES_Y_UP` | fixo no do legado, z para cima (`rzSetObjectAxes` saiu depois) |
 | Thread | qualquer, uma por contexto | a mesma que criou o contexto (o contexto GL é dela) |

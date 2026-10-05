@@ -144,7 +144,9 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzLoadTileAtlas(RzContext* ctx, const char* pcxP
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_LEVEL, kMipLevels - 1);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    applyTextureFilter(ctx);
+    // filtro fixo: ampliação nearest; redução nearest no nível, linear entre níveis
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     if (glGetError() != GL_NO_ERROR) return RZ_ERR_GL;
     ctx->hasAtlas = true;
     setSpritePalette(ctx, paletteRGB);                // sprites: paleta do jogo
@@ -191,15 +193,6 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetFog(RzContext* ctx, float start, float end)
     if (!(start >= 0.0f && start < end && end <= kFogMaxEnd)) return RZ_ERR_INVALID_ARG;   // pega NaN
     ctx->fogStart = start;     // só valores: uniforms, far plane e cortes leem no rzRender
     ctx->fogEnd   = end;
-    return RZ_OK;
-}
-
-RZ_API RZ_ENTRY int32_t RZ_CALL rzSetTextureFilter(RzContext* ctx, int32_t filter) {
-    if (!ctx) return RZ_ERR_INVALID_ARG;
-    if (filter < RZ_FILTER_NEAREST || filter > RZ_FILTER_TRILINEAR) return RZ_ERR_INVALID_ARG;
-    if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
-    ctx->textureFilter = filter;
-    applyTextureFilter(ctx);
     return RZ_OK;
 }
 

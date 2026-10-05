@@ -5,7 +5,7 @@
 //
 //   rz_test [-w largura] [-h altura] [-n frames] [-e salvar_a_cada]
 //           [-o pasta_saida] [-m heightmap.raw] [-r referencia.txt]
-//           [-t 0|1 texturas] [-a atlas.pcx] [-f 0..4 filtro]
+//           [-t 0|1 texturas] [-a atlas.pcx]
 //           [-O 0|1 objetos] [-x 0|1 texturas dos objetos]
 //           [-c 0|1 camera segue o veiculo (0: visão geral)]
 //
@@ -86,7 +86,6 @@ int main(int argc, char** argv) {
     int objects = 1;
     int objectTextures = 1;
     int follow = 1;
-    int filter = RZ_FILTER_MIP_DITHER;
 
     for (int i = 1; i + 1 < argc; i += 2) {
         const char* opt = argv[i];
@@ -103,7 +102,6 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(opt, "-O")) objects = std::atoi(val);
         else if (!std::strcmp(opt, "-x")) objectTextures = std::atoi(val);
         else if (!std::strcmp(opt, "-c")) follow = std::atoi(val);
-        else if (!std::strcmp(opt, "-f")) filter = std::atoi(val);
         else { std::fprintf(stderr, "opcao desconhecida: %s\n", opt); return 2; }
     }
 
@@ -123,7 +121,6 @@ int main(int argc, char** argv) {
     if (err != RZ_OK) { std::fprintf(stderr, "rzCreate falhou: %d\n", err); return 1; }
     err = rzSetHeightmap(ctx, heightmap, 256, 256);
     if (err != RZ_OK) { std::fprintf(stderr, "rzSetHeightmap falhou: %d\n", err); return 1; }
-    if (rzSetTextureFilter(ctx, filter) != RZ_OK) { std::fprintf(stderr, "filtro invalido: %d\n", filter); return 1; }
 
     if (textures) {
         static uint8_t tileMap[256 * 256];

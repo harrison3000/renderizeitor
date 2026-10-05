@@ -53,7 +53,7 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 |---|---|
 | Contexto | `rzCreate(w, h, pixels)` offscreen; `rzCreateWindow(hwndPai, x, y, w, h)` janela filha; `rzSetViewport` (só no modo janela); `rzDestroy` |
 | Terreno | `rzSetHeightmap` (256×256; guarda o ponteiro); `rzSetTerrainScale(cellSize, heightScale)`; `rzUpdateTerrain()` (relê os buffers e refaz só o que mudou) |
-| Texturas | `rzLoadTileAtlas(caminhoPcx)`; `rzSetTileMap` (256×256, NULL desliga as texturas; guarda o ponteiro); `rzSetTextureFilter` |
+| Texturas | `rzLoadTileAtlas(caminhoPcx)`; `rzSetTileMap` (256×256, NULL desliga as texturas; guarda o ponteiro) |
 | Objetos | `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count, paletteIndex)`, `rzAddObjectTexturedPolygon(id, RzTexVertex* corners, count)`, `rzAddObjectTranslucentPolygon(id, indices, count, tone)`, `rzLoadObjectTexture(id, caminhoPcx)`, `rzLoadFallbackTexture(caminhoPcx)`, `rzUpdateObjectVertices(id, RzVertex*)`, `rzDestroyObject` |
 | Rodas | `rzSetObjectWheels(id, RzWheel[4])`, `rzUpdateObjectWheels(id, steer)` |
 | Sprites | `rzSetSprites(RzSprite*, count)` (array inteiro a cada chamada, até 256) |
@@ -143,15 +143,7 @@ Limites:
   - Futuro: texturas high-res em PNG.
 - **Mapa de blocos:** diz qual bloco cobre cada quad, com o bloco inteiro esticado sobre o quad. A textura recebe um sombreamento leve: a mesma luz flat do triângulo, atenuada para `mix(1, luz, 0.35)` (`kTexturedShading`). Com a luz mínima (ambient 0,3), a textura escurece até ~76%.
 - **Na GPU:** `GL_TEXTURE_2D_ARRAY` 16×16×256 com 5 níveis (16, 8, 4, 2, 1), gerados na CPU por média 2×2 arredondada.
-- **Filtros:** a ampliação é sempre nearest; o filtro muda só a redução.
-
-  | Filtro | Redução |
-  |---|---|
-  | `RZ_FILTER_NEAREST` | Sem mipmap |
-  | `RZ_FILTER_MIPMAP` | Nível mais próximo |
-  | `RZ_FILTER_MIP_DITHER` (padrão) | No shader: lod = log2 da maior derivada de uv em texels; nível = floor(lod + limiar Bayer 4×4) |
-  | `RZ_FILTER_MIP_LINEAR` | Nearest no nível, linear entre níveis |
-  | `RZ_FILTER_TRILINEAR` | Bilinear no nível e linear entre níveis |
+- **Filtro (fixo, sem API):** ampliação nearest; redução nearest dentro do nível e mistura linear entre níveis (`GL_NEAREST_MIPMAP_LINEAR`, o antigo `RZ_FILTER_MIP_LINEAR`). `rzSetTextureFilter` e os outros filtros (nearest, mipmap, mip+dither, trilinear) saíram para enxugar a API.
 
 ## 8. Objetos
 
@@ -165,7 +157,7 @@ Limites:
   - Sem textura carregada, ou se a carga falhar, usa a **textura fallback**: xadrez magenta 256×256 gerado na criação do contexto, ou um PCX de `rzLoadFallbackTexture` (mesmas regras de tamanho; vale para todos os objetos, inclusive os já criados; se falhar, a atual continua; `NULL` volta ao xadrez).
   - **Cor sólida (gambiarra da paleta):** as últimas 16 linhas de toda textura de objeto (o padding) viram 256 bloquinhos 4×4, um por cor da paleta do PCX, da esquerda para a direita e de cima para baixo (W/4 blocos por linha de blocos). `rzAddObjectPolygon(..., paletteIndex)` põe os três cantos de cada triângulo no centro do bloco da cor: UV constante, derivada zero, sempre o nível 0 do mipmap, então a cor sai exata em qualquer filtro. O que a imagem tiver nessas linhas é sobrescrito; UVs de `rzAddObjectTexturedPolygon` devem ficar acima delas. O UV do bloco depende de W, então é calculado no envio ao VBO (que é refeito quando a textura do objeto, ou a fallback, muda de tamanho). No xadrez gerado (sem paleta), a faixa continua xadrez.
   - `rzSetObjectColor` saiu: a cor sólida vem da paleta.
-  - Mipmaps na CPU (média 2×2) e os mesmos filtros do chão (`rzSetTextureFilter`), inclusive o dither, que usa o tamanho da textura no shader.
+  - Mipmaps na CPU (média 2×2) e o mesmo filtro fixo do chão.
 - **Vidro (`rzAddObjectTranslucentPolygon`, `src/rz_glass.cpp`):** polígonos translúcidos em 16 tons de cinza (`tone` 0..15, cinza = tom/15).
   - Filtro multiplicativo (o que está atrás × cinza) + brilho especular embaçado (Blinn-Phong, expoente 12, força 0,45; `kGlassShininess`, `kGlassSpecular`) da luz direcional, que some na sombra (os três mapas) e de costas para a luz.
   - Um passe, `glBlendFunc(GL_ONE, GL_SRC_ALPHA)` com saída (brilho, cinza): destino = brilho + destino × cinza. Não precisa de ordenação (o filtro comuta; dois vidros sobrepostos em ordens diferentes diferem em no máximo 1 nível por arredondamento).

@@ -272,14 +272,14 @@ struct ShadowUniforms {
 
 struct TerrainProgram {
     GLuint program = 0;
-    GLint  viewProj = -1, atlas = -1, textured = -1, filter = -1, shading = -1, ambient = -1;
+    GLint  viewProj = -1, atlas = -1, textured = -1, shading = -1, ambient = -1;
     ShadowUniforms shadow;
     FogUniforms    fog;
 };
 
 struct ObjectProgram {
     GLuint program = 0;
-    GLint  viewProj = -1, texture = -1, filter = -1, texSize = -1, maxLevel = -1, ambient = -1;
+    GLint  viewProj = -1, texture = -1, ambient = -1;
     ShadowUniforms shadow;
     FogUniforms    fog;
 };
@@ -416,7 +416,6 @@ struct RzContext {
     std::vector<uint8_t> tileMap;      // 256x256, cópia na CPU (bloco de cada quad)
     bool      hasAtlas   = false;
     bool      hasTileMap = false;
-    int32_t   textureFilter = RZ_FILTER_MIP_DITHER;   // chão e objetos
 
     // Textura dos objetos sem textura própria (ou cuja carga falhou): xadrez
     // gerado ou PCX de rzLoadFallbackTexture
@@ -521,12 +520,11 @@ void bindFog(const RzContext* ctx, const FogUniforms& u);
 bool createRenderer(RzContext* ctx);
 void destroyRenderer(RzContext* ctx);
 bool resizeTargets(RzContext* ctx);
-void applyTextureFilter(RzContext* ctx);
 void renderFrame(RzContext* ctx);
 
 // rz_texture.cpp: texturas 2D quadradas dos objetos (mipmaps na CPU)
-GLuint uploadSquareTexture(const uint32_t* rgb, int32_t side, int32_t filter);
-void   applyFilter2D(GLuint texture, int32_t side, int32_t filter);
+GLuint uploadSquareTexture(const uint32_t* rgb, int32_t side);
+void   applyFilter2D(GLuint texture, int32_t side);
 bool   createFallbackTexture(RzContext* ctx);
 int32_t mipLevels(int32_t side);   // log2(side) + 1
 void   swatchUV(int32_t paletteIndex, int32_t side, float* u, float* v);   // centro do bloco

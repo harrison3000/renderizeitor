@@ -38,13 +38,6 @@ typedef struct RzContext RzContext;
 #define RZ_MAX_WIDTH   1920
 #define RZ_MAX_HEIGHT  1080
 
-/* rzSetTextureFilter */
-#define RZ_FILTER_NEAREST     0
-#define RZ_FILTER_MIPMAP      1
-#define RZ_FILTER_MIP_DITHER  2
-#define RZ_FILTER_MIP_LINEAR  3
-#define RZ_FILTER_TRILINEAR   4
-
 typedef struct RzVertex {
     uint32_t x, y, z;
 } RzVertex;
@@ -90,7 +83,6 @@ typedef char RzAssertSpriteSize[sizeof(RzSprite) == 20 ? 1 : -1];
     X(int32_t, rzLoadTileAtlas, (RzContext* ctx, const char* pcxPath))                               \
     X(int32_t, rzSetTileMap,    (RzContext* ctx, const uint8_t* data, int32_t width, int32_t height)) \
     X(int32_t, rzUpdateTerrain, (RzContext* ctx))                                                      \
-    X(int32_t, rzSetTextureFilter, (RzContext* ctx, int32_t filter))                                 \
     X(int32_t, rzSetBackgroundColor, (RzContext* ctx, uint8_t r, uint8_t g, uint8_t b))              \
     X(int32_t, rzSetFog,        (RzContext* ctx, float start, float end))                            \
     X(int32_t, rzCreateObject,  (RzContext* ctx, int32_t vertexCount, int32_t* outId))               \
