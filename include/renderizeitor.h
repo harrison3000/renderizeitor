@@ -151,7 +151,10 @@ RZ_API int32_t RZ_CALL rzUpdateTerrain(RzContext* ctx);
 
 /* Filtragem das texturas (chão e objetos): fixa. Ampliação (perto) nearest;
    redução (longe) nearest dentro do nível de mipmap e mistura linear entre
-   níveis (evita o "shimmering" dos polígonos distantes). */
+   níveis (evita o "shimmering" dos polígonos distantes), mais filtro
+   anisotrópico 4x sempre que o driver suporta (ou o máximo dele, se menor).
+   Em renderer de software (llvmpipe) o anisotrópico custa caro: lá, uma
+   neblina mais curta (rzSetFog) compensa. */
 
 /* Cor de fundo (onde não há terreno nem objeto), 0 a 255 por canal. Vale a
    partir do próximo rzRender. Padrão (32, 40, 48). */

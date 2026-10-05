@@ -73,6 +73,10 @@ constexpr GLenum GL_RGBA8                   = 0x8058;
 constexpr GLenum GL_DEPTH_COMPONENT24       = 0x81A6;
 constexpr GLenum GL_VENDOR                  = 0x1F00;
 constexpr GLenum GL_RENDERER                = 0x1F01;
+constexpr GLenum GL_EXTENSIONS              = 0x1F03;
+constexpr GLenum GL_NUM_EXTENSIONS          = 0x821D;
+constexpr GLenum GL_TEXTURE_MAX_ANISOTROPY      = 0x84FE;   // EXT/ARB_texture_filter_anisotropic
+constexpr GLenum GL_MAX_TEXTURE_MAX_ANISOTROPY  = 0x84FF;
 constexpr GLenum GL_VERSION                 = 0x1F02;
 constexpr GLenum GL_NEAREST                 = 0x2600;
 constexpr GLenum GL_LINEAR                  = 0x2601;
@@ -134,6 +138,9 @@ constexpr GLenum GL_FRAMEBUFFER_COMPLETE    = 0x8CD5;
     X(void, glBindTexture, (GLenum target, GLuint texture))                                        \
     X(void, glActiveTexture, (GLenum texture))                                                     \
     X(void, glTexParameteri, (GLenum target, GLenum pname, GLint param))                           \
+    X(void, glTexParameterf, (GLenum target, GLenum pname, GLfloat param))                         \
+    X(void, glGetFloatv, (GLenum pname, GLfloat* data))                                            \
+    X(const GLubyte*, glGetStringi, (GLenum name, GLuint index))                                   \
     X(void, glTexImage2D, (GLenum target, GLint level, GLint internalFormat, GLsizei w, GLsizei h, \
                            GLint border, GLenum format, GLenum type, const void* data))            \
     X(void, glTexSubImage2D, (GLenum target, GLint level, GLint x, GLint y, GLsizei w, GLsizei h,  \

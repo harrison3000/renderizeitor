@@ -95,6 +95,11 @@ constexpr float   kFogMaxEnd = 120.0f;   // rzSetFog (a continuação vai a kSki
 static_assert(kFogEndDefault <= kFogMaxEnd && kFogMaxEnd <= float(kSkirtExtent),
               "a continuação tem que ir até o fim da neblina");
 
+// Filtro anisotrópico das texturas (atlas e objetos): sempre que o driver
+// tiver EXT/ARB_texture_filter_anisotropic, este nível (ou o máximo dele, se
+// for menor); sem a extensão, só o filtro normal
+constexpr float kAnisotropy = 4.0f;
+
 // Sprites (rz_sprites.cpp): fumaça/detritos/água, quads virados para a câmera
 constexpr int32_t kMaxSprites          = 256;    // máximo validado no legado
 constexpr int32_t kSpriteFrames        = 8;      // variações do ruído (textura array)
@@ -413,6 +418,7 @@ struct RzContext {
 
     // Texturas (opcionais; sem as duas, desenha com as cores flat)
     rz::GLuint atlasTex = 0;           // array 16x16 x 256 camadas, 5 níveis
+    float     anisotropy = 0.0f;       // nível anisotrópico das texturas (0: driver sem a extensão)
     std::vector<uint8_t> tileMap;      // 256x256, cópia na CPU (bloco de cada quad)
     bool      hasAtlas   = false;
     bool      hasTileMap = false;
@@ -523,8 +529,9 @@ bool resizeTargets(RzContext* ctx);
 void renderFrame(RzContext* ctx);
 
 // rz_texture.cpp: texturas 2D quadradas dos objetos (mipmaps na CPU)
-GLuint uploadSquareTexture(const uint32_t* rgb, int32_t side);
-void   applyFilter2D(GLuint texture, int32_t side);
+GLuint uploadSquareTexture(const uint32_t* rgb, int32_t side, float anisotropy);
+void   applyFilter2D(GLuint texture, int32_t side, float anisotropy);
+float  detectAnisotropy();          // kAnisotropy, limitado pelo driver; 0 sem a extensão
 bool   createFallbackTexture(RzContext* ctx);
 int32_t mipLevels(int32_t side);   // log2(side) + 1
 void   swatchUV(int32_t paletteIndex, int32_t side, float* u, float* v);   // centro do bloco

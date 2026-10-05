@@ -144,9 +144,11 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzLoadTileAtlas(RzContext* ctx, const char* pcxP
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_LEVEL, kMipLevels - 1);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    // filtro fixo: ampliação nearest; redução nearest no nível, linear entre níveis
+    // filtro fixo: ampliação nearest; redução nearest no nível, linear entre
+    // níveis, mais o anisotrópico quando o driver tem
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    if (ctx->anisotropy > 0.0f) glTexParameterf(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_ANISOTROPY, ctx->anisotropy);
     if (glGetError() != GL_NO_ERROR) return RZ_ERR_GL;
     ctx->hasAtlas = true;
     setSpritePalette(ctx, paletteRGB);                // sprites: paleta do jogo

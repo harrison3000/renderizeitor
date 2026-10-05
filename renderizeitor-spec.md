@@ -143,7 +143,7 @@ Limites:
   - Futuro: texturas high-res em PNG.
 - **Mapa de blocos:** diz qual bloco cobre cada quad, com o bloco inteiro esticado sobre o quad. A textura recebe um sombreamento leve: a mesma luz flat do triângulo, atenuada para `mix(1, luz, 0.35)` (`kTexturedShading`). Com a luz mínima (ambient 0,3), a textura escurece até ~76%.
 - **Na GPU:** `GL_TEXTURE_2D_ARRAY` 16×16×256 com 5 níveis (16, 8, 4, 2, 1), gerados na CPU por média 2×2 arredondada.
-- **Filtro (fixo, sem API):** ampliação nearest; redução nearest dentro do nível e mistura linear entre níveis (`GL_NEAREST_MIPMAP_LINEAR`, o antigo `RZ_FILTER_MIP_LINEAR`). `rzSetTextureFilter` e os outros filtros (nearest, mipmap, mip+dither, trilinear) saíram para enxugar a API.
+- **Filtro (fixo, sem API):** ampliação nearest; redução nearest dentro do nível e mistura linear entre níveis (`GL_NEAREST_MIPMAP_LINEAR`, o antigo `RZ_FILTER_MIP_LINEAR`). `rzSetTextureFilter` e os outros filtros (nearest, mipmap, mip+dither, trilinear) saíram para enxugar a API. Mais filtro anisotrópico 4x (`kAnisotropy`, ou o máximo do driver se for menor) sempre que o driver tem `GL_EXT/ARB_texture_filter_anisotropic`, detectado na criação do contexto; sem a extensão, só o filtro normal. Na prática o driver filtra a redução (o meio-campo fica mais liso, menos pixelado); de perto continua nearest. Em software custa caro (llvmpipe: ~+25–40% no frame): lá, neblina mais curta (`rzSetFog`). A textura de ruído dos sprites fica sem.
 
 ## 8. Objetos
 
