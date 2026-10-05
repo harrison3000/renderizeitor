@@ -227,6 +227,16 @@ RZ_API int32_t RZ_CALL rzAddObjectTranslucentPolygon(RzContext* ctx, int32_t id,
                                                      const uint16_t* indices, int32_t count,
                                                      int32_t tone);
 
+/* Linha entre os vértices a e b do objeto (fase de carga: aloca), exibida
+   como uma barra de seção quadrada de lado `thickness` (tiles), na cor
+   paletteIndex (0..255) da paleta da textura do objeto, como em
+   rzAddObjectPolygon, com luz e sombra. Acompanha rzUpdateObjectVertices.
+   a == b é ignorada (RZ_OK). Erros: RZ_ERR_INVALID_ARG (vértice fora do
+   objeto, thickness <= 0 ou não finita, paletteIndex fora de 0..255),
+   RZ_ERR_SIZE (mais de 65535 linhas). */
+RZ_API int32_t RZ_CALL rzAddObjectLine(RzContext* ctx, int32_t id, uint16_t a, uint16_t b,
+                                       float thickness, int32_t paletteIndex);
+
 /* Rodas (por enquanto, cilindros pretos finos). wheels: 4 RzWheel, cada uma:
    hubVertex  vértice do objeto que é o centro da roda (acompanha
               rzUpdateObjectVertices);

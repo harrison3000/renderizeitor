@@ -187,6 +187,15 @@ struct ObjectTriangle {
 // Vértice de objeto enviado à GPU: posição no mundo, luz flat do polígono
 // (cinza 0x00LLLLLL; em memória B, G, R, 0, lido como vec4 normalizado), que
 // multiplica a textura, e UV.
+// Linha de um objeto (rzAddObjectLine): prisma de seção quadrada entre dois
+// vértices, refeito a cada envio do VBO (6 faces, 2 triângulos cada)
+constexpr int32_t kLineVertices = 36;
+struct ObjectLine {
+    uint16_t a, b;
+    int16_t  palette;
+    float    half;          // meia grossura, mundo
+};
+
 struct GpuVertex {
     float    x, y, z;
     uint32_t color;
@@ -244,7 +253,8 @@ struct Object {
     std::vector<int16_t>  polygonPalette; // índice de cor (rzAddObjectPolygon) ou -1 (UVs próprios)
     std::vector<uint32_t> polygonColors;  // cor sombreada por polígono
     std::vector<ObjectTriangle> triangles; // leque de cada polígono, montado na carga
-    std::vector<GpuVertex> staging;       // triangles.size() * 3, preenchido no envio
+    std::vector<ObjectLine> lines;        // rzAddObjectLine: prisma fino gerado no envio
+    std::vector<GpuVertex> staging;       // triangles.size() * 3 + lines.size() * kLineVertices
 
     GLuint    vao = 0;
     GLuint    vbo = 0;
@@ -270,6 +280,7 @@ struct Object {
 
     int32_t vertexCount() const   { return int32_t(world.size()); }
     int32_t triangleCount() const { return int32_t(triangles.size()); }
+    int32_t drawVertexCount() const { return int32_t(staging.size()); }   // polígonos + linhas
 };
 
 // Locais de uniforms dos programas

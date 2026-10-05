@@ -89,9 +89,64 @@ void computePolygonColors(Object& o) {
     for (size_t p = 0; p < o.polygonStart.size(); ++p) o.polygonColors[p] = polygonColor(o, p);
 }
 
-// Monta os vértices dos triângulos e reenvia o vertex buffer inteiro (que já
-// tem o tamanho certo: é realocado em rzAddObjectPolygon). side: lado da
-// textura em uso, para o UV dos polígonos de cor sólida.
+// Linhas (rzAddObjectLine): prisma de seção quadrada (lado = grossura) em
+// volta do segmento a-b, 4 lados + 2 tampas, cor sólida da paleta (UV do
+// bloquinho) com a luz flat de cada face. A seção é orientada pelo "cima" do
+// mundo (não gira junto com o objeto em volta da linha; é fina, não aparece).
+// Faces no sentido do legado (horário visto de fora), para o culling.
+void emitLines(const Object& o, int32_t side, GpuVertex*& v) {
+    for (const ObjectLine& l : o.lines) {
+        const Vec3 pa = o.world[l.a], pb = o.world[l.b];
+        float su, sv;
+        swatchUV(l.palette, side, &su, &sv);
+        Vec3 d = pb - pa;
+        const float len2 = dot(d, d);
+        if (!(len2 > 0.0f)) {                                  // ponta com ponta: nada visível
+            for (int32_t k = 0; k < kLineVertices; ++k) *v++ = { pa.x, pa.y, pa.z, 0, su, sv };
+            continue;
+        }
+        const float invLen = 1.0f / sqrtf(len2);
+        d = { d.x * invLen, d.y * invLen, d.z * invLen };
+        const Vec3 ref = fabsf(d.y) < 0.9f ? Vec3{ 0.0f, 1.0f, 0.0f } : Vec3{ 1.0f, 0.0f, 0.0f };
+        Vec3 u = cross(d, ref);
+        const float invU = 1.0f / sqrtf(dot(u, u));
+        u = { u.x * invU, u.y * invU, u.z * invU };
+        const Vec3 w = cross(d, u);
+        auto off = [&](float su_, float sw_) {
+            return Vec3{ (u.x * su_ + w.x * sw_) * l.half, (u.y * su_ + w.y * sw_) * l.half, (u.z * su_ + w.z * sw_) * l.half };
+        };
+        const Vec3 o4[4] = { off(1, 1), off(-1, 1), off(-1, -1), off(1, -1) };
+        Vec3 ca[4], cb[4];
+        for (int32_t k = 0; k < 4; ++k) { ca[k] = pa + o4[k]; cb[k] = pb + o4[k]; }
+        // quad p0..p3 com normal de fora n: ordem horária vista de fora
+        auto face = [&](Vec3 p0, Vec3 p1, Vec3 p2, Vec3 p3, Vec3 n) {
+            if (dot(cross(p1 - p0, p2 - p0), n) > 0.0f) { const Vec3 t = p1; p1 = p3; p3 = t; }
+            const uint32_t color = shadeFlat(0x00FFFFFFu, n, false);
+            const Vec3 q[6] = { p0, p1, p2, p0, p2, p3 };
+            for (const Vec3& p : q) *v++ = { p.x, p.y, p.z, color, su, sv };
+        };
+        for (int32_t k = 0; k < 4; ++k) {
+            const int32_t k1 = (k + 1) & 3;
+            face(ca[k], ca[k1], cb[k1], cb[k], o4[k] + o4[k1]);      // lado (normal pelo meio da aresta)
+        }
+        face(ca[0], ca[1], ca[2], ca[3], Vec3{ -d.x, -d.y, -d.z });  // tampas
+        face(cb[0], cb[1], cb[2], cb[3], d);
+    }
+}
+
+// Tamanho do staging/VBO: polígonos + linhas (fase de carga: realoca o VBO;
+// o conteúdo vai no próximo frame)
+void resizeObjectBuffers(Object& o) {
+    o.staging.resize(o.triangles.size() * 3 + o.lines.size() * size_t(kLineVertices));
+    glBindBuffer(GL_ARRAY_BUFFER, o.vbo);
+    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(o.staging.size() * sizeof(GpuVertex)),
+                 nullptr, GL_DYNAMIC_DRAW);
+    o.gpuDirty = true;
+}
+
+// Monta os vértices dos triângulos (e das linhas) e reenvia o vertex buffer
+// inteiro (que já tem o tamanho certo: é realocado em resizeObjectBuffers).
+// side: lado da textura em uso, para o UV das cores sólidas.
 void uploadObject(Object& o, int32_t side) {
     GpuVertex* v = o.staging.data();
     for (const ObjectTriangle& tri : o.triangles) {
@@ -106,6 +161,7 @@ void uploadObject(Object& o, int32_t side) {
             else          *v++ = { p.x, p.y, p.z, color, o.uvs[corner * 2], o.uvs[corner * 2 + 1] };
         }
     }
+    emitLines(o, side, v);
     glBindBuffer(GL_ARRAY_BUFFER, o.vbo);
     glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(o.staging.size() * sizeof(GpuVertex)),
                     o.staging.data());
@@ -148,13 +204,7 @@ int32_t addPolygon(RzContext* ctx, int32_t id, const uint16_t* indices, const Rz
         o.triangles.push_back({ first, first + i, first + i + 1, polygon });
     }
     o.polygonColors.push_back(polygonColor(o, polygon));
-    o.staging.resize(o.triangles.size() * 3);
-
-    // VBO com o novo tamanho; o conteúdo vai no próximo frame
-    glBindBuffer(GL_ARRAY_BUFFER, o.vbo);
-    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(o.staging.size() * sizeof(GpuVertex)),
-                 nullptr, GL_DYNAMIC_DRAW);
-    o.gpuDirty = true;
+    resizeObjectBuffers(o);
     return glGetError() == GL_NO_ERROR ? RZ_OK : RZ_ERR_GL;
 }
 
@@ -163,7 +213,7 @@ int32_t addPolygon(RzContext* ctx, int32_t id, const uint16_t* indices, const Rz
 namespace rz {
 
 static bool drawable(const Object& o) {
-    return o.alive && o.positioned && !o.triangles.empty();
+    return o.alive && o.positioned && !o.staging.empty();
 }
 
 // Fora do alcance: a esfera inteira além da neblina (+ margem para sombras
@@ -200,7 +250,7 @@ void drawObjectsDepth(RzContext* ctx, int32_t onlyId, int32_t skipId) {
         if (!drawable(o) || (onlyId >= 0 && id != onlyId) || id == skipId) continue;
         if (!objectInRange(ctx, o)) continue;
         glBindVertexArray(o.vao);
-        glDrawArrays(GL_TRIANGLES, 0, o.triangleCount() * 3);
+        glDrawArrays(GL_TRIANGLES, 0, o.drawVertexCount());
         drawWheelsDepth(o);
     }
 }
@@ -226,7 +276,7 @@ void drawObjects(RzContext* ctx, const Mat4& viewProj) {
         const GLuint  texture = o.texture ? o.texture : ctx->fallbackTex;
         glBindTexture(GL_TEXTURE_2D, texture);
         glBindVertexArray(o.vao);
-        glDrawArrays(GL_TRIANGLES, 0, o.triangleCount() * 3);
+        glDrawArrays(GL_TRIANGLES, 0, o.drawVertexCount());
     }
 }
 
@@ -294,6 +344,21 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzAddObjectTexturedPolygon(RzContext* ctx, int32
                                                            const RzTexVertex* corners, int32_t count) {
     if (!corners) return RZ_ERR_INVALID_ARG;
     return addPolygon(ctx, id, nullptr, corners, count, -1);
+}
+
+RZ_API RZ_ENTRY int32_t RZ_CALL rzAddObjectLine(RzContext* ctx, int32_t id, uint16_t a, uint16_t b,
+                                                float thickness, int32_t paletteIndex) {
+    if (!validId(ctx, id)) return RZ_ERR_INVALID_ARG;
+    Object& o = ctx->objects[id];
+    if (a >= o.vertexCount() || b >= o.vertexCount()) return RZ_ERR_INVALID_ARG;
+    if (!(thickness > 0.0f && thickness < 1.0e6f)) return RZ_ERR_INVALID_ARG;   // pega NaN
+    if (paletteIndex < 0 || paletteIndex > 255) return RZ_ERR_INVALID_ARG;
+    if (a == b) return RZ_OK;                                  // degenerada: ignorada
+    if (o.lines.size() >= 65535) return RZ_ERR_SIZE;
+    if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
+    o.lines.push_back({ a, b, int16_t(paletteIndex), 0.5f * thickness * ctx->cellSize });
+    resizeObjectBuffers(o);
+    return glGetError() == GL_NO_ERROR ? RZ_OK : RZ_ERR_GL;
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t id,
