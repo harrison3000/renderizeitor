@@ -124,6 +124,7 @@ GLuint uploadSquareTexture(const uint32_t* rgb, int32_t side, float anisotropy) 
             const int32_t prev = s * 2;
             downsample(chain.data() + offset - size_t(prev) * size_t(prev), chain.data() + offset, s);
         }
+        fillTransparent(chain.data() + offset, s);       // cor dos buracos = vizinhos opacos
         glTexImage2D(GL_TEXTURE_2D, l, GL_RGBA8, s, s, 0, GL_BGRA, GL_UNSIGNED_BYTE,
                      chain.data() + offset);
         offset += size_t(s) * size_t(s);
@@ -159,7 +160,8 @@ static int32_t loadSquareTextureFromPcx(const char* path, float anisotropy, GLui
     for (int i = 0; i < 256; ++i) {
         pal[i] = (uint32_t(img.palette[i * 3 + 0]) << 16)
                | (uint32_t(img.palette[i * 3 + 1]) << 8)
-               |  uint32_t(img.palette[i * 3 + 2]);
+               |  uint32_t(img.palette[i * 3 + 2])
+               | (i == kTransparentIndex ? 0u : kOpaqueAlpha);   // 255: transparente
     }
     std::vector<uint32_t> rgb(size_t(side) * size_t(side));
     for (int32_t y = 0; y < side; ++y) {
@@ -193,7 +195,7 @@ bool createFallbackTexture(RzContext* ctx) {
     for (int32_t y = 0; y < kFallbackSize; ++y) {
         for (int32_t x = 0; x < kFallbackSize; ++x) {
             const bool a = ((x / kFallbackCell) + (y / kFallbackCell)) % 2 == 0;
-            rgb[size_t(y) * kFallbackSize + x] = a ? kFallbackColorA : kFallbackColorB;
+            rgb[size_t(y) * kFallbackSize + x] = (a ? kFallbackColorA : kFallbackColorB) | kOpaqueAlpha;
         }
     }
     const GLuint texture = uploadSquareTexture(rgb.data(), kFallbackSize, ctx->anisotropy);

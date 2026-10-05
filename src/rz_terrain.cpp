@@ -2,6 +2,7 @@
 // iluminadas, paleta pela altura, níveis de mipmap do atlas e esfera envolvente.
 
 #include <cmath>
+#include <vector>
 
 #include "rz_internal.h"
 
@@ -38,21 +39,75 @@ uint32_t packColor(float r, float g, float b) {
 
 } // namespace
 
-// Nível L+1 de uma imagem quadrada a partir do nível L: média 2x2 por canal,
-// arredondada. Usado no atlas e nas texturas dos objetos.
+// Texels transparentes (alfa 0) recebem a cor dos opacos vizinhos (duas
+// passadas de dilatação, 4-vizinhos; o que sobrar, a média dos opacos), para
+// a filtragem (anisotrópico, mistura entre níveis) não puxar a cor do índice
+// 255 nem preto nas bordas dos buracos. O alfa não muda. Imagem quadrada.
+void fillTransparent(uint32_t* img, int32_t side) {
+    uint64_t sum[3] = { 0, 0, 0 };
+    uint32_t opaque = 0;
+    for (int32_t i = 0; i < side * side; ++i) {
+        if ((img[i] >> 24) == 0) continue;
+        ++opaque;
+        for (int32_t c = 0; c < 3; ++c) sum[c] += (img[i] >> (16 - 8 * c)) & 0xFF;
+    }
+    if (opaque == 0 || opaque == uint32_t(side * side)) return;   // tudo transparente ou nada
+    uint32_t average = 0;
+    for (int32_t c = 0; c < 3; ++c) average |= uint32_t((sum[c] + opaque / 2) / opaque) << (16 - 8 * c);
+
+    // marca dos texels já com cor: bit 24 do próprio texel não serve (alfa), usa
+    // uma passada que só lê de quem tinha cor antes dela
+    std::vector<uint8_t> has(size_t(side) * size_t(side));
+    for (int32_t i = 0; i < side * side; ++i) has[size_t(i)] = (img[i] >> 24) != 0;
+    std::vector<uint8_t> next;
+    for (int32_t pass = 0; pass < 2; ++pass) {
+        next = has;
+        for (int32_t y = 0; y < side; ++y) {
+            for (int32_t x = 0; x < side; ++x) {
+                const int32_t i = y * side + x;
+                if (has[size_t(i)]) continue;
+                uint32_t s[3] = { 0, 0, 0 }, n = 0;
+                const int32_t nb[4][2] = { { x - 1, y }, { x + 1, y }, { x, y - 1 }, { x, y + 1 } };
+                for (const auto& q : nb) {
+                    if (q[0] < 0 || q[1] < 0 || q[0] >= side || q[1] >= side) continue;
+                    const int32_t j = q[1] * side + q[0];
+                    if (!has[size_t(j)]) continue;
+                    for (int32_t c = 0; c < 3; ++c) s[c] += (img[j] >> (16 - 8 * c)) & 0xFF;
+                    ++n;
+                }
+                if (n == 0) continue;
+                uint32_t color = 0;
+                for (int32_t c = 0; c < 3; ++c) color |= ((s[c] + n / 2) / n) << (16 - 8 * c);
+                img[i] = (img[i] & 0xFF000000u) | color;
+                next[size_t(i)] = 1;
+            }
+        }
+        has.swap(next);
+    }
+    for (int32_t i = 0; i < side * side; ++i) {
+        if (!has[size_t(i)]) img[i] = (img[i] & 0xFF000000u) | average;
+    }
+}
+
+// Nível L+1 de uma imagem quadrada a partir do nível L (0xAARRGGBB): alfa =
+// média 2x2; cor = média só dos texels opacos, ponderada pelo alfa (texels
+// transparentes não puxam a cor), arredondada. Usado no atlas e nas texturas
+// dos objetos.
 void downsample(const uint32_t* src, uint32_t* dst, int32_t dstSide) {
     const int32_t srcSide = dstSide * 2;
     for (int32_t y = 0; y < dstSide; ++y) {
         for (int32_t x = 0; x < dstSide; ++x) {
-            const uint32_t p0 = src[(2 * y) * srcSide + 2 * x];
-            const uint32_t p1 = src[(2 * y) * srcSide + 2 * x + 1];
-            const uint32_t p2 = src[(2 * y + 1) * srcSide + 2 * x];
-            const uint32_t p3 = src[(2 * y + 1) * srcSide + 2 * x + 1];
-            uint32_t out = 0;
-            for (int shift = 0; shift <= 16; shift += 8) {
-                const uint32_t sum = ((p0 >> shift) & 0xFF) + ((p1 >> shift) & 0xFF)
-                                   + ((p2 >> shift) & 0xFF) + ((p3 >> shift) & 0xFF);
-                out |= ((sum + 2) >> 2) << shift;
+            const uint32_t p[4] = { src[(2 * y) * srcSide + 2 * x],     src[(2 * y) * srcSide + 2 * x + 1],
+                                    src[(2 * y + 1) * srcSide + 2 * x], src[(2 * y + 1) * srcSide + 2 * x + 1] };
+            uint32_t alphaSum = 0, sum[3] = { 0, 0, 0 };
+            for (const uint32_t q : p) {
+                const uint32_t a = q >> 24;
+                alphaSum += a;
+                for (int32_t c = 0; c < 3; ++c) sum[c] += ((q >> (16 - 8 * c)) & 0xFF) * a;
+            }
+            uint32_t out = ((alphaSum + 2) >> 2) << 24;
+            if (alphaSum > 0) {
+                for (int32_t c = 0; c < 3; ++c) out |= ((sum[c] + alphaSum / 2) / alphaSum) << (16 - 8 * c);
             }
             dst[y * dstSide + x] = out;
         }
@@ -276,7 +331,8 @@ void buildAtlasLevels(uint32_t* tiles, const uint8_t* indices, const uint8_t* pa
     for (int i = 0; i < 256; ++i) {
         pal[i] = (uint32_t(paletteRGB[i * 3 + 0]) << 16)
                | (uint32_t(paletteRGB[i * 3 + 1]) << 8)
-               |  uint32_t(paletteRGB[i * 3 + 2]);
+               |  uint32_t(paletteRGB[i * 3 + 2])
+               | (i == kTransparentIndex ? 0u : kOpaqueAlpha);   // 255: transparente
     }
 
     for (int32_t t = 0; t < kMaxTiles; ++t) {
@@ -287,12 +343,14 @@ void buildAtlasLevels(uint32_t* tiles, const uint8_t* indices, const uint8_t* pa
             const uint8_t* src = indices + (ty + y) * kAtlasSize + tx;
             for (int32_t x = 0; x < kTileSize; ++x) level0[y * kTileSize + x] = pal[src[x]];
         }
+        fillTransparent(level0, kTileSize);
         for (int32_t level = 1; level < kMipLevels; ++level) {
             const int32_t side = kTileSize >> level;
             const int32_t prevSide = side * 2;
             const uint32_t* prev = tiles + kMaxTiles * kLevelOffset[level - 1] + t * prevSide * prevSide;
             uint32_t* cur = tiles + kMaxTiles * kLevelOffset[level] + t * side * side;
             downsample(prev, cur, side);
+            fillTransparent(cur, side);
         }
     }
 }

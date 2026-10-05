@@ -104,7 +104,9 @@ void main() {
         return;
     }
     vec3 uvw = vec3(vUV, float(vLayer));
-    vec3 texel = textureGrad(uAtlas, uvw, dUVx, dUVy).rgb;   // nearest no nível, linear entre níveis
+    vec4 tex = textureGrad(uAtlas, uvw, dUVx, dUVy);         // nearest no nível, linear entre níveis
+    if (tex.a < 0.5) discard;                                // índice 255 do PCX: transparente
+    vec3 texel = tex.rgb;
     color = texel * mix(1.0, vLight, uShading) * mix(uShadowDim, 1.0, lit);
     fragColor = vec4(mix(color, uFogColor, fog), 0.0);
 }
@@ -186,7 +188,9 @@ void main() {
         fragColor = vec4(uFogColor, 0.0);
         return;
     }
-    vec3 texel = textureGrad(uTexture, vUV, dUVx, dUVy).rgb;  // nearest no nível, linear entre níveis
+    vec4 tex = textureGrad(uTexture, vUV, dUVx, dUVy);       // nearest no nível, linear entre níveis
+    if (tex.a < 0.5) discard;                                // índice 255 do PCX: transparente
+    vec3 texel = tex.rgb;
     float lit = shadowTerm();
     vec3 color = texel * mix(min(uShadowLight, vLight), vLight, lit);
     fragColor = vec4(mix(color, uFogColor, fog), 0.0);

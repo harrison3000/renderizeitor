@@ -119,6 +119,8 @@ RZ_API int32_t RZ_CALL rzSetTerrainScale(RzContext* ctx,
    maior, só o canto superior esquerdo (256x256) é usado e o resto é ignorado.
    O atlas tem 16 x 16 blocos de 16x16, numerados da esquerda para a direita e
    de cima para baixo (bloco 0 no canto superior esquerdo).
+   Pixels com o índice 255 da paleta são totalmente transparentes (o chão
+   fica com buraco ali).
    pcxPath: caminho no código de página ANSI do sistema (fopen).
    Retornos: RZ_ERR_FILE (não abriu/leu), RZ_ERR_FORMAT (não é PCX de 8 bits
    com paleta, ou está truncado), RZ_ERR_SIZE (menor que 256x256).
@@ -246,6 +248,8 @@ RZ_API int32_t RZ_CALL rzUpdateObjectWheels(RzContext* ctx, int32_t id, float st
    da imagem (mínimo 256, máximo 4096 ou o limite do driver); o que sobra à
    direita é descartado. Na vertical, a imagem é cortada em W linhas ou
    completada embaixo (repetindo a última linha).
+   Pixels com o índice 255 da paleta são totalmente transparentes (inclusive
+   a cor sólida 255 de rzAddObjectPolygon).
    As últimas 16 linhas da textura são reservadas: viram 256 bloquinhos 4x4,
    um por cor da paleta do PCX, para os polígonos de cor sólida
    (rzAddObjectPolygon). O conteúdo da imagem nessas linhas é sobrescrito.

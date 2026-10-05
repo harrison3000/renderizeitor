@@ -95,6 +95,13 @@ constexpr float   kFogMaxEnd = 120.0f;   // rzSetFog (a continuação vai a kSki
 static_assert(kFogEndDefault <= kFogMaxEnd && kFogMaxEnd <= float(kSkirtExtent),
               "a continuação tem que ir até o fim da neblina");
 
+// Transparência das texturas PCX (atlas e objetos): o índice 255 da paleta
+// vira alfa 0 (o resto, alfa 255); o shader descarta o pixel com alfa < 0,5.
+// Mipmaps com média ponderada pelo alfa (a cor do 255 não vaza nas bordas).
+// A sombra ignora (os buracos ainda projetam sombra).
+constexpr int32_t  kTransparentIndex = 255;
+constexpr uint32_t kOpaqueAlpha      = 0xFF000000u;
+
 // Filtro anisotrópico das texturas (atlas e objetos): sempre que o driver
 // tiver EXT/ARB_texture_filter_anisotropic, este nível (ou o máximo dele, se
 // for menor); sem a extensão, só o filtro normal
@@ -461,6 +468,7 @@ bool rebuildTerrainTiles(RzContext* ctx);   // só blocos (rzSetTileMap)
 bool updateTerrain(RzContext* ctx);         // rzUpdateTerrain: só o que mudou
 void buildAtlasLevels(uint32_t* tiles, const uint8_t* indices, const uint8_t* paletteRGB);
 void downsample(const uint32_t* src, uint32_t* dst, int32_t dstSide);
+void fillTransparent(uint32_t* img, int32_t side);   // cor dos texels alfa 0 = vizinhos opacos
 uint32_t shadeFlat(uint32_t base, Vec3 normal, bool twoSided);
 Vec3 lightDirection();
 
