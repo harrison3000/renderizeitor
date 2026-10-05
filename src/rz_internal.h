@@ -88,9 +88,9 @@ constexpr float   kSkirtMeanderGrowth = 0.35f; // deslocamento ao longo da borda
 constexpr float   kSkirtMeanderMax    = 12.0f; // ...limitado a 12 tiles
 constexpr int32_t kSkirtMeanderPeriod = 24;    // período do ruído do serpenteio (tiles)
 constexpr float   kBorderWallHeight = 6.0f;   // tiles acima do chão
-constexpr float   kBorderFadeFar    = 15.0f;  // alvo a 15 tiles: começa a aparecer
-constexpr float   kBorderFadeNear   = 3.0f;   // a 3 tiles: totalmente visível
-constexpr float   kBorderXSize      = 2.0f;   // lado de cada X (tiles)
+constexpr float   kBorderFadeFar    = 25.0f;  // alvo a 25 tiles: começa a aparecer
+constexpr float   kBorderFadeNear   = 6.0f;   // a 6 tiles: totalmente visível
+constexpr float   kBorderXSize      = 2.0f;   // célula de cada círculo (tiles), presa ao mundo
 constexpr float   kFogMaxEnd = 120.0f;   // rzSetFog (a continuação vai a kSkirtExtent, com folga)
 static_assert(kFogEndDefault <= kFogMaxEnd && kFogMaxEnd <= float(kSkirtExtent),
               "a continuação tem que ir até o fim da neblina");
@@ -293,7 +293,7 @@ struct GlassProgram {
 
 struct WallProgram {
     GLuint program = 0;
-    GLint  viewProj = -1, target = -1, fadeNear = -1, fadeFar = -1, xSize = -1;
+    GLint  viewProj = -1, target = -1, fadeNear = -1, fadeFar = -1, xSize = -1, cellSize = -1;
     FogUniforms fog;
 };
 

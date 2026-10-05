@@ -19,7 +19,10 @@
 //   - groundHeight (câmera) usa as mesmas alturas, com a mesma resolução.
 //
 // Parede: em cima das quatro bordas do mapa, do chão até kBorderWallHeight
-// tiles acima, semitransparente, com X vermelhos de kBorderXSize tiles. Só
+// tiles acima, vermelha translúcida, com círculos vermelhos de borda branca
+// e um X vazado no meio (um por célula de kBorderXSize tiles), num padrão
+// preso ao mundo (ao longo da parede e na altura do mundo: a parede sobe e
+// desce com o terreno, o desenho não). Só
 // aparece perto do alvo da câmera: alfa = 1 - smoothstep(near, far, distância
 // horizontal do alvo ao ponto da parede). Desenhada depois do opaco, com
 // blending e sem gravar profundidade; não projeta nem recebe sombra.
@@ -335,6 +338,7 @@ bool createBorder(RzContext* ctx) {
     w.fadeNear   = glGetUniformLocation(w.program, "uFadeNear");
     w.fadeFar    = glGetUniformLocation(w.program, "uFadeFar");
     w.xSize      = glGetUniformLocation(w.program, "uXSize");
+    w.cellSize   = glGetUniformLocation(w.program, "uCellSize");
     initFogUniforms(w.program, w.fog);
     return glGetError() == GL_NO_ERROR;
 }
@@ -443,6 +447,7 @@ void drawWall(const RzContext* ctx, const Mat4& viewProj) {
     glUniform1f(w.fadeNear, kBorderFadeNear * ctx->cellSize);
     glUniform1f(w.fadeFar, kBorderFadeFar * ctx->cellSize);
     glUniform1f(w.xSize, kBorderXSize);
+    glUniform1f(w.cellSize, ctx->cellSize);
     bindFog(ctx, w.fog);
 
     glDisable(GL_CULL_FACE);
