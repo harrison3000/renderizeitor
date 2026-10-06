@@ -10,7 +10,7 @@ layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec4 aColor;      // B, G, R, 0 normalizados
 layout(location = 2) in vec4 aUvLayer;    // u, v em {0, 1}; bloco 0..255; luz 0..255
 uniform mat4 uViewProj;
-uniform mat4 uShadowMatrix[3];            // luz: terreno, objetos próximos, alvo
+uniform mat4 uShadowMatrix[3];            // luz: cascatas 0, 1 e 2
 
 flat out vec3  vColor;
 flat out int   vLayer;
@@ -57,7 +57,8 @@ uniform vec3  uEye;
 
 uniform sampler2DArray  uAtlas;
 uniform sampler2DShadow uShadow0, uShadow1, uShadow2;
-uniform int   uShadowTargetOn;            // mapa 2 (objeto seguido) em uso
+uniform vec3  uCascade;                   // fim da cascata 0, fim da 1, faixa de transição (mundo)
+uniform int   uCascadeOnlyFar;            // visão geral: só a cascata 2
 uniform int   uTextured;
 uniform float uShading;
 uniform float uShadowLight;               // luz na sombra (kShadowLight)
@@ -73,11 +74,19 @@ float shadowLit(sampler2DShadow map, vec3 c) {
     return textureLod(map, c, 0.0);
 }
 
-// Os três mapas (rz_shadow.cpp): iluminado = mínimo
+// Cascatas (rz_shadow.cpp): escolhe pela distância ao olho; numa faixa de
+// uCascade.z antes de cada divisa, mistura as duas vizinhas. Visão geral: só a 2.
 float shadowTerm() {
-    float lit = min(shadowLit(uShadow0, vShadow0), shadowLit(uShadow1, vShadow1));
-    if (uShadowTargetOn != 0) lit = min(lit, shadowLit(uShadow2, vShadow2));
-    return lit;
+    if (uCascadeOnlyFar != 0) return shadowLit(uShadow2, vShadow2);
+    float d = length(vWorld - uEye);
+    float b = uCascade.z;
+    if (d < uCascade.x - b) return shadowLit(uShadow0, vShadow0);
+    if (d < uCascade.x)
+        return mix(shadowLit(uShadow0, vShadow0), shadowLit(uShadow1, vShadow1), (d - (uCascade.x - b)) / b);
+    if (d < uCascade.y - b) return shadowLit(uShadow1, vShadow1);
+    if (d < uCascade.y)
+        return mix(shadowLit(uShadow1, vShadow1), shadowLit(uShadow2, vShadow2), (d - (uCascade.y - b)) / b);
+    return shadowLit(uShadow2, vShadow2);
 }
 
 // Fator de neblina (0 limpo, 1 só neblina)
@@ -120,7 +129,7 @@ layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec4 aColor;
 layout(location = 2) in vec2 aUV;
 uniform mat4 uViewProj;
-uniform mat4 uShadowMatrix[3];            // luz: terreno, objetos próximos, alvo
+uniform mat4 uShadowMatrix[3];            // luz: cascatas 0, 1 e 2
 flat out float vLight;
 out vec2 vUV;
 out vec3 vShadow0, vShadow1, vShadow2;
@@ -153,7 +162,8 @@ uniform vec3  uEye;
 
 uniform sampler2D       uTexture;
 uniform sampler2DShadow uShadow0, uShadow1, uShadow2;
-uniform int   uShadowTargetOn;            // mapa 2 (objeto seguido) em uso
+uniform vec3  uCascade;                   // fim da cascata 0, fim da 1, faixa de transição (mundo)
+uniform int   uCascadeOnlyFar;            // visão geral: só a cascata 2
 uniform float uShadowLight;               // luz na sombra (kShadowLight)
 
 out vec4 fragColor;
@@ -166,11 +176,19 @@ float shadowLit(sampler2DShadow map, vec3 c) {
     return textureLod(map, c, 0.0);
 }
 
-// Os três mapas (rz_shadow.cpp): iluminado = mínimo
+// Cascatas (rz_shadow.cpp): escolhe pela distância ao olho; numa faixa de
+// uCascade.z antes de cada divisa, mistura as duas vizinhas. Visão geral: só a 2.
 float shadowTerm() {
-    float lit = min(shadowLit(uShadow0, vShadow0), shadowLit(uShadow1, vShadow1));
-    if (uShadowTargetOn != 0) lit = min(lit, shadowLit(uShadow2, vShadow2));
-    return lit;
+    if (uCascadeOnlyFar != 0) return shadowLit(uShadow2, vShadow2);
+    float d = length(vWorld - uEye);
+    float b = uCascade.z;
+    if (d < uCascade.x - b) return shadowLit(uShadow0, vShadow0);
+    if (d < uCascade.x)
+        return mix(shadowLit(uShadow0, vShadow0), shadowLit(uShadow1, vShadow1), (d - (uCascade.x - b)) / b);
+    if (d < uCascade.y - b) return shadowLit(uShadow1, vShadow1);
+    if (d < uCascade.y)
+        return mix(shadowLit(uShadow1, vShadow1), shadowLit(uShadow2, vShadow2), (d - (uCascade.y - b)) / b);
+    return shadowLit(uShadow2, vShadow2);
 }
 
 // Fator de neblina (0 limpo, 1 só neblina)
@@ -227,7 +245,8 @@ flat in float vTint;
 in vec3 vWorld;
 in vec3 vShadow0, vShadow1, vShadow2;
 uniform sampler2DShadow uShadow0, uShadow1, uShadow2;
-uniform int   uShadowTargetOn;
+uniform vec3  uCascade;
+uniform int   uCascadeOnlyFar;
 uniform vec3  uLight;                     // direção para a luz (normalizada)
 uniform float uSpecular, uShininess;
 uniform int   uFogOn;
@@ -241,6 +260,21 @@ float shadowLit(sampler2DShadow map, vec3 c) {
     return textureLod(map, c, 0.0);
 }
 
+// Cascatas (rz_shadow.cpp): escolhe pela distância ao olho; numa faixa de
+// uCascade.z antes de cada divisa, mistura as duas vizinhas. Visão geral: só a 2.
+float shadowTerm() {
+    if (uCascadeOnlyFar != 0) return shadowLit(uShadow2, vShadow2);
+    float d = length(vWorld - uEye);
+    float b = uCascade.z;
+    if (d < uCascade.x - b) return shadowLit(uShadow0, vShadow0);
+    if (d < uCascade.x)
+        return mix(shadowLit(uShadow0, vShadow0), shadowLit(uShadow1, vShadow1), (d - (uCascade.x - b)) / b);
+    if (d < uCascade.y - b) return shadowLit(uShadow1, vShadow1);
+    if (d < uCascade.y)
+        return mix(shadowLit(uShadow1, vShadow1), shadowLit(uShadow2, vShadow2), (d - (uCascade.y - b)) / b);
+    return shadowLit(uShadow2, vShadow2);
+}
+
 void main() {
     float fog = uFogOn != 0 ? smoothstep(uFogStart, uFogEnd, length(vWorld - uEye)) : 0.0;
     if (fog >= 1.0) discard;
@@ -249,8 +283,7 @@ void main() {
     float ndl = dot(n, uLight);
     float spec = 0.0;
     if (ndl > 0.0) {
-        float lit = min(shadowLit(uShadow0, vShadow0), shadowLit(uShadow1, vShadow1));
-        if (uShadowTargetOn != 0) lit = min(lit, shadowLit(uShadow2, vShadow2));
+        float lit = shadowTerm();
         vec3 h = normalize(uLight + v);
         spec = pow(max(dot(n, h), 0.0), uShininess) * uSpecular * lit;
     }

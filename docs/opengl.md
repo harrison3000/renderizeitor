@@ -38,7 +38,7 @@ abaixo fica como registro do que mudou. A spec atual é `renderizeitor-spec.md`.
 | `src/rz_object.cpp` | Objetos (um vertex buffer por objeto, reenviado no update) |
 | `src/rz_pcx.cpp` | Leitura de PCX de 8 bits (atlas e texturas dos objetos) |
 | `src/rz_texture.cpp` | Texturas dos objetos (`rzLoadObjectTexture`, fallback, mipmaps) |
-| `src/rz_shadow.cpp` | Três shadow maps: terreno, objetos próximos, alvo da câmera |
+| `src/rz_shadow.cpp` | Sombras em cascata: 0–8 e 8–30 tiles (terreno + objetos), 30–neblina (só terreno, cacheada) |
 | `src/rz_border.cpp` | Continuação do terreno além do mapa e parede de limite |
 | `src/rz_glass.cpp` | Vidro: polígonos translúcidos (filtro cinza + brilho especular) |
 | `src/rz_wheels.cpp` | Rodas: 4 cilindros por objeto, com esterço |

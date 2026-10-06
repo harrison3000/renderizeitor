@@ -117,20 +117,23 @@ constexpr int32_t kSpriteDotsPerClick  = 260;    // pontinhos por clique
 constexpr float   kSpriteClickRadius   = 0.36f;  // raio do clique (fração do lado)
 constexpr float   kSpriteClickJitter   = 0.10f;  // deslocamento do centro do clique
 
-// Sombras: três shadow maps da luz direcional (detalhes em rz_shadow.cpp):
-// 0 terreno inteiro (só o terreno), 1 objetos próximos, 2 objeto seguido.
+// Sombras: cascatas da luz direcional (detalhes em rz_shadow.cpp), por
+// distância ao olho: 0 de 0 a kCascadeSplit0 tiles, 1 até kCascadeSplit1 (as
+// duas com terreno + objetos, refeitas todo frame) e 2 até o fim da neblina
+// (só terreno; caixa em volta do olho, refeita quando ele anda
+// kCascadeFarRecenter tiles ou o terreno muda). Transição de kCascadeBlend
+// tiles entre elas. Na visão geral, só a 2, com o terreno inteiro e os objetos.
 constexpr int32_t kShadowMaps           = 3;
 // Tamanhos pedidos; limitados a GL_MAX_TEXTURE_SIZE na criação (ctx->shadowSize).
-// Resoluções parecidas entre os mapas, para a sombra do alvo não destoar das outras.
-constexpr int32_t kShadowTerrainSize    = 4096;   // ~0,09 tile/texel
-constexpr int32_t kShadowScissorMargin  = 4;     // texels em volta da área refeita do mapa 0
-constexpr int32_t kShadowNearSize       = 2048;
-constexpr float   kShadowNearHalfExtent = 48.0f;  // tiles: 96 x 96, ~0,047 tile/texel
-constexpr float   kShadowNearAhead      = 32.0f;  // centro da caixa: 32 tiles à frente do olho
-                                                  // (cobre de ~16 atrás a ~80 à frente: até o fim da neblina)
-constexpr int32_t kShadowTargetSize     = 256;
-constexpr float   kShadowTargetMargin   = 0.25f;  // tiles além da esfera do objeto seguido
-constexpr float   kShadowTargetStep     = 0.25f;  // passo da meia-largura da caixa do alvo
+constexpr int32_t kCascadeNearSize      = 1024;
+constexpr int32_t kCascadeMidSize       = 1024;
+constexpr int32_t kCascadeFarSize       = 2048;
+constexpr float   kCascadeSplit0        = 8.0f;   // tiles do olho
+constexpr float   kCascadeSplit1        = 30.0f;
+constexpr float   kCascadeBlend         = 1.0f;   // tiles de transição antes de cada divisa
+constexpr float   kCascadeFarRecenter   = 10.0f;  // tiles andados até refazer a cascata 2
+constexpr float   kCascadeFarMargin     = 4.0f;   // tiles além da neblina + recentragem
+constexpr int32_t kShadowScissorMargin  = 4;     // texels em volta da área refeita da cascata 2
 constexpr int32_t kUnitShadowFirst      = 1;      // unidades de textura 1..3 (0: atlas/objeto)
 constexpr float   kShadowTexturedDim  = 0.48f;  // chão texturizado na sombra (era 0,6; 20 % mais escuro)
 constexpr float   kShadowLight        = kAmbient * 0.8f;   // luz na sombra (cores flat e objetos):
@@ -289,7 +292,7 @@ struct FogUniforms {
 };
 
 struct ShadowUniforms {
-    GLint matrices = -1, targetOn = -1;
+    GLint matrices = -1, cascade = -1, onlyFar = -1;
     GLint maps[kShadowMaps] = { -1, -1, -1 };
 };
 
@@ -404,11 +407,14 @@ struct RzContext {
     rz::GLuint shadowTex[rz::kShadowMaps] = {};
     rz::Mat4   shadowMatrix[rz::kShadowMaps] = {};     // do frame; contíguas (glUniformMatrix4fv)
     int32_t    shadowSize[rz::kShadowMaps] = {};      // lado de cada mapa (já limitado pelo driver)
-    bool       terrainShadowDirty = true;            // mapa 0 precisa ser refeito...
-    bool       terrainShadowAll   = true;            // ...inteiro, ou só a caixa abaixo (mundo)
+    bool       terrainShadowDirty = true;            // terreno mudou: cascata 2 refeita...
+    bool       terrainShadowAll   = true;            // ...inteira, ou só a caixa abaixo (mundo)
     rz::Vec3   terrainShadowLo = { 0.0f, 0.0f, 0.0f }, terrainShadowHi = { 0.0f, 0.0f, 0.0f };
-    bool       shadowTargetOn = false;               // mapa 2 em uso (câmera seguindo)
-    rz::Vec3   shadowFocus = { 0.0f, 0.0f, 0.0f };   // centro da caixa do mapa 1 (do frame)
+    bool       cascadeFarValid = false;              // cascata 2 desenhada para o modo atual
+    bool       cascadeFarOverview = false;           // ...na visão geral (terreno inteiro + objetos)
+    rz::Vec3   cascadeFarCenter = { 0.0f, 0.0f, 0.0f };   // olho quando a cascata 2 foi refeita
+    float      cascadeFarHalf = 0.0f;                // meia-largura dela (muda com a neblina)
+    uint32_t   cascadeFarRedraws = 0;                // recentragens da cascata 2 (testes)
 
     // Do frame (updateCamera): olho e neblina
     rz::Vec3   eyePos = { 0.0f, 0.0f, 0.0f };
@@ -417,7 +423,7 @@ struct RzContext {
     rz::Vec3   camUp      = { 0.0f, 1.0f, 0.0f };
     rz::Vec3   camForward = { 0.0f, 0.0f, -1.0f };
     bool       fogOn = false;                        // seguindo um alvo
-    bool       shadowWholeTerrain = true;           // visão geral: mapa 1 = terreno inteiro
+    bool       shadowWholeTerrain = true;           // visão geral: só a cascata 2, terreno inteiro
 
     // Projeção
     float focalX = 1.0f;     // f / aspecto
@@ -425,6 +431,7 @@ struct RzContext {
 
     // Terreno
     std::vector<uint8_t> heights;      // 256x256, cópia na CPU (malha e câmera de perseguição)
+    uint8_t   terrainMinHeight = 0, terrainMaxHeight = 255;   // faixa das alturas (cascatas de sombra)
     float     cellSize    = rz::kDefaultCellSize;
     float     heightScale = rz::kDefaultHeightScale;
     rz::GLuint terrainVao = 0;

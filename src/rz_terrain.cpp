@@ -226,6 +226,12 @@ constexpr int32_t kLastQuad = kQuadsPerSide - 1;   // 254
 // Malha inteira + borda; mapa de sombra do terreno inteiro refeito.
 // rzSetHeightmap e rzSetTerrainScale (carga).
 bool buildTerrainMesh(RzContext* ctx) {
+    ctx->terrainMinHeight = 255;
+    ctx->terrainMaxHeight = 0;
+    for (const uint8_t h : ctx->heights) {
+        if (h < ctx->terrainMinHeight) ctx->terrainMinHeight = h;
+        if (h > ctx->terrainMaxHeight) ctx->terrainMaxHeight = h;
+    }
     ctx->terrainStaging.resize(size_t(kTriangleCount) * 3);   // carga: aloca na primeira vez
     buildQuads(ctx, 0, 0, kLastQuad, kLastQuad);
     uploadQuads(ctx, 0, 0, kLastQuad, kLastQuad);
@@ -272,6 +278,8 @@ bool updateTerrain(RzContext* ctx) {
             if (src[i] == h[i]) continue;
             const int32_t gc = i % kGridSize, gr = i / kGridSize;
             const float yOld = float(h[i]) * hs, yNew = float(src[i]) * hs;
+            if (src[i] < ctx->terrainMinHeight) ctx->terrainMinHeight = src[i];   // faixa só cresce
+            if (src[i] > ctx->terrainMaxHeight) ctx->terrainMaxHeight = src[i];
             h[i] = src[i];
             setExtendedHeight(ctx, gc, gr, float(src[i]));
             refreshQuads(gc - 1, gr - 1, gc, gr);

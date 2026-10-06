@@ -117,7 +117,7 @@ Limites:
   - camada do atlas.
 - **Por que sem índices:** a cor e o bloco são do triângulo e do quad, não do ponto da grade.
 - **Quando é remontada:** inteira (com a borda e a sombra do relevo) em `rzSetHeightmap` e `rzSetTerrainScale`; `rzSetTileMap` só refaz os blocos dos quads e da continuação (sem relevo nem sombra).
-- **Mudança durante o jogo (`rzUpdateTerrain`):** `rzSetHeightmap`/`rzSetTileMap` guardam o ponteiro do host (tem que continuar válido); o host altera os próprios arrays e chama `rzUpdateTerrain`, que compara com as cópias (2 × 64 KB) e trata ponto a ponto (no jogo são raros e pequenos): altura → refaz e reenvia os 4 quads em volta, a cópia estendida (câmera) e a sombra do relevo só ali (scissor no mapa 0); bloco → refaz o quad. Ponto na borda do mapa: só o y das vértices do terreno de fora que estão em cima dele acompanha (sem fresta); o resto de fora, cores e parede não são recalculados (imperfeito, aceito; `rzSetHeightmap` refaz tudo). Bloco a menos de 8 quads da borda refaz a malha da continuação. Mudanças no interior: resultado idêntico pixel a pixel ao de refazer tudo (testado). Custo (llvmpipe): ~0,2 ms por ponto, contra ~30 ms + sombra inteira de `rzSetHeightmap` + `rzSetTileMap`. (Uma versão que recalculava a vizinhança de fora com exatidão ficou no branch `super_complicated_border_update`.)
+- **Mudança durante o jogo (`rzUpdateTerrain`):** `rzSetHeightmap`/`rzSetTileMap` guardam o ponteiro do host (tem que continuar válido); o host altera os próprios arrays e chama `rzUpdateTerrain`, que compara com as cópias (2 × 64 KB) e trata ponto a ponto (no jogo são raros e pequenos): altura → refaz e reenvia os 4 quads em volta, a cópia estendida (câmera) e a sombra do relevo só ali (scissor na cascata 2); bloco → refaz o quad. Ponto na borda do mapa: só o y das vértices do terreno de fora que estão em cima dele acompanha (sem fresta); o resto de fora, cores e parede não são recalculados (imperfeito, aceito; `rzSetHeightmap` refaz tudo). Bloco a menos de 8 quads da borda refaz a malha da continuação. Mudanças no interior: resultado idêntico pixel a pixel ao de refazer tudo (testado). Custo (llvmpipe): ~0,2 ms por ponto, contra ~30 ms + sombra inteira de `rzSetHeightmap` + `rzSetTileMap`. (Uma versão que recalculava a vizinhança de fora com exatidão ficou no branch `super_complicated_border_update`.)
 - **Culling:** de face traseira, `GL_BACK` com frente CCW.
 
 ### 7.2 Cor e luz
@@ -142,7 +142,7 @@ Limites:
   - O arquivo é lido e validado inteiro antes de tocar na textura; se der erro, o atlas anterior continua.
   - Futuro: texturas high-res em PNG.
 - **Mapa de blocos:** diz qual bloco cobre cada quad, com o bloco inteiro esticado sobre o quad. A textura recebe um sombreamento leve: a mesma luz flat do triângulo, atenuada para `mix(1, luz, 0.35)` (`kTexturedShading`). Com a luz mínima (ambient 0,3), a textura escurece até ~76%.
-- **Transparência (PCX, chão e objetos):** o índice 255 da paleta vira alfa 0 (o resto, alfa 255) e o shader descarta o pixel com alfa < 0,5: o chão e os objetos ficam com buraco ali (o que está atrás aparece; no chão, o fundo/neblina). A cor sólida 255 de `rzAddObjectPolygon` também é transparente. Mipmaps com média ponderada pelo alfa; o RGB dos texels transparentes é preenchido com a cor dos opacos vizinhos em todo nível (`fillTransparent`), para o anisotrópico e a mistura entre níveis não puxarem a cor do 255 nas bordas. A sombra ignora a transparência (os buracos ainda projetam sombra; fica para depois). A textura fallback gerada é opaca.
+- **Transparência (PCX, chão e objetos):** o índice 255 da paleta vira alfa 0 (o resto, alfa 255) e o shader descarta o pixel com alfa < 0,5: o chão e os objetos ficam com buraco ali (o que está atrás aparece; no chão, o fundo/neblina). A cor sólida 255 de `rzAddObjectPolygon` também é transparente. Mipmaps com média ponderada pelo alfa; o RGB dos texels transparentes é preenchido com a cor dos opacos vizinhos em todo nível (`fillTransparent`), para o anisotrópico e a mistura entre níveis não puxarem a cor do 255 nas bordas. A sombra ignora a transparência (os buracos ainda projetam sombra; de propósito: shader mais barato). A textura fallback gerada é opaca.
 - **Na GPU:** `GL_TEXTURE_2D_ARRAY` 16×16×256 com 5 níveis (16, 8, 4, 2, 1), gerados na CPU por média 2×2 arredondada.
 - **Filtro (fixo, sem API):** ampliação nearest; redução nearest dentro do nível e mistura linear entre níveis (`GL_NEAREST_MIPMAP_LINEAR`, o antigo `RZ_FILTER_MIP_LINEAR`). `rzSetTextureFilter` e os outros filtros (nearest, mipmap, mip+dither, trilinear) saíram para enxugar a API. Mais filtro anisotrópico 4x (`kAnisotropy`, ou o máximo do driver se for menor) sempre que o driver tem `GL_EXT/ARB_texture_filter_anisotropic`, detectado na criação do contexto; sem a extensão, só o filtro normal. Na prática o driver filtra a redução (o meio-campo fica mais liso, menos pixelado); de perto continua nearest. Em software custa caro (llvmpipe: ~+25–40% no frame): lá, neblina mais curta (`rzSetFog`). A textura de ruído dos sprites fica sem.
 
@@ -160,14 +160,14 @@ Limites:
   - `rzSetObjectColor` saiu: a cor sólida vem da paleta.
   - Mipmaps na CPU (média 2×2) e o mesmo filtro fixo do chão.
 - **Vidro (`rzAddObjectTranslucentPolygon`, `src/rz_glass.cpp`):** polígonos translúcidos em 16 tons de cinza (`tone` 0..15, cinza = tom/15).
-  - Filtro multiplicativo (o que está atrás × cinza) + brilho especular embaçado (Blinn-Phong, expoente 12, força 0,45; `kGlassShininess`, `kGlassSpecular`) da luz direcional, que some na sombra (os três mapas) e de costas para a luz.
+  - Filtro multiplicativo (o que está atrás × cinza) + brilho especular embaçado (Blinn-Phong, expoente 12, força 0,45; `kGlassShininess`, `kGlassSpecular`) da luz direcional, que some na sombra (cascatas) e de costas para a luz.
   - Um passe, `glBlendFunc(GL_ONE, GL_SRC_ALPHA)` com saída (brilho, cinza): destino = brilho + destino × cinza. Não precisa de ordenação (o filtro comuta; dois vidros sobrepostos em ordens diferentes diferem em no máximo 1 nível por arredondamento).
   - Depois dos objetos opacos e antes da parede de limite; sem gravar profundidade nem alfa de destino; mesmo culling dos objetos (só a face de fora); não projeta sombra; neblina (filtro → 1, brilho → 0). VBO próprio por objeto, criado no primeiro vidro.
 - **Rodas (`rzSetObjectWheels`, `rzUpdateObjectWheels`, `src/rz_wheels.cpp`):** 4 por objeto, por enquanto cilindros pretos finos (12 segmentos, largura 0,4 × diâmetro, aspecto 12:30; `kWheelSegments`, `kWheelWidth`, `kWheelColor`).
   - Definição: 4 índices de vértice (centro do cubo), 4 flags dianteira/traseira (`uint8_t`, exatamente 2 dianteiras) e 4 diâmetros em tiles (> 0). Chamar de novo redefine e zera o esterço.
   - Referencial do carro tirado dos 4 cubos: frente = meio das dianteiras − meio das traseiras; eixo lateral = diferença dentro de cada par; "cima" = perpendicular aos dois, sempre com y ≥ 0. Vale para qualquer ordem dos índices.
   - Esterço (`rzUpdateObjectWheels`): um `float` em radianos para as duas dianteiras, positivo = à esquerda (anti-horário visto de cima), aplicado em volta do "cima" do carro; traseiras sempre retas. Só refaz a malha se o ângulo mudar.
-  - Malha refeita na CPU quando o esterço ou os vértices mudam; desenhada com o programa do chão sem textura (cor chapada com luz, sombra e neblina), sem culling; projeta sombra nos mapas 1 e 2.
+  - Malha refeita na CPU quando o esterço ou os vértices mudam; desenhada com o programa do chão sem textura (cor chapada com luz, sombra e neblina), sem culling; projeta sombra (cascatas 0 e 1).
 - **Linhas (`rzAddObjectLine`):** entre dois vértices do objeto, exibidas como uma barra de seção quadrada de lado `thickness` (tiles), cor sólida `paletteIndex` da paleta da textura do objeto (bloquinho da faixa de amostras, como `rzAddObjectPolygon`). Geradas a cada envio do VBO do próprio objeto, depois dos polígonos (4 lados + 2 tampas, 36 vértices), então ganham luz flat por face, sombra, neblina e o mesmo culling (faces no sentido do legado). A seção é orientada pelo "cima" do mundo (não gira com o objeto em volta da linha). Fase de carga (realoca o VBO); a == b é ignorada. Exemplo: antena do carro de teste (`rztdAddVehicleAntenna`).
 - **Na GPU:** um VBO por objeto (posição, cor e UV; 24 bytes por vértice), realocado a cada polígono acrescentado. Update, cor e polígono novo só marcam o objeto como alterado; o VBO é reenviado (sem alocar) no `rzRender` seguinte. Um `glDrawArrays` por objeto visível.
 - **Culling:** fixo, na convenção do legado: vista de fora, a face está em sentido horário; as faces em sentido anti-horário na tela são descartadas (o antigo `RZ_CULL_CCW`, validado no legado; `rzSetObjectCulling` saiu).
@@ -229,14 +229,14 @@ Sem API; constantes `kSkirt*`/`kBorder*` em `rz_internal.h`, código em `src/rz_
   - Altura: a da borda (ponto mais próximo do mapa) indo, ao longo de 24 tiles, para a média das bordas + ruído de valor (duas oitavas, períodos 32 e 12). Sem degrau na emenda.
   - Blocos de textura (`skirtTile`): em geral, a célula continua o bloco do quad da borda logo "na frente" (um rio continua rio), mas o ponto de cópia serpenteia ao longo da borda: deslocamento por ruído de valor suave em (posição ao longo, distância para fora), período 24, amplitude 0,35 × distância até 12 tiles. Vizinhas se deslocam juntas, então as faixas seguem coesas e fazem curvas. 12 % das células sorteiam um bloco numa janela de 8 tiles perto da borda, para quebrar a repetição. Nos cantos, o quad do canto. A altura não entra.
   - Malha em faixas (`kSkirtBands`): células de 1 tile até 8 tiles da borda, de 2 até 16, de 4 até 32 e de 16 até 128 (`kSkirtExtent`; 128 para as células de 16 fecharem alinhadas; a neblina vai até 120). Nas linhas entre faixas, os pontos intermediários ficam na reta entre os cantos das células de fora (sem frestas). ~26 mil triângulos, em 4 regiões (N, L, S, O); só as regiões a menos do fim da neblina do olho são desenhadas.
-  - Só seguindo um alvo (com neblina). Projeta sombra no mapa 0. A câmera usa as mesmas alturas fora do mapa.
+  - Só seguindo um alvo (com neblina). Projeta sombra (na cascata 2 e, perto, nas 0 e 1). A câmera usa as mesmas alturas fora do mapa.
 - **Parede de limite:** em cima das quatro bordas, do chão (−0,5) até 6 tiles acima. Fundo vermelho translúcido escuro (alfa 0,20) com círculos vermelhos (alfa 0,85) de borda branca e um X vazado no meio (mostra o fundo), um por célula de 2 tiles, com 1 tile de diâmetro (o espaço entre vizinhos é do tamanho de um círculo). O padrão é preso ao mundo (ao longo da parede e na altura do mundo, `vWorld.y`): a parede sobe e desce com o terreno, o desenho não. Aparece só perto do alvo: alfa × (1 − smoothstep(6, 25, distância horizontal do alvo ao ponto da parede)) (`kBorderFadeNear`, `kBorderFadeFar`). Desenhada depois do opaco, com blending, sem gravar profundidade nem alfa de destino; com neblina; não projeta nem recebe sombra.
 
 ## 10. Frame (`rzRender`)
 
 1. Atualiza a câmera e monta a view-projection e a matriz da luz (sombra).
 2. Reenvia os VBOs de objetos alterados.
-3. Sombras (10.1): refaz os mapas que precisam (terreno só se mudou; objetos próximos se algo mudou; alvo sempre).
+3. Sombras (10.1): refaz as cascatas 0 e 1; a 2 só se o olho andou 10 tiles, a neblina mudou ou o terreno mudou.
 4. Faz bind do FBO (offscreen) ou do framebuffer padrão (janela) e limpa com a cor de fundo (`rzSetBackgroundColor`, padrão 32, 40, 48), com profundidade em `GL_LESS`.
 5. Desenha o terreno em um draw: textura se houver atlas e mapa de blocos, senão as cores flat. Seguindo um alvo, também a continuação (9.5).
 6. Desenha os objetos e, por último, a parede de limite (semitransparente).
@@ -244,27 +244,27 @@ Sem API; constantes `kSkirt*`/`kBorder*` em `rz_internal.h`, código em `src/rz_
 
 Sem heightmap, só limpa e apresenta.
 
-### 10.1 Sombras (três shadow maps)
+### 10.1 Sombras (cascatas)
 
-Sem API por enquanto: tudo fixo em constantes (`rz_internal.h`); o código fica em `src/rz_shadow.cpp`.
+Sem API: tudo fixo em constantes (`kCascade*`, `rz_internal.h`); o código fica em `src/rz_shadow.cpp`.
 
-- **Luz:** a mesma direcional fixa da iluminação flat (`lightDirection`). Os três mapas usam a mesma view da luz (fixa, olhando para o centro do terreno) e projeções ortográficas diferentes.
+- **Luz:** a mesma direcional fixa da iluminação flat (`lightDirection`). As três cascatas usam a mesma view da luz (fixa, olhando para o centro do terreno) e projeções ortográficas diferentes.
 
-| Mapa | Projeta | Caixa | Tamanho | Refeito |
-|---|---|---|---|---|
-| 0 terreno | só o terreno | terreno inteiro | 4096 (~0,09 tile/texel) | só quando o terreno muda (`buildTerrainMesh` marca `terrainShadowDirty`) |
-| 1 próximos | objetos, **menos o alvo da câmera** | 96 × 96 tiles, centrada 32 tiles à frente do olho (até o fim da neblina) | 2048 (~0,047 tile/texel) | todo frame |
-| 2 alvo | só o objeto seguido | esfera do objeto + 0,25 tile, lado em passos de 0,25 tile | 256 (~0,008 tile/texel num carro) | todo frame (desligado na visão geral) |
+| Cascata | Distância do olho | Projeta | Caixa | Tamanho | Refeita |
+|---|---|---|---|---|---|
+| 0 | 0 – 6 tiles | terreno + objetos | esfera da fatia do frustum (meia-largura ~7 tiles) | 512 (~0,028 tile/texel) | todo frame |
+| 1 | 6 – 20 | terreno + objetos | esfera da fatia (~23,5 tiles) | 1024 (~0,046) | todo frame |
+| 2 | 20 – fim da neblina | **só terreno** | quadrado em volta do olho, meia-largura = fim da neblina + 10 + 4 tiles | 2048 (~0,077 com neblina 65) | quando o olho anda 10 tiles, a neblina muda de tamanho, ou o terreno muda (`rzUpdateTerrain`: só o retângulo alterado, com scissor; terreno todo novo: no mesmo centro) |
 
-Tamanhos limitados a `GL_MAX_TEXTURE_SIZE` (o GL 3.3 só garante 1024). As resoluções são próximas de propósito: o mapa 2 bem mais nítido que os outros destoava. Memória: ~64 + 16 + 0,25 MB.
-
-- **Combinação:** iluminado = mínimo dos três; fora da caixa de um mapa, ele não sombreia. O alvo fica fora do mapa 1 para a sombra grossa dele não vazar em volta da fina do mapa 2.
-- **Quem recebe:** terreno e objetos, dos três mapas (o carro entra na sombra do morro pelo mapa 0).
-- **Fora de alcance:** objetos fora da caixa do mapa 1 ou além da neblina não projetam sombra. Na visão geral, o mapa 1 cobre o terreno inteiro.
-- **Ressalva:** o mapa 1 não inclui o terreno; o relevo perto do carro faz sombra só pela resolução do mapa 0. Se ficar serrilhado demais, dá para desenhar no mapa 1 o pedaço de terreno da caixa (comentário em `rz_shadow.cpp`).
-- **Profundidade:** os três cobrem a esfera do terreno com folga (receptores dentro da faixa), 24 bits, `sampler2DShadow` com PCF 2×2 (`GL_LINEAR`), `glPolygonOffset(2, 4)`, sem culling. As caixas andam em passos inteiros de texels, para a sombra não tremer.
+- **Escolha no shader:** pela distância 3D ao olho (`uCascade`), com 1 tile de transição antes de cada divisa misturando as duas vizinhas. Fora da caixa de uma cascata, ela não sombreia.
+- **Estabilidade:** a esfera da fatia só depende do FOV e dos limites (não muda quando a câmera gira); as caixas andam em passos inteiros de texel.
+- **Custo:** das cascatas 0 e 1, só os quads do terreno que podem cair na caixa são desenhados (um `glDrawArrays` por linha, colunas recortadas pela altura mínima/máxima do terreno seguida na direção da luz); a continuação só se a caixa passa da borda.
+- **Objetos além de 20 tiles não projetam sombra** (a cascata 2 só tem terreno); aceito, a neblina começa logo depois. Recebem a sombra do relevo normalmente.
+- **Visão geral (sem alvo):** só a cascata 2, cobrindo o terreno inteiro, com terreno e objetos, refeita todo frame.
+- **Comparação com os três mapas antigos (terreno 4096 inteiro, objetos 2048 numa caixa de 96 tiles, alvo 256):** sombra do relevo perto bem mais nítida; a do carro, com a cascata 0 a 512, fica mais borrada que a do antigo mapa do alvo (0,006 tile/texel); 1024 quase iguala e 2048 iguala (llvmpipe: +2,5 / +6 ms por frame). `kCascadeNearSize`.
+- **Profundidade:** todas cobrem a esfera do terreno com folga (receptores dentro da faixa), 24 bits, `sampler2DShadow` com PCF 2×2 (`GL_LINEAR`), `glPolygonOffset(2, 4)`, sem culling. Tamanhos limitados a `GL_MAX_TEXTURE_SIZE`. A transparência do índice 255 é ignorada no passe de sombra (de propósito: shader mais barato).
 - **Efeito:** na sombra, a luz flat cai para 0,24 (`kShadowLight`, 80 % do ambiente) nas cores flat do terreno e nos objetos; no chão texturizado, a cor é multiplicada por 0,48 (`kShadowTexturedDim`).
-- **Custo (llvmpipe, `rz_test` 800×450, 120 frames):** ~40 ms/frame com a neblina (~37 sem ela, com a caixa do mapa 1 menor); redesenhando o terreno no mapa de sombra todo frame, ~61 ms.
+- **Custo (llvmpipe, `rz_test` 1280×720, 60 frames):** ~64 ms/frame com as cascatas (com os três mapas antigos, ~62).
 
 ## 11. Testes
 

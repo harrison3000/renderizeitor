@@ -157,21 +157,12 @@ Mat4 updateCamera(RzContext* ctx) {
         at = terrainCenter;
         overviewCamera(ctx, at, &eye);
     }
-    // Neblina e caixa do mapa de sombra 1: seguindo um alvo, a caixa fica à
-    // frente do olho (cobre a parte visível sem neblina); na visão geral, sem
-    // neblina e com o terreno inteiro.
+    // Neblina e cascatas de sombra: seguindo um alvo, com neblina e cascatas
+    // pela distância ao olho; na visão geral, sem neblina e só a cascata do
+    // terreno inteiro.
     ctx->eyePos = eye;
     ctx->fogOn  = following;
     ctx->shadowWholeTerrain = !following;
-    if (following) {
-        float fx = at.x - eye.x, fz = at.z - eye.z;
-        const float len = sqrtf(fx * fx + fz * fz);
-        if (len > 1e-4f) { fx /= len; fz /= len; } else { fx = 0.0f; fz = -1.0f; }
-        const float ahead = kShadowNearAhead * ctx->cellSize;
-        ctx->shadowFocus = { eye.x + fx * ahead, at.y, eye.z + fz * ahead };
-    } else {
-        ctx->shadowFocus = at;
-    }
 
     const Mat4 view = lookAt(eye, at);
     ctx->camRight   = { view[0, 0], view[0, 1], view[0, 2] };
