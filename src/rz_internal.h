@@ -147,12 +147,12 @@ constexpr float   kSpriteClickJitter   = 0.10f;  // deslocamento do centro do cl
 // tiles entre elas. Na visão geral, só a 2, com o terreno inteiro e os objetos.
 constexpr int32_t kShadowMaps           = 3;
 // Tamanhos pedidos; limitados a GL_MAX_TEXTURE_SIZE na criação (ctx->shadowSize).
-constexpr int32_t kCascadeNearSize      = 1024;
+constexpr int32_t kCascadeNearSize      = 2048;
 constexpr int32_t kCascadeMidSize       = 1024;
 constexpr int32_t kCascadeFarSize       = 2048;
 constexpr float   kCascadeSplit0        = 8.0f;   // tiles do olho
 constexpr float   kCascadeSplit1        = 30.0f;
-constexpr float   kCascadeBlend         = 1.0f;   // tiles de transição antes de cada divisa
+constexpr float   kCascadeBlend         = 2.0f;   // tiles de transição antes de cada divisa
 constexpr float   kCascadeFarRecenter   = 10.0f;  // tiles andados até refazer a cascata 2
 constexpr float   kCascadeFarMargin     = 4.0f;   // tiles além da neblina + recentragem
 constexpr int32_t kShadowScissorMargin  = 4;     // texels em volta da área refeita da cascata 2
