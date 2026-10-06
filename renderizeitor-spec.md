@@ -60,6 +60,7 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 | Câmera | `rzSetCameraTarget(id, vertex)`, `rzSetCameraFollow(distance, height, stiffness)` |
 | Cena | `rzSetBackgroundColor(r, g, b)` (0..255; padrão 32, 40, 48), `rzSetFog(start, end)` (tiles; padrão 30, 65) |
 | Frame | `rzRender` |
+| Erros | `rzGetError(ctx, &funcao)` |
 
 Erros:
 
@@ -71,6 +72,13 @@ Erros:
 | `RZ_ERR_GL` | Sem OpenGL 3.3, ou falha de contexto, shader ou janela |
 | `RZ_ERR_FILE` | Arquivo não abriu ou não pôde ser lido |
 | `RZ_ERR_FORMAT` | Arquivo em formato não suportado ou corrompido |
+
+**Checagem em bloco (`rzGetError`):** as funções que devolvem código continuam devolvendo, mas também guardam no contexto o **primeiro** erro desde a última leitura e o nome da função que falhou. Assim o host pode inicializar tudo sem olhar retorno nenhum e checar uma vez no fim:
+
+- **Leitura:** `rzGetError(ctx, &funcao)` devolve esse erro (`RZ_OK` se nada falhou), põe em `funcao` o nome da função (string estática, ou NULL) e zera o registro.
+- **Contexto que não foi criado:** se `rzCreate` ou `rzCreateWindow` falhou, o `ctx` fica NULL e as chamadas seguintes só devolvem `RZ_ERR_INVALID_ARG`, sem ter onde registrar. `rzGetError(NULL, ...)` devolve o erro da criação; sem falha de criação registrada, devolve `RZ_ERR_INVALID_ARG`.
+- **Durante o jogo:** erros do `rzRender` e dos updates também entram no registro. Quem não lê o registro não é afetado.
+- **Implementação:** todo `return` de erro de uma função exportada passa por `recordError(ctx, "rzNome", erro)`. As de criação usam `recordCreateError`. Função nova ou `return` novo de erro precisa seguir o mesmo padrão.
 
 Limites:
 

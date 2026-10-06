@@ -327,6 +327,23 @@ RZ_API int32_t RZ_CALL rzSetCameraFollow(RzContext* ctx, float distance, float h
    janela, apresenta (SwapBuffers). Não aloca. */
 RZ_API int32_t RZ_CALL rzRender(RzContext* ctx);
 
+/* Checagem de erros em bloco: todas as funções que devolvem código guardam o
+   primeiro erro no contexto. Dá para inicializar tudo sem olhar os retornos e
+   checar uma vez no fim:
+
+       rzCreateWindow(hwnd, 0, 0, w, h, &ctx);
+       rzSetHeightmap(ctx, ...);  rzLoadTileAtlas(ctx, ...);  ...
+       const char* where;
+       if (rzGetError(ctx, &where) != RZ_OK) { ... where = "rzLoadTileAtlas" ... }
+
+   Devolve o primeiro erro desde a última chamada (RZ_OK se nada falhou) e
+   zera o registro. outFunction (pode ser NULL) recebe o nome da função que
+   falhou primeiro (string estática), ou NULL.
+   ctx NULL (rzCreate/rzCreateWindow falhou): devolve o erro da criação, ou
+   RZ_ERR_INVALID_ARG se não houve falha de criação registrada.
+   Chamadas com ctx NULL não têm onde registrar: só devolvem o erro. */
+RZ_API int32_t RZ_CALL rzGetError(RzContext* ctx, const char** outFunction);
+
 #ifdef __cplusplus
 }
 #endif

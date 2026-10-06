@@ -46,36 +46,73 @@ int32_t createContext(RzContext** outCtx, Platform* platform, bool windowed,
     return RZ_OK;
 }
 
+// Erro da última rzCreate/rzCreateWindow que falhou (não há contexto onde
+// guardar); devolvido por rzGetError(NULL).
+int32_t     g_createError = RZ_OK;
+const char* g_createErrorFunction = nullptr;
+
+int32_t recordCreateError(const char* function, int32_t err) {
+    if (err != RZ_OK) {
+        g_createError = err;
+        g_createErrorFunction = function;
+    }
+    return err;
+}
+
 } // namespace
 
 extern "C" {
 
+RZ_API RZ_ENTRY int32_t RZ_CALL rzGetError(RzContext* ctx, const char** outFunction) {
+    int32_t err;
+    const char* function;
+    if (ctx) {
+        err = ctx->firstError;
+        function = ctx->firstErrorFunction;
+        ctx->firstError = RZ_OK;
+        ctx->firstErrorFunction = nullptr;
+        ctx->errorCount = 0;
+    } else if (g_createError != RZ_OK) {
+        err = g_createError;
+        function = g_createErrorFunction;
+        g_createError = RZ_OK;
+        g_createErrorFunction = nullptr;
+    } else {
+        err = RZ_ERR_INVALID_ARG;      // contexto nulo sem falha de criação registrada
+        function = nullptr;
+    }
+    if (outFunction) *outFunction = function;
+    return err;
+}
+
 RZ_API RZ_ENTRY int32_t RZ_CALL rzCreate(int32_t width, int32_t height,
                                          void* pixels, RzContext** outCtx) {
-    if (!outCtx) return RZ_ERR_INVALID_ARG;
+    if (!outCtx) return recordCreateError("rzCreate", RZ_ERR_INVALID_ARG);
     *outCtx = nullptr;
-    if (!pixels) return RZ_ERR_INVALID_ARG;
-    if (width < 1 || height < 1) return RZ_ERR_INVALID_ARG;
-    if (width > RZ_MAX_WIDTH || height > RZ_MAX_HEIGHT) return RZ_ERR_SIZE;
-    return createContext(outCtx, platformCreateOffscreen(), false, width, height, pixels);
+    if (!pixels) return recordCreateError("rzCreate", RZ_ERR_INVALID_ARG);
+    if (width < 1 || height < 1) return recordCreateError("rzCreate", RZ_ERR_INVALID_ARG);
+    if (width > RZ_MAX_WIDTH || height > RZ_MAX_HEIGHT) return recordCreateError("rzCreate", RZ_ERR_SIZE);
+    return recordCreateError("rzCreate",
+        createContext(outCtx, platformCreateOffscreen(), false, width, height, pixels));
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateWindow(void* parentWindow, int32_t x, int32_t y,
                                                int32_t width, int32_t height, RzContext** outCtx) {
-    if (!outCtx) return RZ_ERR_INVALID_ARG;
+    if (!outCtx) return recordCreateError("rzCreateWindow", RZ_ERR_INVALID_ARG);
     *outCtx = nullptr;
-    if (!parentWindow || width < 1 || height < 1) return RZ_ERR_INVALID_ARG;
-    if (width > kMaxWindowSize || height > kMaxWindowSize) return RZ_ERR_SIZE;
-    return createContext(outCtx, platformCreateChildWindow(parentWindow, x, y, width, height),
-                         true, width, height, nullptr);
+    if (!parentWindow || width < 1 || height < 1) return recordCreateError("rzCreateWindow", RZ_ERR_INVALID_ARG);
+    if (width > kMaxWindowSize || height > kMaxWindowSize) return recordCreateError("rzCreateWindow", RZ_ERR_SIZE);
+    return recordCreateError("rzCreateWindow",
+        createContext(outCtx, platformCreateChildWindow(parentWindow, x, y, width, height),
+                      true, width, height, nullptr));
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzSetViewport(RzContext* ctx, int32_t x, int32_t y,
                                               int32_t width, int32_t height) {
-    if (!ctx || !ctx->windowed) return RZ_ERR_INVALID_ARG;
-    if (width < 1 || height < 1) return RZ_ERR_INVALID_ARG;
-    if (width > kMaxWindowSize || height > kMaxWindowSize) return RZ_ERR_SIZE;
-    if (!platformMoveWindow(ctx->platform, x, y, width, height)) return RZ_ERR_GL;
+    if (!ctx || !ctx->windowed) return recordError(ctx, "rzSetViewport", RZ_ERR_INVALID_ARG);
+    if (width < 1 || height < 1) return recordError(ctx, "rzSetViewport", RZ_ERR_INVALID_ARG);
+    if (width > kMaxWindowSize || height > kMaxWindowSize) return recordError(ctx, "rzSetViewport", RZ_ERR_SIZE);
+    if (!platformMoveWindow(ctx->platform, x, y, width, height)) return recordError(ctx, "rzSetViewport", RZ_ERR_GL);
     setSize(ctx, width, height);
     return RZ_OK;
 }
@@ -93,39 +130,39 @@ RZ_API RZ_ENTRY void RZ_CALL rzDestroy(RzContext* ctx) {
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzSetHeightmap(RzContext* ctx, const uint8_t* data,
                                                int32_t width, int32_t height) {
-    if (!ctx || !data) return RZ_ERR_INVALID_ARG;
-    if (width != kGridSize || height != kGridSize) return RZ_ERR_SIZE;
-    if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
+    if (!ctx || !data) return recordError(ctx, "rzSetHeightmap", RZ_ERR_INVALID_ARG);
+    if (width != kGridSize || height != kGridSize) return recordError(ctx, "rzSetHeightmap", RZ_ERR_SIZE);
+    if (!platformMakeCurrent(ctx->platform)) return recordError(ctx, "rzSetHeightmap", RZ_ERR_GL);
 
     ctx->heights.assign(data, data + kVertexCount);
     ctx->heightSource = data;                  // relido por rzUpdateTerrain
     updateTerrainBounds(ctx);
-    return buildTerrainMesh(ctx) ? RZ_OK : RZ_ERR_GL;
+    return recordError(ctx, "rzSetHeightmap", buildTerrainMesh(ctx) ? RZ_OK : RZ_ERR_GL);
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzSetTerrainScale(RzContext* ctx,
                                                   float cellSize, float heightScale) {
     if (!ctx) return RZ_ERR_INVALID_ARG;
-    if (!isPositiveFinite(cellSize) || !isPositiveFinite(heightScale)) return RZ_ERR_INVALID_ARG;
+    if (!isPositiveFinite(cellSize) || !isPositiveFinite(heightScale)) return recordError(ctx, "rzSetTerrainScale", RZ_ERR_INVALID_ARG);
     ctx->cellSize    = cellSize;
     ctx->heightScale = heightScale;
     updateTerrainBounds(ctx);
     if (ctx->hasTerrain()) {          // posições e iluminação dependem da escala
-        if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
-        if (!buildTerrainMesh(ctx)) return RZ_ERR_GL;
+        if (!platformMakeCurrent(ctx->platform)) return recordError(ctx, "rzSetTerrainScale", RZ_ERR_GL);
+        if (!buildTerrainMesh(ctx)) return recordError(ctx, "rzSetTerrainScale", RZ_ERR_GL);
     }
     return RZ_OK;
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzLoadTileAtlas(RzContext* ctx, const char* pcxPath) {
-    if (!ctx || !pcxPath) return RZ_ERR_INVALID_ARG;
+    if (!ctx || !pcxPath) return recordError(ctx, "rzLoadTileAtlas", RZ_ERR_INVALID_ARG);
 
     // Lê tudo antes de mexer na textura: se o arquivo falhar, o atlas anterior fica.
     std::vector<uint8_t> indices(size_t(kAtlasSize) * kAtlasSize);
     uint8_t paletteRGB[768];
     const int32_t err = loadPcxAtlas(pcxPath, indices.data(), paletteRGB);
-    if (err != RZ_OK) return err;
-    if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
+    if (err != RZ_OK) return recordError(ctx, "rzLoadTileAtlas", err);
+    if (!platformMakeCurrent(ctx->platform)) return recordError(ctx, "rzLoadTileAtlas", RZ_ERR_GL);
 
     // 256 blocos x (256 + 64 + 16 + 4 + 1) texels, por nível; temporário da carga
     constexpr int32_t kTexels = kMaxTiles * 341;
@@ -149,7 +186,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzLoadTileAtlas(RzContext* ctx, const char* pcxP
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     if (ctx->anisotropy > 0.0f) glTexParameterf(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_ANISOTROPY, ctx->anisotropy);
-    if (glGetError() != GL_NO_ERROR) return RZ_ERR_GL;
+    if (glGetError() != GL_NO_ERROR) return recordError(ctx, "rzLoadTileAtlas", RZ_ERR_GL);
     ctx->hasAtlas = true;
     setSpritePalette(ctx, paletteRGB);                // sprites: paleta do jogo
     return RZ_OK;
@@ -163,22 +200,22 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetTileMap(RzContext* ctx, const uint8_t* data
         ctx->tileSource = nullptr;
         return RZ_OK;
     }
-    if (width != kGridSize || height != kGridSize) return RZ_ERR_SIZE;
+    if (width != kGridSize || height != kGridSize) return recordError(ctx, "rzSetTileMap", RZ_ERR_SIZE);
 
     ctx->tileMap.assign(data, data + kVertexCount);
     ctx->tileSource = data;          // relido por rzUpdateTerrain
     ctx->hasTileMap = true;
     if (ctx->hasTerrain()) {          // o bloco vai no vértice (relevo e sombra ficam)
-        if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
-        if (!rebuildTerrainTiles(ctx)) return RZ_ERR_GL;
+        if (!platformMakeCurrent(ctx->platform)) return recordError(ctx, "rzSetTileMap", RZ_ERR_GL);
+        if (!rebuildTerrainTiles(ctx)) return recordError(ctx, "rzSetTileMap", RZ_ERR_GL);
     }
     return RZ_OK;
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateTerrain(RzContext* ctx) {
-    if (!ctx || !ctx->hasTerrain() || !ctx->heightSource) return RZ_ERR_INVALID_ARG;
-    if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
-    return updateTerrain(ctx) ? RZ_OK : RZ_ERR_GL;
+    if (!ctx || !ctx->hasTerrain() || !ctx->heightSource) return recordError(ctx, "rzUpdateTerrain", RZ_ERR_INVALID_ARG);
+    if (!platformMakeCurrent(ctx->platform)) return recordError(ctx, "rzUpdateTerrain", RZ_ERR_GL);
+    return recordError(ctx, "rzUpdateTerrain", updateTerrain(ctx) ? RZ_OK : RZ_ERR_GL);
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzSetBackgroundColor(RzContext* ctx, uint8_t r, uint8_t g, uint8_t b) {
@@ -192,7 +229,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetBackgroundColor(RzContext* ctx, uint8_t r, 
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzSetFog(RzContext* ctx, float start, float end) {
     if (!ctx) return RZ_ERR_INVALID_ARG;
-    if (!(start >= 0.0f && start < end && end <= kFogMaxEnd)) return RZ_ERR_INVALID_ARG;   // pega NaN
+    if (!(start >= 0.0f && start < end && end <= kFogMaxEnd)) return recordError(ctx, "rzSetFog", RZ_ERR_INVALID_ARG);   // pega NaN
     ctx->fogStart = start;     // só valores: uniforms, far plane e cortes leem no rzRender
     ctx->fogEnd   = end;
     return RZ_OK;
@@ -206,7 +243,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCameraTarget(RzContext* ctx, int32_t id, in
     }
     if (id >= int32_t(ctx->objects.size()) || !ctx->objects[id].alive ||
         vertex < 0 || vertex >= ctx->objects[id].vertexCount()) {
-        return RZ_ERR_INVALID_ARG;
+        return recordError(ctx, "rzSetCameraTarget", RZ_ERR_INVALID_ARG);
     }
     // Outro alvo: seguindo um, a câmera vai até o novo (rz_camera.cpp); vindo
     // da visão geral, começa direto atrás dele
@@ -219,7 +256,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCameraTarget(RzContext* ctx, int32_t id, in
 RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCameraFollow(RzContext* ctx, float distance, float height,
                                                   float stiffness) {
     if (!ctx) return RZ_ERR_INVALID_ARG;
-    if (!(distance > 0.0f) || !(height == height) || !(stiffness > 0.0f)) return RZ_ERR_INVALID_ARG;
+    if (!(distance > 0.0f) || !(height == height) || !(stiffness > 0.0f)) return recordError(ctx, "rzSetCameraFollow", RZ_ERR_INVALID_ARG);
     if (stiffness > 1.0f) stiffness = 1.0f;
     ctx->followDistance  = distance;
     ctx->followHeight    = height;
@@ -229,9 +266,9 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCameraFollow(RzContext* ctx, float distance
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzRender(RzContext* ctx) {
     if (!ctx) return RZ_ERR_INVALID_ARG;
-    if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
+    if (!platformMakeCurrent(ctx->platform)) return recordError(ctx, "rzRender", RZ_ERR_GL);
     renderFrame(ctx);
-    return glGetError() == GL_NO_ERROR ? RZ_OK : RZ_ERR_GL;
+    return recordError(ctx, "rzRender", glGetError() == GL_NO_ERROR ? RZ_OK : RZ_ERR_GL);
 }
 
 } // extern "C"

@@ -525,6 +525,12 @@ struct RzContext {
 
     // Objetos (id = índice no vetor; slots livres são reaproveitados)
     std::vector<rz::Object> objects;
+
+    // Erros acumulados desde o último rzGetError: o primeiro (código e função)
+    // e quantos houve
+    int32_t     firstError = RZ_OK;
+    const char* firstErrorFunction = nullptr;
+    int32_t     errorCount = 0;
 };
 
 namespace rz {
@@ -591,6 +597,19 @@ bool createSprites(RzContext* ctx);
 void destroySprites(RzContext* ctx);
 void setSpritePalette(RzContext* ctx, const uint8_t* paletteRGB);   // nullptr: rampa de cinza
 void drawSprites(RzContext* ctx, const Mat4& viewProj);
+
+// Erros (rzGetError): guarda o primeiro erro de uma função exportada. Usado
+// em todo return de erro delas: return recordError(ctx, "rzX", RZ_ERR_...);
+inline int32_t recordError(RzContext* ctx, const char* function, int32_t err) {
+    if (err != RZ_OK && ctx) {
+        if (ctx->errorCount == 0) {
+            ctx->firstError = err;
+            ctx->firstErrorFunction = function;
+        }
+        ++ctx->errorCount;
+    }
+    return err;
+}
 
 // rz_render.cpp
 GLuint linkProgram(const char* vertexSource, const char* fragmentSource);

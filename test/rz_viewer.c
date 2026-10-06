@@ -262,64 +262,61 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
     if (!hwnd) return 1;
     ShowWindow(hwnd, show);
 
-    /* Renderer: janela filha OpenGL ocupando toda a área cliente */
-    err = rzCreateWindow(hwnd, 0, 0, FB_WIDTH, FB_HEIGHT, &g_ctx);
-    if (err == RZ_OK) err = rzSetHeightmap(g_ctx, heightmap, 256, 256);
-    if (err == RZ_OK) {
-        /* Atlas do PCX; mapa de blocos procedural */
-        err = rzLoadTileAtlas(g_ctx, pcxPath);
-        if (err != RZ_OK) {
-            char msg[MAX_PATH + 64];
-            wsprintfA(msg, "rzLoadTileAtlas falhou (erro %d):\n%s", (int)err, pcxPath);
-            MessageBoxA(hwnd, msg, "rz_viewer", MB_ICONERROR);
-        }
-        rztdGenerateTileMap(heightmap, g_tileMap);
-        if (err == RZ_OK) err = rzSetTileMap(g_ctx, g_tileMap, 256, 256);
-    }
-    if (err == RZ_OK) {
-        /* Primeiro objeto: o veículo, no início do percurso automático */
-        g_heights = heightmap;
-        rztdVehiclePath(0.0f, &g_carX, &g_carZ, &g_carHeading);
-        g_carSpeed = 0.0f;
-        placeVehicle();
-        err = rztdCreateObject(g_ctx, &g_vehicle, RZTD_CAR_V, RZTD_CAR_ROOF, &g_vehicleId);
-        if (err == RZ_OK) {
-            rzLoadObjectTexture(g_ctx, g_vehicleId, carPath);
-            rztdSetVehicleWheels(g_ctx, g_vehicleId);
-            rztdAddVehicleAntenna(g_ctx, g_vehicleId);
-            rzSetCameraTarget(g_ctx, g_vehicleId, RZTD_VEHICLE_TARGET);
-        }
-    }
-    if (err == RZ_OK) {
+    /* Renderer: janela filha OpenGL ocupando toda a área cliente. Inicializa
+       tudo sem olhar os retornos e checa uma vez no fim (rzGetError). */
+    rzCreateWindow(hwnd, 0, 0, FB_WIDTH, FB_HEIGHT, &g_ctx);
+    rzSetHeightmap(g_ctx, heightmap, 256, 256);
+    rzLoadTileAtlas(g_ctx, pcxPath);                 /* atlas do PCX */
+    rztdGenerateTileMap(heightmap, g_tileMap);       /* mapa de blocos procedural */
+    rzSetTileMap(g_ctx, g_tileMap, 256, 256);
+
+    /* Primeiro objeto: o veículo, no início do percurso automático */
+    g_heights = heightmap;
+    rztdVehiclePath(0.0f, &g_carX, &g_carZ, &g_carHeading);
+    g_carSpeed = 0.0f;
+    placeVehicle();
+    rztdCreateObject(g_ctx, &g_vehicle, RZTD_CAR_V, RZTD_CAR_ROOF, &g_vehicleId);
+    rzLoadObjectTexture(g_ctx, g_vehicleId, carPath);
+    rztdSetVehicleWheels(g_ctx, g_vehicleId);
+    rztdAddVehicleAntenna(g_ctx, g_vehicleId);
+    rzSetCameraTarget(g_ctx, g_vehicleId, RZTD_VEHICLE_TARGET);
+
+    {
         static RztdMesh buildings[RZTD_MAX_OBJECTS];
         static uint32_t colors[RZTD_MAX_OBJECTS];
         const float heightScale = RZTD_HEIGHT_SCALE;   /* padrão de rzSetTerrainScale */
         int count = rztdGenerateBuildings(heightmap, heightScale, buildings, colors, RZTD_MAX_OBJECTS);
         int i, top = 0;
-        for (i = 0; i < count && err == RZ_OK; ++i) {
+        for (i = 0; i < count; ++i) {
             int32_t id;
-            err = rztdCreateObject(g_ctx, &buildings[i], RZTD_WALL_V, RZTD_WALL_ROOF, &id);
-            if (err == RZ_OK) {
-                rzLoadObjectTexture(g_ctx, id, wallPath);
-            }
+            rztdCreateObject(g_ctx, &buildings[i], RZTD_WALL_V, RZTD_WALL_ROOF, &id);
+            rzLoadObjectTexture(g_ctx, id, wallPath);
         }
         for (i = 0; i < 256 * 256; ++i) if (heightmap[i] > top) top = heightmap[i];
         g_cubePos[0] = 128.0f; g_cubePos[1] = (float)top * heightScale + 2.0f; g_cubePos[2] = 128.0f;
         rztdSpinningCube(&g_cube, g_cubePos[0], g_cubePos[1], g_cubePos[2], 0.6f, 0.0f);
-        /* Cubo: textura que não existe, para mostrar o fallback */
-        if (err == RZ_OK) err = rztdCreateObject(g_ctx, &g_cube, RZTD_WALL_V, RZTD_WALL_ROOF, &g_cubeId);
-        if (err == RZ_OK) {
-            rzLoadObjectTexture(g_ctx, g_cubeId, "nao_existe.pcx");
-        }
-    }
-    if (err != RZ_OK) {
-        MessageBoxA(hwnd, err == RZ_ERR_GL ? "Falha ao inicializar o OpenGL 3.3."
-                                           : "Falha ao inicializar o Renderizeitor.",
-                    "rz_viewer", MB_ICONERROR);
-        DestroyWindow(hwnd);
-        return 1;
+        rztdCreateObject(g_ctx, &g_cube, RZTD_WALL_V, RZTD_WALL_ROOF, &g_cubeId);
     }
 
+    {
+        const char* where = NULL;
+        err = rzGetError(g_ctx, &where);    /* g_ctx NULL: erro do rzCreateWindow */
+        if (err != RZ_OK) {
+            char msg[MAX_PATH + 128];
+            wsprintfA(msg, "%s falhou (erro %d)%s%s", where ? where : "Renderizeitor", (int)err,
+                      err == RZ_ERR_GL ? ":\nOpenGL 3.3 indisponivel." : "",
+                      (where && !lstrcmpA(where, "rzLoadTileAtlas")) ? ":\n" : "");
+            if (where && !lstrcmpA(where, "rzLoadTileAtlas")) lstrcatA(msg, pcxPath);
+            MessageBoxA(hwnd, msg, "rz_viewer", MB_ICONERROR);
+            DestroyWindow(hwnd);
+            return 1;
+        }
+    }
+
+    /* Cubo: textura que não existe, de propósito, para mostrar o fallback.
+       Fica depois da checagem e o erro esperado é descartado. */
+    rzLoadObjectTexture(g_ctx, g_cubeId, "nao_existe.pcx");
+    rzGetError(g_ctx, NULL);
 
     /* Laço com frame rate fixo: o carro e a câmera andam por frame, então o
        fps fixo mantém a velocidade constante. */

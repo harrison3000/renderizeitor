@@ -292,11 +292,11 @@ void destroyAllObjects(RzContext* ctx) {
 extern "C" {
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateObject(RzContext* ctx, int32_t vertexCount, int32_t* outId) {
-    if (!ctx || !outId) return RZ_ERR_INVALID_ARG;
+    if (!ctx || !outId) return recordError(ctx, "rzCreateObject", RZ_ERR_INVALID_ARG);
     *outId = -1;
-    if (vertexCount < 1) return RZ_ERR_INVALID_ARG;
-    if (vertexCount > kMaxObjectVertices) return RZ_ERR_SIZE;
-    if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
+    if (vertexCount < 1) return recordError(ctx, "rzCreateObject", RZ_ERR_INVALID_ARG);
+    if (vertexCount > kMaxObjectVertices) return recordError(ctx, "rzCreateObject", RZ_ERR_SIZE);
+    if (!platformMakeCurrent(ctx->platform)) return recordError(ctx, "rzCreateObject", RZ_ERR_GL);
 
     // Slot livre, ou um novo no fim (fase de carga)
     int32_t id = 0;
@@ -328,7 +328,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateObject(RzContext* ctx, int32_t vertexCou
 
     if (glGetError() != GL_NO_ERROR) {
         freeObject(o);
-        return RZ_ERR_GL;
+        return recordError(ctx, "rzCreateObject", RZ_ERR_GL);
     }
     *outId = id;
     return RZ_OK;
@@ -337,33 +337,33 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateObject(RzContext* ctx, int32_t vertexCou
 RZ_API RZ_ENTRY int32_t RZ_CALL rzAddObjectPolygon(RzContext* ctx, int32_t id,
                                                    const uint16_t* indices, int32_t count,
                                                    int32_t paletteIndex) {
-    return addPolygon(ctx, id, indices, nullptr, count, paletteIndex);
+    return recordError(ctx, "rzAddObjectPolygon", addPolygon(ctx, id, indices, nullptr, count, paletteIndex));
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzAddObjectTexturedPolygon(RzContext* ctx, int32_t id,
                                                            const RzTexVertex* corners, int32_t count) {
-    if (!corners) return RZ_ERR_INVALID_ARG;
-    return addPolygon(ctx, id, nullptr, corners, count, -1);
+    if (!corners) return recordError(ctx, "rzAddObjectTexturedPolygon", RZ_ERR_INVALID_ARG);
+    return recordError(ctx, "rzAddObjectTexturedPolygon", addPolygon(ctx, id, nullptr, corners, count, -1));
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzAddObjectLine(RzContext* ctx, int32_t id, uint16_t a, uint16_t b,
                                                 float thickness, int32_t paletteIndex) {
-    if (!validId(ctx, id)) return RZ_ERR_INVALID_ARG;
+    if (!validId(ctx, id)) return recordError(ctx, "rzAddObjectLine", RZ_ERR_INVALID_ARG);
     Object& o = ctx->objects[id];
-    if (a >= o.vertexCount() || b >= o.vertexCount()) return RZ_ERR_INVALID_ARG;
-    if (!(thickness > 0.0f && thickness < 1.0e6f)) return RZ_ERR_INVALID_ARG;   // pega NaN
-    if (paletteIndex < 0 || paletteIndex > 255) return RZ_ERR_INVALID_ARG;
+    if (a >= o.vertexCount() || b >= o.vertexCount()) return recordError(ctx, "rzAddObjectLine", RZ_ERR_INVALID_ARG);
+    if (!(thickness > 0.0f && thickness < 1.0e6f)) return recordError(ctx, "rzAddObjectLine", RZ_ERR_INVALID_ARG);   // pega NaN
+    if (paletteIndex < 0 || paletteIndex > 255) return recordError(ctx, "rzAddObjectLine", RZ_ERR_INVALID_ARG);
     if (a == b) return RZ_OK;                                  // degenerada: ignorada
-    if (o.lines.size() >= 65535) return RZ_ERR_SIZE;
-    if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
+    if (o.lines.size() >= 65535) return recordError(ctx, "rzAddObjectLine", RZ_ERR_SIZE);
+    if (!platformMakeCurrent(ctx->platform)) return recordError(ctx, "rzAddObjectLine", RZ_ERR_GL);
     o.lines.push_back({ a, b, int16_t(paletteIndex), 0.5f * thickness * ctx->cellSize });
     resizeObjectBuffers(o);
-    return glGetError() == GL_NO_ERROR ? RZ_OK : RZ_ERR_GL;
+    return recordError(ctx, "rzAddObjectLine", glGetError() == GL_NO_ERROR ? RZ_OK : RZ_ERR_GL);
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t id,
                                                        const RzVertex* vertices) {
-    if (!validId(ctx, id) || !vertices) return RZ_ERR_INVALID_ARG;
+    if (!validId(ctx, id) || !vertices) return recordError(ctx, "rzUpdateObjectVertices", RZ_ERR_INVALID_ARG);
     Object& o = ctx->objects[id];
     loadPositions(ctx, o, vertices);
     computePolygonColors(o);
@@ -375,7 +375,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t i
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzDestroyObject(RzContext* ctx, int32_t id) {
-    if (!validId(ctx, id)) return RZ_ERR_INVALID_ARG;
+    if (!validId(ctx, id)) return recordError(ctx, "rzDestroyObject", RZ_ERR_INVALID_ARG);
     platformMakeCurrent(ctx->platform);
     freeObject(ctx->objects[id]);
     return RZ_OK;

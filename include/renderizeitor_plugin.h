@@ -103,7 +103,8 @@ typedef char RzAssertSpriteSize[sizeof(RzSprite) == 20 ? 1 : -1];
     X(int32_t, rzSetSprites,    (RzContext* ctx, const RzSprite* sprites, int32_t count))            \
     X(int32_t, rzSetCameraTarget, (RzContext* ctx, int32_t id, int32_t vertex))                      \
     X(int32_t, rzSetCameraFollow, (RzContext* ctx, float distance, float height, float stiffness))   \
-    X(int32_t, rzRender,        (RzContext* ctx))
+    X(int32_t, rzRender,        (RzContext* ctx))                                                    \
+    X(int32_t, rzGetError,      (RzContext* ctx, const char** outFunction))
 
 #define RZ_PLUGIN_MEMBER(ret, name, params) ret (RZ_CALL *name) params;
 

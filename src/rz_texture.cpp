@@ -213,22 +213,22 @@ using namespace rz;
 extern "C" {
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzLoadObjectTexture(RzContext* ctx, int32_t id, const char* pcxPath) {
-    if (!validId(ctx, id) || !pcxPath) return RZ_ERR_INVALID_ARG;
-    if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
+    if (!validId(ctx, id) || !pcxPath) return recordError(ctx, "rzLoadObjectTexture", RZ_ERR_INVALID_ARG);
+    if (!platformMakeCurrent(ctx->platform)) return recordError(ctx, "rzLoadObjectTexture", RZ_ERR_GL);
     Object& o = ctx->objects[id];
     releaseTexture(o);                       // em caso de erro: fallback
-    return loadSquareTextureFromPcx(pcxPath, ctx->anisotropy, &o.texture, &o.textureSize);
+    return recordError(ctx, "rzLoadObjectTexture", loadSquareTextureFromPcx(pcxPath, ctx->anisotropy, &o.texture, &o.textureSize));
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzLoadFallbackTexture(RzContext* ctx, const char* pcxPath) {
     if (!ctx) return RZ_ERR_INVALID_ARG;
-    if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
-    if (!pcxPath) return createFallbackTexture(ctx) ? RZ_OK : RZ_ERR_GL;   // volta ao xadrez
+    if (!platformMakeCurrent(ctx->platform)) return recordError(ctx, "rzLoadFallbackTexture", RZ_ERR_GL);
+    if (!pcxPath) return recordError(ctx, "rzLoadFallbackTexture", createFallbackTexture(ctx) ? RZ_OK : RZ_ERR_GL);   // volta ao xadrez
 
     GLuint texture;
     int32_t side;
     const int32_t err = loadSquareTextureFromPcx(pcxPath, ctx->anisotropy, &texture, &side);
-    if (err != RZ_OK) return err;            // a fallback atual continua
+    if (err != RZ_OK) return recordError(ctx, "rzLoadFallbackTexture", err);   // a fallback atual continua
     glDeleteTextures(1, &ctx->fallbackTex);
     ctx->fallbackTex  = texture;
     ctx->fallbackSize = side;

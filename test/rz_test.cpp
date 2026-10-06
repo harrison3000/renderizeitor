@@ -218,6 +218,30 @@ int main(int argc, char** argv) {
         std::printf("objetos: 1 veiculo + %d construcoes + 1 cubo\n", count);
     }
 
+    // rzGetError: registra o primeiro erro de qualquer função e zera ao ler
+    {
+        const char* where = nullptr;
+        bool good = true;
+        int32_t e = rzGetError(ctx, &where);    // só o nao_existe.pcx de propósito, se houve
+        if (objects && objectTextures) {
+            good = good && e == RZ_ERR_FILE && where && !std::strcmp(where, "rzLoadObjectTexture");
+        } else {
+            good = good && e == RZ_OK && !where;
+        }
+        good = good && rzGetError(ctx, &where) == RZ_OK && !where;                 // zerou
+        rzSetFog(ctx, -1.0f, -2.0f);                                                // inválido
+        rzDestroyObject(ctx, 9999);                                                 // inválido
+        e = rzGetError(ctx, &where);
+        good = good && e == RZ_ERR_INVALID_ARG && where && !std::strcmp(where, "rzSetFog");
+        RzContext* bad = nullptr;
+        rzCreate(0, 0, pixels.data(), &bad);                                        // falha
+        good = good && !bad && rzGetError(nullptr, &where) == RZ_ERR_INVALID_ARG
+                    && where && !std::strcmp(where, "rzCreate");
+        good = good && rzGetError(nullptr, &where) == RZ_ERR_INVALID_ARG && !where;  // nada registrado
+        std::printf("rzGetError: %s\n", good ? "ok" : "FALHOU");
+        if (!good) ok = false;
+    }
+
     std::vector<uint32_t> hashes(static_cast<size_t>(frames));
     double totalMs = 0.0;
     for (int f = 0; f < frames; ++f) {

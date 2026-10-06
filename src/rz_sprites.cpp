@@ -219,10 +219,10 @@ using namespace rz;
 extern "C" {
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzSetSprites(RzContext* ctx, const RzSprite* sprites, int32_t count) {
-    if (!ctx || count < 0 || (count > 0 && !sprites)) return RZ_ERR_INVALID_ARG;
-    if (count > kMaxSprites) return RZ_ERR_SIZE;
+    if (!ctx || count < 0 || (count > 0 && !sprites)) return recordError(ctx, "rzSetSprites", RZ_ERR_INVALID_ARG);
+    if (count > kMaxSprites) return recordError(ctx, "rzSetSprites", RZ_ERR_SIZE);
     for (int32_t i = 0; i < count; ++i) {
-        if (!(sprites[i].size > 0.0f && sprites[i].size < 1.0e6f)) return RZ_ERR_INVALID_ARG;   // pega NaN
+        if (!(sprites[i].size > 0.0f && sprites[i].size < 1.0e6f)) return recordError(ctx, "rzSetSprites", RZ_ERR_INVALID_ARG);   // pega NaN
     }
     const float scale = ctx->cellSize * kFixed824ToFloat;
     ctx->sprites.clear();                                      // capacidade reservada: não aloca

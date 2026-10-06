@@ -127,17 +127,17 @@ extern "C" {
 RZ_API RZ_ENTRY int32_t RZ_CALL rzAddObjectTranslucentPolygon(RzContext* ctx, int32_t id,
                                                               const uint16_t* indices, int32_t count,
                                                               int32_t tone) {
-    if (!validId(ctx, id) || !indices || count < 0) return RZ_ERR_INVALID_ARG;
-    if (tone < 0 || tone > 15) return RZ_ERR_INVALID_ARG;
+    if (!validId(ctx, id) || !indices || count < 0) return recordError(ctx, "rzAddObjectTranslucentPolygon", RZ_ERR_INVALID_ARG);
+    if (tone < 0 || tone > 15) return recordError(ctx, "rzAddObjectTranslucentPolygon", RZ_ERR_INVALID_ARG);
     Object& o = ctx->objects[id];
 
     int32_t n = count;
     if (n > 1 && indices[n - 1] == indices[0]) --n;          // fechamento do legado
     for (int32_t i = 0; i < n; ++i) {
-        if (indices[i] >= o.vertexCount()) return RZ_ERR_INVALID_ARG;
+        if (indices[i] >= o.vertexCount()) return recordError(ctx, "rzAddObjectTranslucentPolygon", RZ_ERR_INVALID_ARG);
     }
     if (n < 3) return RZ_OK;                                  // degenerado: ignorado
-    if (!platformMakeCurrent(ctx->platform)) return RZ_ERR_GL;
+    if (!platformMakeCurrent(ctx->platform)) return recordError(ctx, "rzAddObjectTranslucentPolygon", RZ_ERR_GL);
 
     if (!o.glassVao) {                                        // primeiro vidro do objeto
         glGenVertexArrays(1, &o.glassVao);
@@ -167,7 +167,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzAddObjectTranslucentPolygon(RzContext* ctx, in
     glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(o.glassStaging.size() * sizeof(GlassVertex)),
                  nullptr, GL_DYNAMIC_DRAW);
     o.glassDirty = true;
-    return glGetError() == GL_NO_ERROR ? RZ_OK : RZ_ERR_GL;
+    return recordError(ctx, "rzAddObjectTranslucentPolygon", glGetError() == GL_NO_ERROR ? RZ_OK : RZ_ERR_GL);
 }
 
 } // extern "C"
