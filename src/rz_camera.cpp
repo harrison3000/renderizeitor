@@ -95,6 +95,93 @@ void updateFollowCamera(RzContext* ctx, Vec3 target) {
     ctx->followEye = eye;
 }
 
+Vec3 lerp3(Vec3 a, Vec3 b, float t) {
+    return { a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t };
+}
+
+// Posição de repouso atrás do alvo, na direção do voo (o alvo fica à frente).
+Vec3 restEye(const RzContext* ctx, Vec3 target, Vec3 dir) {
+    const float cs = ctx->cellSize;
+    const float rope = ctx->followDistance * cs;
+    return { target.x - dir.x * rope, target.y + ctx->followHeight * cs, target.z - dir.z * rope };
+}
+
+// Troca de alvo: monta a transição a partir do olho e do ponto olhado atuais
+// (também no meio de outra transição).
+void startRetarget(RzContext* ctx, Vec3 target) {
+    const float cs = ctx->cellSize;
+    ctx->retargetPending = false;
+    ctx->retargetActive = true;
+    ctx->retargetT = 0.0f;
+    ctx->retargetEye0 = ctx->followEye;
+    ctx->retargetLook0 = ctx->followLook;
+
+    const float dx = target.x - ctx->followLook.x;
+    const float dz = target.z - ctx->followLook.z;
+    const float d = sqrtf(dx * dx + dz * dz);
+    if (d <= kRetargetTurnDistance * cs) {
+        ctx->retargetArc = false;
+        ctx->retargetStep = 1.0f / kRetargetTurnFrames;
+        return;
+    }
+    ctx->retargetArc = true;
+    ctx->retargetDir = { dx / d, 0.0f, dz / d };
+    float lift = d / kRetargetArcFull;
+    if (lift > 1.0f) lift = 1.0f;
+    ctx->retargetLift = lift * kRetargetArcHeight * cs;
+    // smoothstep tem pico de velocidade 1,5x a média; o arco soma ~2x a subida
+    const Vec3 move = restEye(ctx, target, ctx->retargetDir) - ctx->followEye;
+    const float path = sqrtf(dot(move, move)) + 2.0f * ctx->retargetLift;
+    float frames = 1.5f * path / (kRetargetMaxSpeed * cs);
+    if (frames < kRetargetMinFrames) frames = kRetargetMinFrames;
+    ctx->retargetStep = 1.0f / frames;
+}
+
+// Um frame da transição. O destino acompanha o alvo (ele pode estar andando).
+void updateRetarget(RzContext* ctx, Vec3 target) {
+    float t = ctx->retargetT + ctx->retargetStep;
+    if (t > 1.0f) t = 1.0f;
+    ctx->retargetT = t;
+    const float e = t * t * (3.0f - 2.0f * t);                  // smoothstep
+
+    if (!ctx->retargetArc) {
+        ctx->followLook = lerp3(ctx->retargetLook0, target, e);
+        updateFollowCamera(ctx, ctx->followLook);               // a corda traz a câmera
+    } else {
+        // O olhar vai na frente do olho (chega no alvo com 2/3 do voo): no alto
+        // do arco a câmera olha adiante e para baixo, não para o próprio pé
+        float tl = t * 1.5f;
+        if (tl > 1.0f) tl = 1.0f;
+        ctx->followLook = lerp3(ctx->retargetLook0, target, tl * tl * (3.0f - 2.0f * tl));
+        const float cs = ctx->cellSize;
+        Vec3 eye = lerp3(ctx->retargetEye0, restEye(ctx, target, ctx->retargetDir), e);
+        eye.y += ctx->retargetLift * sinf(kPi * e);
+        const float floorY = groundHeight(ctx, eye.x, eye.z) + kFollowClearance * cs;
+        if (eye.y < floorY) eye.y = floorY;
+        ctx->followEye = eye;
+    }
+    if (t >= 1.0f) ctx->retargetActive = false;                 // segue na corda normal
+}
+
+float smooth01(float t) {
+    if (t <= 0.0f) return 0.0f;
+    if (t >= 1.0f) return 1.0f;
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// Avança a transição de/para a visão geral um frame; devolve o progresso
+// suavizado e o cru (t) em *rawT.
+float stepOverview(RzContext* ctx, float* rawT) {
+    float t = ctx->overviewT + 1.0f / kOverviewFrames;
+    if (t >= 1.0f) {
+        t = 1.0f;
+        ctx->overviewActive = false;
+    }
+    ctx->overviewT = t;
+    *rawT = t;
+    return smooth01(t);
+}
+
 // Projeção perspectiva no clip space do OpenGL (−w ≤ z ≤ w), câmera olhando
 // para −z. flipY espelha a imagem na vertical (modo offscreen: o glReadPixels
 // lê de baixo para cima e o buffer do host é top-down).
@@ -142,27 +229,114 @@ Mat4 updateCamera(RzContext* ctx) {
         const Vec3 raw = ctx->objects[target].world[ctx->cameraTargetVertex];
         ctx->targetPos = raw;
         if (!ctx->followInitialized) {
-            ctx->followLook = raw;
+            ctx->retargetPending = ctx->retargetActive = false;
+            if (ctx->camHasLast && !ctx->camLastFollowing) {
+                // Saindo da visão geral (ou do meio da ida para ela): voa de
+                // onde a câmera está até atrás do alvo
+                ctx->overviewActive = true;
+                ctx->overviewToward = false;
+                ctx->overviewT = 0.0f;
+                ctx->overviewBlend0 = ctx->overviewBlend;
+                ctx->overviewEye0 = ctx->camLastEye;
+                ctx->overviewLook0 = ctx->camLastLook;
+                float dx = raw.x - ctx->camLastEye.x, dz = raw.z - ctx->camLastEye.z;
+                const float d = sqrtf(dx * dx + dz * dz);
+                if (d > 1e-4f) { dx /= d; dz /= d; } else { dx = 0.0f; dz = -1.0f; }
+                ctx->overviewDir = { dx, 0.0f, dz };
+                ctx->followInitialized = true;
+                ctx->followAppliedDistance = ctx->followDistance;
+            } else {
+                ctx->overviewActive = false;
+                ctx->overviewBlend = 0.0f;
+            }
+        }
+        if (ctx->retargetPending) {
+            ctx->overviewActive = false;               // outro alvo no meio: voo normal
+            startRetarget(ctx, raw);
+        }
+        if (ctx->overviewActive) {
+            float t;
+            const float e = stepOverview(ctx, &t);
+            Vec3 rest = restEye(ctx, raw, ctx->overviewDir);
+            Vec3 eye = lerp3(ctx->overviewEye0, rest, e);
+            // desce só na segunda metade: sobre o caminho, a câmera fica alta
+            eye.y = ctx->overviewEye0.y + (rest.y - ctx->overviewEye0.y) * smooth01(2.0f * t - 1.0f);
+            const float floorY = groundHeight(ctx, eye.x, eye.z) + kFollowClearance * cs;
+            if (eye.y < floorY) eye.y = floorY;
+            ctx->followEye = eye;
+            ctx->followLook = lerp3(ctx->overviewLook0, raw, smooth01(1.5f * t));
+            ctx->overviewBlend = ctx->overviewBlend0 * (1.0f - smooth01(2.0f * t - 1.0f));   // junto com a descida
+        } else if (ctx->retargetActive) {
+            updateRetarget(ctx, raw);
         } else {
-            Vec3& look = ctx->followLook;
-            look.x += (raw.x - look.x) * kFollowLookXZ;
-            look.z += (raw.z - look.z) * kFollowLookXZ;
-            look.y += (raw.y - look.y) * kFollowLookY;
+            if (!ctx->followInitialized) {
+                ctx->followLook = raw;
+            } else {
+                Vec3& look = ctx->followLook;
+                look.x += (raw.x - look.x) * kFollowLookXZ;
+                look.z += (raw.z - look.z) * kFollowLookXZ;
+                look.y += (raw.y - look.y) * kFollowLookY;
+            }
+            updateFollowCamera(ctx, ctx->followLook);
+        }
+        if (!ctx->overviewActive && ctx->overviewBlend > 0.0f) {
+            // transição interrompida por outro alvo: a neblina termina sozinha
+            ctx->overviewBlend -= 1.0f / kOverviewFrames;
+            if (ctx->overviewBlend < 0.0f) ctx->overviewBlend = 0.0f;
         }
         at = ctx->followLook;
-        updateFollowCamera(ctx, at);
         eye = ctx->followEye;
     } else {
         ctx->followInitialized = false;
-        at = terrainCenter;
-        overviewCamera(ctx, at, &eye);
+        ctx->retargetPending = ctx->retargetActive = false;
+        Vec3 ovEye;
+        overviewCamera(ctx, terrainCenter, &ovEye);
+        if (ctx->camHasLast && ctx->camLastFollowing) {
+            // Indo para a visão geral (ou do meio da saída dela)
+            ctx->overviewActive = true;
+            ctx->overviewToward = true;
+            ctx->overviewT = 0.0f;
+            ctx->overviewBlend0 = ctx->overviewBlend;
+            ctx->overviewEye0 = ctx->camLastEye;
+            ctx->overviewLook0 = ctx->camLastLook;
+        } else if (!ctx->camHasLast) {
+            ctx->overviewActive = false;
+        }
+        if (ctx->overviewActive && ctx->overviewToward) {
+            float t;
+            const float e = stepOverview(ctx, &t);
+            eye = lerp3(ctx->overviewEye0, ovEye, e);
+            // sobe já na primeira metade, para não atravessar morro
+            eye.y = ctx->overviewEye0.y + (ovEye.y - ctx->overviewEye0.y) * smooth01(2.0f * t);
+            const float floorY = groundHeight(ctx, eye.x, eye.z) + kFollowClearance * cs;
+            if (eye.y < floorY) eye.y = floorY;
+            at = lerp3(ctx->overviewLook0, terrainCenter, e);
+            ctx->overviewBlend = ctx->overviewBlend0 + (1.0f - ctx->overviewBlend0) * smooth01(2.0f * t);   // junto com a subida
+        } else {
+            ctx->overviewActive = false;
+            eye = ovEye;
+            at = terrainCenter;
+            ctx->overviewBlend = 1.0f;
+        }
     }
-    // Neblina e cascatas de sombra: seguindo um alvo, com neblina e cascatas
-    // pela distância ao olho; na visão geral, sem neblina e só a cascata do
-    // terreno inteiro.
+    ctx->camHasLast = true;
+    ctx->camLastFollowing = following;
+    ctx->camLastEye = eye;
+    ctx->camLastLook = at;
+
+    // Neblina: seguindo, em volta do olho (rzSetFog); na visão geral, em volta
+    // do centro do mapa, só depois do terreno (esconde o fim da continuação).
+    // Na transição, origem e distâncias são interpoladas. Sombras: cascatas
+    // seguindo, mapa do terreno inteiro na visão geral (troca no meio).
+    const float b = ctx->overviewBlend;
+    const float ovNear = ctx->terrainRadius, ovFar = ctx->terrainRadius + kOverviewFogDepth * cs;
     ctx->eyePos = eye;
-    ctx->fogOn  = following;
-    ctx->shadowWholeTerrain = !following;
+    ctx->fogOn  = following || ctx->overviewActive || ctx->hasTerrain();   // sem terreno, a visão geral não tem o que esconder
+    ctx->fogOrigin = lerp3(eye, terrainCenter, b);
+    ctx->fogNear = ctx->fogStart * cs + (ovNear - ctx->fogStart * cs) * b;
+    ctx->fogFar  = ctx->fogEnd * cs + (ovFar - ctx->fogEnd * cs) * b;
+    ctx->shadowWholeTerrain = b >= 0.5f;
+    ctx->wallOn = following && b < 0.5f;
 
     const Mat4 view = lookAt(eye, at);
     ctx->camRight   = { view[0, 0], view[0, 1], view[0, 2] };
@@ -181,8 +355,9 @@ Mat4 updateCamera(RzContext* ctx) {
     if (nearPlane < 0.002f * radius) nearPlane = 0.002f * radius;   // ~0,36 tile: chão perto da câmera
     float farPlane = terrainDist + radius;
     // Com neblina, nada além do fim dela aparece: o far encosta nele (melhor precisão)
-    const float fogFar = ctx->fogEnd * ctx->cellSize * 1.02f;
-    if (following && farPlane > fogFar) farPlane = fogFar;
+    const Vec3 toFog = ctx->fogOrigin - eye;
+    const float fogFar = (sqrtf(dot(toFog, toFog)) + ctx->fogFar) * 1.02f;
+    if (farPlane > fogFar) farPlane = fogFar;
     if (farPlane < nearPlane * 2.0f) farPlane = nearPlane * 2.0f;
     ctx->nearPlane = nearPlane;
     ctx->farPlane  = farPlane;

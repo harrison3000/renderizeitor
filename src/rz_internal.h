@@ -59,6 +59,28 @@ constexpr float kFollowClimb        = 0.2f;   // amortecimento ao subir
 constexpr float kFollowLookXZ       = 0.5f;
 constexpr float kFollowLookY        = 0.1f;
 
+// Troca de alvo da câmera (rzSetCameraTarget com outro objeto): em vez de
+// teleportar, a câmera vai até o novo alvo. A câmera avança por frame, então a
+// velocidade é por frame, contando 60 fps.
+//   - alvo a até kRetargetTurnDistance tiles: só vira (o ponto olhado desliza
+//     até o novo alvo em kRetargetTurnFrames) e a corda traz a câmera;
+//   - mais longe: voo em arco até atrás do novo alvo, subindo até
+//     kRetargetArcHeight tiles no meio (altura cheia a partir de
+//     kRetargetArcFull tiles), sem passar de kRetargetMaxSpeed.
+constexpr float kRetargetTurnDistance = 10.0f;   // tiles
+constexpr float kRetargetTurnFrames   = 30.0f;
+constexpr float kRetargetArcFull      = 60.0f;   // tiles
+constexpr float kRetargetArcHeight    = 25.0f;   // tiles
+constexpr float kRetargetMaxSpeed     = 100.0f / 60.0f;   // tiles por frame
+constexpr float kRetargetMinFrames    = 30.0f;
+
+// Entrada e saída da visão geral: voo de duração fixa (a distância varia muito).
+// A neblina migra do olho (seguindo) para o centro do mapa (visão geral, de
+// terrainRadius até + kOverviewFogDepth tiles: só a continuação some nela);
+// as sombras trocam de modo no meio do caminho.
+constexpr float kOverviewFrames   = 120.0f;
+constexpr float kOverviewFogDepth = 60.0f;   // tiles
+
 constexpr int32_t kMaxWindowSize = 8192;
 
 // Neblina por distância (só seguindo um alvo; a visão geral fica sem): limpa
@@ -288,7 +310,7 @@ struct Object {
 
 // Locais de uniforms dos programas
 struct FogUniforms {
-    GLint on = -1, start = -1, end = -1, color = -1, eye = -1;
+    GLint on = -1, start = -1, end = -1, color = -1, eye = -1, origin = -1;
 };
 
 struct ShadowUniforms {
@@ -422,7 +444,10 @@ struct RzContext {
     rz::Vec3   camRight   = { 1.0f, 0.0f, 0.0f };    // eixos da câmera (sprites)
     rz::Vec3   camUp      = { 0.0f, 1.0f, 0.0f };
     rz::Vec3   camForward = { 0.0f, 0.0f, -1.0f };
-    bool       fogOn = false;                        // seguindo um alvo
+    bool       fogOn = false;                        // há neblina (sempre, com câmera montada)
+    rz::Vec3   fogOrigin = { 0.0f, 0.0f, 0.0f };     // centro da neblina: olho, ou centro do mapa
+    float      fogNear = 0.0f, fogFar = 0.0f;        // início/fim da neblina (mundo)
+    bool       wallOn = false;                       // parede de limite (perto do alvo)
     bool       shadowWholeTerrain = true;           // visão geral: só a cascata 2, terreno inteiro
 
     // Projeção
@@ -471,6 +496,32 @@ struct RzContext {
     float    followAppliedDistance = 0.0f;   // corda com que followEye foi calculado
     rz::Vec3 followEye = { 0.0f, 0.0f, 0.0f };
     rz::Vec3 followLook = { 0.0f, 0.0f, 0.0f };   // alvo suavizado: para onde a câmera olha
+
+    // Troca de alvo suave (rz_camera.cpp): pedida pelo rzSetCameraTarget,
+    // montada no próximo frame (quando a posição do novo alvo é conhecida)
+    bool     retargetPending = false;
+    bool     retargetActive  = false;
+    bool     retargetArc     = false;    // voo em arco; senão só vira e a corda age
+    float    retargetT       = 0.0f;     // progresso 0..1
+    float    retargetStep    = 0.0f;     // progresso por frame
+    float    retargetLift    = 0.0f;     // altura extra no meio do arco (mundo)
+    rz::Vec3 retargetEye0  = { 0.0f, 0.0f, 0.0f };
+    rz::Vec3 retargetLook0 = { 0.0f, 0.0f, 0.0f };
+    rz::Vec3 retargetDir   = { 0.0f, 0.0f, 0.0f };   // direção horizontal do voo (unitária)
+
+    // Entrada/saída da visão geral (rz_camera.cpp)
+    bool     camHasLast      = false;    // já houve um frame (camLast* valem)
+    bool     camLastFollowing = false;
+    rz::Vec3 camLastEye  = { 0.0f, 0.0f, 0.0f };
+    rz::Vec3 camLastLook = { 0.0f, 0.0f, 0.0f };
+    bool     overviewActive  = false;    // transição em andamento
+    bool     overviewToward  = false;    // indo para a visão geral (senão saindo dela)
+    float    overviewT       = 0.0f;
+    float    overviewBlend   = 1.0f;     // 0 = neblina/sombras de perseguição, 1 = da visão geral
+    float    overviewBlend0  = 1.0f;
+    rz::Vec3 overviewEye0  = { 0.0f, 0.0f, 0.0f };
+    rz::Vec3 overviewLook0 = { 0.0f, 0.0f, 0.0f };
+    rz::Vec3 overviewDir   = { 0.0f, 0.0f, 0.0f };
 
     // Objetos (id = índice no vetor; slots livres são reaproveitados)
     std::vector<rz::Object> objects;

@@ -48,12 +48,13 @@ in vec2 vUV;
 in vec3 vShadow0, vShadow1, vShadow2;
 in vec3 vWorld;
 
-// Neblina: smoothstep da distância ao olho entre uFogStart e uFogEnd, na cor
-// uFogColor (a de fundo). Desligada na visão geral.
+// Neblina: smoothstep da distância a uFogOrigin entre uFogStart e uFogEnd, na
+// cor uFogColor (a de fundo).
 uniform int   uFogOn;
 uniform float uFogStart, uFogEnd;
 uniform vec3  uFogColor;
 uniform vec3  uEye;
+uniform vec3  uFogOrigin;   // olho (seguindo) ou centro do mapa (visão geral)
 
 uniform sampler2DArray  uAtlas;
 uniform sampler2DShadow uShadow0, uShadow1, uShadow2;
@@ -92,7 +93,7 @@ float shadowTerm() {
 // Fator de neblina (0 limpo, 1 só neblina)
 float fogFactor() {
     if (uFogOn == 0) return 0.0;
-    return smoothstep(uFogStart, uFogEnd, length(vWorld - uEye));
+    return smoothstep(uFogStart, uFogEnd, length(vWorld - uFogOrigin));
 }
 
 
@@ -153,12 +154,13 @@ in vec2 vUV;
 in vec3 vShadow0, vShadow1, vShadow2;
 in vec3 vWorld;
 
-// Neblina: smoothstep da distância ao olho entre uFogStart e uFogEnd, na cor
-// uFogColor (a de fundo). Desligada na visão geral.
+// Neblina: smoothstep da distância a uFogOrigin entre uFogStart e uFogEnd, na
+// cor uFogColor (a de fundo).
 uniform int   uFogOn;
 uniform float uFogStart, uFogEnd;
 uniform vec3  uFogColor;
 uniform vec3  uEye;
+uniform vec3  uFogOrigin;   // olho (seguindo) ou centro do mapa (visão geral)
 
 uniform sampler2D       uTexture;
 uniform sampler2DShadow uShadow0, uShadow1, uShadow2;
@@ -194,7 +196,7 @@ float shadowTerm() {
 // Fator de neblina (0 limpo, 1 só neblina)
 float fogFactor() {
     if (uFogOn == 0) return 0.0;
-    return smoothstep(uFogStart, uFogEnd, length(vWorld - uEye));
+    return smoothstep(uFogStart, uFogEnd, length(vWorld - uFogOrigin));
 }
 
 
@@ -253,6 +255,7 @@ uniform int   uFogOn;
 uniform float uFogStart, uFogEnd;
 uniform vec3  uFogColor;
 uniform vec3  uEye;
+uniform vec3  uFogOrigin;   // olho (seguindo) ou centro do mapa (visão geral)
 out vec4 fragColor;
 
 float shadowLit(sampler2DShadow map, vec3 c) {
@@ -276,7 +279,7 @@ float shadowTerm() {
 }
 
 void main() {
-    float fog = uFogOn != 0 ? smoothstep(uFogStart, uFogEnd, length(vWorld - uEye)) : 0.0;
+    float fog = uFogOn != 0 ? smoothstep(uFogStart, uFogEnd, length(vWorld - uFogOrigin)) : 0.0;
     if (fog >= 1.0) discard;
     vec3 n = normalize(vNormal);
     vec3 v = normalize(uEye - vWorld);
@@ -322,11 +325,12 @@ uniform int   uFogOn;
 uniform float uFogStart, uFogEnd;
 uniform vec3  uFogColor;
 uniform vec3  uEye;
+uniform vec3  uFogOrigin;   // olho (seguindo) ou centro do mapa (visão geral)
 out vec4 fragColor;
 void main() {
     float a = texture(uNoise, vUV).r;
     if (a <= 0.0) discard;
-    float fog = uFogOn != 0 ? smoothstep(uFogStart, uFogEnd, length(vWorld - uEye)) : 0.0;
+    float fog = uFogOn != 0 ? smoothstep(uFogStart, uFogEnd, length(vWorld - uFogOrigin)) : 0.0;
     if (fog >= 1.0) discard;
     fragColor = vec4(mix(vColor, uFogColor, fog), a);
 }
@@ -359,6 +363,7 @@ uniform int   uFogOn;
 uniform float uFogStart, uFogEnd;
 uniform vec3  uFogColor;
 uniform vec3  uEye;
+uniform vec3  uFogOrigin;   // olho (seguindo) ou centro do mapa (visão geral)
 out vec4 fragColor;
 void main() {
     float near = 1.0 - smoothstep(uFadeNear, uFadeFar, length(vWorld.xz - uTarget.xz));
@@ -386,7 +391,7 @@ void main() {
     color = mix(color, vec3(1.0, 1.0, 1.0), ring);    alpha = mix(alpha, 0.90, ring);
     alpha *= near;
     if (uFogOn != 0) {
-        float fog = smoothstep(uFogStart, uFogEnd, length(vWorld - uEye));
+        float fog = smoothstep(uFogStart, uFogEnd, length(vWorld - uFogOrigin));
         color = mix(color, uFogColor, fog);
         alpha *= 1.0 - fog;
     }

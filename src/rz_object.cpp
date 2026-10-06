@@ -220,8 +220,8 @@ static bool drawable(const Object& o) {
 // longas). Sem neblina (visão geral), tudo está no alcance.
 bool objectInRange(const RzContext* ctx, const Object& o) {
     if (!ctx->fogOn) return true;
-    const Vec3 d = o.center - ctx->eyePos;
-    const float reach = (ctx->fogEnd + kFogCullMargin) * ctx->cellSize + o.radius;
+    const Vec3 d = o.center - ctx->fogOrigin;
+    const float reach = ctx->fogFar + kFogCullMargin * ctx->cellSize + o.radius;
     return dot(d, d) <= reach * reach;
 }
 

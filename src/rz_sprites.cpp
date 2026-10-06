@@ -156,14 +156,15 @@ void drawSprites(RzContext* ctx, const Mat4& viewProj) {
     // Ordem de trás para frente (profundidade ao longo da frente da câmera);
     // os que estão todos além da neblina ficam de fora
     const Vec3 eye = ctx->eyePos, fwd = ctx->camForward;
-    const float reach = ctx->fogEnd * ctx->cellSize;
+    const float reach = ctx->fogFar;
     ctx->spriteOrder.clear();
     for (int32_t i = 0; i < int32_t(ctx->sprites.size()); ++i) {
         const Sprite& s = ctx->sprites[size_t(i)];
         const Vec3 d = s.center - eye;
         if (ctx->fogOn) {
+            const Vec3 dFog = s.center - ctx->fogOrigin;
             const float lim = reach + s.radius;
-            if (dot(d, d) > lim * lim) continue;
+            if (dot(dFog, dFog) > lim * lim) continue;
         }
         const float depth = dot(d, fwd);
         if (depth < -s.radius) continue;                      // todo atrás do olho

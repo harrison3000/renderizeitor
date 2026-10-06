@@ -285,7 +285,10 @@ void renderShadowMaps(RzContext* ctx) {
     }
 
     // Cascata 2: só terreno, quadrado em volta do olho, refeito só quando precisa
-    const float farHalf = (ctx->fogEnd + kCascadeFarRecenter + kCascadeFarMargin) * cs;
+    // alcance da neblina a partir do olho (na transição da visão geral a
+    // origem dela sai do olho)
+    const Vec3 toFog = ctx->fogOrigin - ctx->eyePos;
+    const float farHalf = ctx->fogFar + sqrtf(dot(toFog, toFog)) + (kCascadeFarRecenter + kCascadeFarMargin) * cs;
     const float dx = ctx->eyePos.x - ctx->cascadeFarCenter.x, dz = ctx->eyePos.z - ctx->cascadeFarCenter.z;
     const float recenter = kCascadeFarRecenter * cs;
     // recentra quando o olho andou demais, a neblina mudou ou vem da visão

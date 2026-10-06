@@ -421,11 +421,12 @@ void drawSkirt(const RzContext* ctx) {
     // retângulos (x0, x1, z0, z1) das regiões 0 norte, 1 leste, 2 sul, 3 oeste
     const float rect[4][4] = { { lo, hi, lo, m0 }, { m1, hi, m0, m1 },
                                { lo, hi, m1, hi }, { lo, m0, m0, m1 } };
-    const float reach = ctx->fogEnd * cs;
+    const float reach = ctx->fogFar;
+    const Vec3 o = ctx->fogOrigin;
     glBindVertexArray(ctx->skirtVao);
     for (int32_t i = 0; i < 4; ++i) {
-        const float dx = fmaxf(fmaxf(rect[i][0] - ctx->eyePos.x, 0.0f), ctx->eyePos.x - rect[i][1]);
-        const float dz = fmaxf(fmaxf(rect[i][2] - ctx->eyePos.z, 0.0f), ctx->eyePos.z - rect[i][3]);
+        const float dx = fmaxf(fmaxf(rect[i][0] - o.x, 0.0f), o.x - rect[i][1]);
+        const float dz = fmaxf(fmaxf(rect[i][2] - o.z, 0.0f), o.z - rect[i][3]);
         if (dx * dx + dz * dz > reach * reach || ctx->skirtCount[i] == 0) continue;
         glDrawArrays(GL_TRIANGLES, ctx->skirtFirst[i], ctx->skirtCount[i]);
     }
@@ -439,7 +440,7 @@ void drawSkirtDepth(const RzContext* ctx) {
 
 // Parede: depois de tudo que é opaco
 void drawWall(const RzContext* ctx, const Mat4& viewProj) {
-    if (!ctx->fogOn || !ctx->hasTerrain() || ctx->wallVertexCount == 0) return;
+    if (!ctx->wallOn || !ctx->hasTerrain() || ctx->wallVertexCount == 0) return;
     const WallProgram& w = ctx->wallProgram;
     glUseProgram(w.program);
     glUniformMatrix4fv(w.viewProj, 1, GL_TRUE, viewProj.e);

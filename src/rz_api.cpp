@@ -208,7 +208,9 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCameraTarget(RzContext* ctx, int32_t id, in
         vertex < 0 || vertex >= ctx->objects[id].vertexCount()) {
         return RZ_ERR_INVALID_ARG;
     }
-    if (id != ctx->cameraTargetObject) ctx->followInitialized = false;   // reposiciona atrás do novo alvo
+    // Outro alvo: seguindo um, a câmera vai até o novo (rz_camera.cpp); vindo
+    // da visão geral, começa direto atrás dele
+    if (id != ctx->cameraTargetObject) ctx->retargetPending = ctx->followInitialized;
     ctx->cameraTargetObject = id;
     ctx->cameraTargetVertex = vertex;
     return RZ_OK;
