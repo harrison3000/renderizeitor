@@ -27,7 +27,7 @@ namespace rz {
 
 namespace {
 
-constexpr int32_t kWheelVertices = kWheelSideVerts + kWheelCapVerts;   // por roda
+constexpr int32_t kWheelVertices = kWheelSideVerts;   // VBO plano por roda (casca + tampas pretas)
 
 bool validId(const RzContext* ctx, int32_t id) {
     return ctx && id >= 0 && id < int32_t(ctx->objects.size()) && ctx->objects[id].alive;
@@ -39,10 +39,11 @@ Vec3 normalized(Vec3 v) {
     return l2 > 0.0f ? scale(v, 1.0f / sqrtf(l2)) : Vec3{ 0.0f, 0.0f, 0.0f };
 }
 
-void emitTriangle(TerrainVertex*& out, Vec3 a, Vec3 b, Vec3 c, Vec3 normal) {
-    const uint32_t n = packNormal(normal);
-    const Vec3 v[3] = { a, b, c };
-    for (const Vec3& p : v) *out++ = { p.x, p.y, p.z, kWheelColor, 0, 0, 0, 0, n };
+// Triângulo do pneu com uma normal por vértice (sombreamento liso, não flat).
+void emitSmooth(TerrainVertex*& out, Vec3 a, Vec3 b, Vec3 c, Vec3 na, Vec3 nb, Vec3 nc) {
+    *out++ = { a.x, a.y, a.z, kWheelColor, 0, 0, 0, 0, packNormal(na) };
+    *out++ = { b.x, b.y, b.z, kWheelColor, 0, 0, 0, 0, packNormal(nb) };
+    *out++ = { c.x, c.y, c.z, kWheelColor, 0, 0, 0, 0, packNormal(nc) };
 }
 
 // Um canto do disco de uma face: a posição p e, no quadrado do atlas, o ponto
@@ -62,6 +63,15 @@ void emitCap(GpuVertex*& out, Vec3 center, Vec3 a, Vec3 b, uint32_t normal,
     *out++ = capCorner(center, normal, face, 0.0f, 0.0f, mirror);
     *out++ = capCorner(a, normal, face, ca, sa, mirror);
     *out++ = capCorner(b, normal, face, cb, sb, mirror);
+}
+
+// Triângulo texturizado qualquer (a parede lateral é um anel, não um leque): as
+// UV de cada canto vêm do ponto (cx, cy) no círculo do quadrado (|cx|,|cy| <= 1).
+void emitTexTri(GpuVertex*& out, Vec3 pa, Vec3 pb, Vec3 pc, uint32_t normal, const float face[4],
+                float ax, float ay, float bx, float by, float cx, float cy, bool mirror) {
+    *out++ = capCorner(pa, normal, face, ax, ay, mirror);
+    *out++ = capCorner(pb, normal, face, bx, by, mirror);
+    *out++ = capCorner(pc, normal, face, cx, cy, mirror);
 }
 
 // Monta os quatro cilindros na posição atual e reenvia os VBOs (sem alocar).
@@ -121,39 +131,111 @@ void buildWheels(Object& o) {
     for (int32_t i = 0; i < 4; ++i) {
         const int32_t which = o.wheelFront[i];
         const Vec3 fw = fwd[which], ax = axis[which];
-        const float radius = 0.5f * o.wheelDiameter[i];
-        const Vec3 half = scale(ax, 0.5f * kWheelWidth * o.wheelDiameter[i]);
         const Vec3 p = hub[i];
         const bool plusIsOuter = o.wheelPlusOuter[i] != 0;   // tampa +eixo é a externa?
         const uint32_t nOut = packNormal(ax), nIn = packNormal(scale(ax, -1.0f));
+
+        // Medidas do pneu (mundo), de fora para dentro no raio: banda de rodagem
+        // (reta, raio R) -> ombro arredondado -> parede lateral texturizada (anel
+        // de `sideW` de largura) -> recuo da jante (miolo afundado `recess`). A
+        // casca (rodagem + ombro + parede do recuo) é de cor fixa; a parede
+        // lateral e a jante recuada são texturizadas.
+        const float d      = o.wheelDiameter[i];
+        const float R      = 0.5f * d;                       // raio da rodagem
+        const float w      = 0.5f * kWheelWidth * d;         // meia largura
+        const float sh     = 0.12f * R;                      // ombro pequeno: só arredonda a beira
+        const float wt     = w - sh;                         // meia largura da rodagem reta
+        const float rimR   = R - sh;                         // raio na beira (fim do ombro)
+        const float sideW  = 0.35f * R;                      // largura da parede lateral texturizada
+        const float sideIn = rimR - sideW;                   // raio onde a parede vira recuo da jante
+        const float recess = 0.30f * w;                      // profundidade do recuo da jante
+        const float frIn   = sideIn / rimR;                  // fração do raio da face (UV) na beira interna
+
+        // Perfil da casca de cor fixa (a = axial, r = raio, n = normal no plano
+        // radial/axial): ombro (-), rodagem reta, ombro (+). Termina em ±w (beira);
+        // a face texturizada fecha dali para dentro.
+        constexpr int32_t kMaxSamples = 2 * kWheelShoulderSteps + 4;
+        float pa[kMaxSamples], pr[kMaxSamples], pnr[kMaxSamples], pna[kMaxSamples];
+        int32_t ns = 0;
+        auto push = [&](float a, float r, float nr, float na) {
+            pa[ns] = a; pr[ns] = r; pnr[ns] = nr; pna[ns] = na; ++ns;
+        };
+        for (int32_t s = 0; s <= kWheelShoulderSteps; ++s) { // ombro (-): θ de π/2 (beira) a 0
+            const float th = 0.5f * kPi * float(kWheelShoulderSteps - s) / float(kWheelShoulderSteps);
+            push(-(wt + sh * sinf(th)), rimR + sh * cosf(th), cosf(th), -sinf(th));
+        }
+        push(wt, R, 1.0f, 0.0f);                             // rodagem reta (outra beira)
+        for (int32_t s = 1; s <= kWheelShoulderSteps; ++s) { // ombro (+): θ de 0 a π/2 (beira)
+            const float th = 0.5f * kPi * float(s) / float(kWheelShoulderSteps);
+            push(wt + sh * sinf(th), rimR + sh * cosf(th), cosf(th), sinf(th));
+        }
+
+        // A UV usa o anel SEM o giro (ringC/ringS): a textura fica presa à roda e
+        // gira junto com a geometria (que usa o anel girado). A face externa usa o
+        // quadrado externo (sem espelho), a interna o interno (espelhado em u).
+        const float* fPlus  = plusIsOuter ? o.wheelFaceOuter : o.wheelFaceInner;   // tampa +eixo
+        const float* fMinus = plusIsOuter ? o.wheelFaceInner : o.wheelFaceOuter;   // tampa -eixo
+        const bool mPlus = !plusIsOuter, mMinus = plusIsOuter;
+
         // Giro da roda (rzSetObjectWheelSpin): roda o anel em torno do eixo, no
         // plano (fw, u). Afeta a geometria e a UV da face, então o desenho da
         // face gira junto. cr/sr: rotação do giro acumulado desta roda.
         const float cr = cosf(o.wheelRoll[i]), sr = sinf(o.wheelRoll[i]);
         for (int32_t k = 0; k < kWheelSegments; ++k) {
-            const float c0 = ringC[k] * cr - ringS[k] * sr,     s0 = ringS[k] * cr + ringC[k] * sr;
+            const float c0 = ringC[k] * cr - ringS[k] * sr,         s0 = ringS[k] * cr + ringC[k] * sr;
             const float c1 = ringC[k + 1] * cr - ringS[k + 1] * sr, s1 = ringS[k + 1] * cr + ringC[k + 1] * sr;
-            const Vec3 r0 = scale(fw, c0 * radius) + scale(u, s0 * radius);
-            const Vec3 r1 = scale(fw, c1 * radius) + scale(u, s1 * radius);
-            const Vec3 n  = normalized(r0 + r1);               // normal do lado
-            const Vec3 o0 = p + half + r0, o1 = p + half + r1; // lado de fora (+eixo)
-            const Vec3 i0 = p - half + r0, i1 = p - half + r1; // lado de dentro
-            emitTriangle(out, i0, o0, o1, n);                  // pneu (lateral): sempre plano
-            emitTriangle(out, i0, o1, i1, n);
+            const Vec3 rad0 = scale(fw, c0) + scale(u, s0);  // direção radial (unitária), já girada
+            const Vec3 rad1 = scale(fw, c1) + scale(u, s1);
+            // Casca de cor fixa: uma banda por par de pontos do perfil, com normais
+            // por vértice (ombros arredondados com luz lisa).
+            for (int32_t j = 0; j + 1 < ns; ++j) {
+                const Vec3 axA = scale(ax, pa[j]),     axB = scale(ax, pa[j + 1]);
+                const Vec3 A0 = p + axA + scale(rad0, pr[j]),     A1 = p + axA + scale(rad1, pr[j]);
+                const Vec3 B0 = p + axB + scale(rad0, pr[j + 1]), B1 = p + axB + scale(rad1, pr[j + 1]);
+                const Vec3 nA0 = scale(rad0, pnr[j]) + scale(ax, pna[j]);
+                const Vec3 nA1 = scale(rad1, pnr[j]) + scale(ax, pna[j]);
+                const Vec3 nB0 = scale(rad0, pnr[j + 1]) + scale(ax, pna[j + 1]);
+                const Vec3 nB1 = scale(rad1, pnr[j + 1]) + scale(ax, pna[j + 1]);
+                emitSmooth(out, A0, B0, B1, nA0, nB0, nB1);
+                emitSmooth(out, A0, B1, A1, nA0, nB1, nA1);
+            }
             if (textured) {
-                // A UV usa o anel SEM o giro (ringC/ringS): a textura fica presa
-                // à roda e gira junto com a geometria (que usa o anel girado). A
-                // face externa usa o quadrado externo (sem espelho), a interna o
-                // interno (espelhado em u).
-                const float* fPlus = plusIsOuter ? o.wheelFaceOuter : o.wheelFaceInner;
-                const float* fMinus = plusIsOuter ? o.wheelFaceInner : o.wheelFaceOuter;
-                emitCap(cap, p + half, o1, o0, nOut, fPlus,                  // tampa +eixo
-                        ringC[k + 1], ringS[k + 1], ringC[k], ringS[k], !plusIsOuter);
-                emitCap(cap, p - half, i0, i1, nIn, fMinus,                  // tampa -eixo
-                        ringC[k], ringS[k], ringC[k + 1], ringS[k + 1], plusIsOuter);
+                // As duas faces: parede lateral (anel texturizado, no plano ±w) e
+                // jante recuada (leque texturizado, afundado em ±(w-recess)); entre
+                // elas, a parede do recuo, de cor fixa (raio sideIn).
+                for (int32_t side = 0; side < 2; ++side) {
+                    const float sgn = side == 0 ? 1.0f : -1.0f;            // + eixo, depois - eixo
+                    const uint32_t nf = side == 0 ? nOut : nIn;
+                    const float* face = side == 0 ? fPlus : fMinus;
+                    const bool mir = side == 0 ? mPlus : mMinus;
+                    const Vec3 cFront = p + scale(ax, sgn * w);            // plano da parede lateral
+                    const Vec3 cBack  = p + scale(ax, sgn * (w - recess)); // plano da jante recuada
+                    // parede lateral: anel rimR -> sideIn, no plano da beira
+                    const Vec3 lo0 = cFront + scale(rad0, rimR),  lo1 = cFront + scale(rad1, rimR);
+                    const Vec3 li0 = cFront + scale(rad0, sideIn), li1 = cFront + scale(rad1, sideIn);
+                    emitTexTri(cap, lo0, lo1, li1, nf, face,
+                               ringC[k], ringS[k], ringC[k + 1], ringS[k + 1],
+                               frIn * ringC[k + 1], frIn * ringS[k + 1], mir);
+                    emitTexTri(cap, lo0, li1, li0, nf, face,
+                               ringC[k], ringS[k], frIn * ringC[k + 1], frIn * ringS[k + 1],
+                               frIn * ringC[k], frIn * ringS[k], mir);
+                    // parede do recuo (cor fixa): cilindro em sideIn, da beira ao fundo
+                    const Vec3 bi0 = cBack + scale(rad0, sideIn), bi1 = cBack + scale(rad1, sideIn);
+                    const Vec3 wn0 = scale(rad0, -1.0f), wn1 = scale(rad1, -1.0f);   // normal p/ dentro
+                    emitSmooth(out, li0, bi0, bi1, wn0, wn0, wn1);
+                    emitSmooth(out, li0, bi1, li1, wn0, wn1, wn1);
+                    // jante recuada: leque texturizado do centro à beira interna
+                    emitCap(cap, cBack, bi0, bi1, nf, face,
+                            frIn * ringC[k], frIn * ringS[k], frIn * ringC[k + 1], frIn * ringS[k + 1], mir);
+                }
             } else {
-                emitTriangle(out, p + half, o1, o0, ax);       // tampas pretas
-                emitTriangle(out, p - half, i0, i1, scale(ax, -1.0f));
+                // Sem textura: tampas pretas planas, raio rimR, no plano da beira.
+                const Vec3 cP = p + scale(ax, w), cM = p - scale(ax, w);
+                const Vec3 oP0 = cP + scale(rad0, rimR), oP1 = cP + scale(rad1, rimR);
+                const Vec3 iM0 = cM + scale(rad0, rimR), iM1 = cM + scale(rad1, rimR);
+                emitSmooth(out, cP, oP1, oP0, ax, ax, ax);
+                const Vec3 axn = scale(ax, -1.0f);
+                emitSmooth(out, cM, iM0, iM1, axn, axn, axn);
             }
         }
     }
@@ -226,12 +308,14 @@ void drawWheels(RzContext* ctx, const Mat4& viewProj) {
             bindShadowMaps(ctx, t.shadow);
             bindFog(ctx, t.fog);
             glUniform1i(t.textured, 0);
+            glUniform1i(t.smooth, 1);            // pneu: luz por pixel (normais lisas)
             glDisable(GL_CULL_FACE);
             bound = true;
         }
         glBindVertexArray(o.wheelVao);
         glDrawArrays(GL_TRIANGLES, 0, GLsizei(o.wheelFlatVerts));
     }
+    if (bound) glUniform1i(ctx->terrainProgram.smooth, 0);   // restaura o flat p/ o terreno
 }
 
 // As faces (discos) das rodas: programa dos objetos, com a textura do objeto,

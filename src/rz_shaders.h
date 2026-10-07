@@ -17,16 +17,18 @@ uniform mat4 uShadowMatrix[3];            // luz: cascatas 0, 1 e 2
 uniform vec3  uLight;                     // direção para a luz (normalizada)
 uniform float uAmbient;
 
-flat out vec3  vColor;
+flat out vec3  vColor;                    // cor base do triângulo, SEM luz
 flat out int   vLayer;
 flat out float vLight;                    // luz flat do triângulo, 0..1
+out float vLightSmooth;                   // a mesma luz, interpolada (normais por vértice): rodas
 out vec2 vUV;
 out vec3 vShadow0, vShadow1, vShadow2;
 out vec3 vWorld;                          // para a neblina
 
 void main() {
     vLight = uAmbient + (1.0 - uAmbient) * max(dot(normalize(aNormal.xyz), uLight), 0.0);
-    vColor = aColor.bgr * vLight;
+    vLightSmooth = vLight;
+    vColor = aColor.bgr;
     vUV    = aUvLayer.xy;
     vLayer = int(aUvLayer.z);
     vec4 world = vec4(aPosition, 1.0);
@@ -46,9 +48,10 @@ void main() {
 // flat, que já vêm iluminadas, a luz do triângulo cai para uShadowLight.
 // A saída tem alfa 0: no modo offscreen ele vira o byte reservado do RGBQUAD.
 constexpr const char* kTerrainFragmentShader = R"GLSL(#version 330 core
-flat in vec3  vColor;
+flat in vec3  vColor;                     // cor base, sem luz
 flat in int   vLayer;
 flat in float vLight;
+in float vLightSmooth;
 in vec2 vUV;
 in vec3 vShadow0, vShadow1, vShadow2;
 in vec3 vWorld;
@@ -66,6 +69,7 @@ uniform sampler2DShadow uShadow0, uShadow1, uShadow2;
 uniform vec3  uCascade;                   // fim da cascata 0, fim da 1, faixa de transição (mundo)
 uniform int   uCascadeOnlyFar;            // visão geral: só a cascata 2
 uniform int   uTextured;
+uniform int   uSmooth;                    // 1: luz por pixel (vLightSmooth), p/ as rodas
 uniform float uShading;
 uniform float uShadowLight;               // luz na sombra (kShadowLight)
 uniform float uShadowDim;                 // chão texturizado na sombra: fator fixo
@@ -111,10 +115,11 @@ void main() {
         return;
     }
     float lit   = shadowTerm();
-    float light = mix(min(uShadowLight, vLight), vLight, lit);
+    float base  = (uSmooth != 0) ? vLightSmooth : vLight;   // por pixel nas rodas, flat no resto
+    float light = mix(min(uShadowLight, base), base, lit);
     vec3 color;
     if (uTextured == 0) {
-        color = vColor * (light / max(vLight, 0.001));
+        color = vColor * light;                             // vColor já é a cor base, sem luz
         fragColor = vec4(mix(color, uFogColor, fog), 0.0);
         return;
     }

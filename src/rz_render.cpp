@@ -102,9 +102,11 @@ bool createRenderer(RzContext* ctx) {
     t.textured = glGetUniformLocation(t.program, "uTextured");
     t.shading  = glGetUniformLocation(t.program, "uShading");
     t.ambient   = glGetUniformLocation(t.program, "uShadowLight");
+    t.smooth   = glGetUniformLocation(t.program, "uSmooth");
     const GLint shadowDim = glGetUniformLocation(t.program, "uShadowDim");
     glUseProgram(t.program);
     glUniform1i(t.atlas, kUnitAtlas);
+    glUniform1i(t.smooth, 0);
     glUniform1f(t.shading, kTexturedShading);
     glUniform1f(t.ambient, kShadowLight);
     glUniform1f(shadowDim, kShadowTexturedDim);

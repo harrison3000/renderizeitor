@@ -258,12 +258,19 @@ struct GlassVertex {
 };
 static_assert(sizeof(GlassVertex) == 28);
 
-// Rodas (rz_wheels.cpp): cilindros pretos finos
-constexpr int32_t  kWheelSegments = 12;
+// Rodas (rz_wheels.cpp): pneus, geometria de revolução com ombros arredondados
+constexpr int32_t  kWheelSegments      = 12;        // lados do anel (low poly, como o legado)
+constexpr int32_t  kWheelShoulderSteps = 3;         // passos que arredondam cada ombro do pneu
 constexpr float    kWheelWidth    = 0.4f;           // largura = 0,4 x diâmetro (12:30)
 constexpr uint32_t kWheelColor    = 0x001C1C1Cu;    // quase preto (para a luz ainda aparecer)
-constexpr int32_t  kWheelSideVerts = kWheelSegments * 2 * 3;   // lateral (pneu): 2 tri por segmento
-constexpr int32_t  kWheelCapVerts  = kWheelSegments * 2 * 3;   // as duas tampas (faces): 1 tri cada
+// Casca de cor fixa: ombro (x2, com passos) + banda de rodagem (x1) + a parede
+// do recuo da jante (x2). Cada banda = kWheelSegments quads (2 triângulos).
+constexpr int32_t  kWheelSkinBands = 2 * kWheelShoulderSteps + 3;
+constexpr int32_t  kWheelSideVerts = kWheelSkinBands * kWheelSegments * 6;     // casca do pneu (cor fixa)
+// Faces texturizadas: a parede lateral (anel plano, x2) + a jante recuada
+// (leque até o centro, x2).
+constexpr int32_t  kWheelCapVerts  = 2 * kWheelSegments * 6                    // paredes laterais (anéis)
+                                   + 2 * kWheelSegments * 3;                   // jantes recuadas (leques)
 
 // Vidro: brilho especular "embaçado" (Blinn-Phong de expoente baixo)
 constexpr float kGlassSpecular  = 0.45f;
@@ -342,6 +349,7 @@ struct ShadowUniforms {
 struct TerrainProgram {
     GLuint program = 0;
     GLint  viewProj = -1, atlas = -1, textured = -1, shading = -1, ambient = -1;
+    GLint  smooth = -1;    // luz por pixel (normal interpolada) em vez de flat: rodas
     ShadowUniforms shadow;
     FogUniforms    fog;
 };
