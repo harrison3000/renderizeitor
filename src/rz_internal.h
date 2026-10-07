@@ -83,6 +83,10 @@ constexpr float kOverviewFogDepth = 60.0f;   // tiles
 
 constexpr int32_t kMaxWindowSize = 8192;
 
+// Coordenada de vértice/sprite vinda do host (tiles): finita e |v| < 1e6
+// (a comparação falha com NaN; infinito passa do limite)
+inline bool validCoord(float v) { return v > -1.0e6f && v < 1.0e6f; }
+
 // Neblina por distância (só seguindo um alvo; a visão geral fica sem): limpa
 // até o início, some na cor de fundo no fim (tiles, distância 3D ao olho,
 // curva smoothstep). Além do fim nada é desenhado. Padrão 30..65; muda em

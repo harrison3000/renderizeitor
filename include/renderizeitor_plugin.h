@@ -39,7 +39,7 @@ typedef struct RzContext RzContext;
 #define RZ_MAX_HEIGHT  1080
 
 typedef struct RzVertex {
-    uint32_t x, y, z;
+    float x, y, z;         /* tiles (z para cima) */
 } RzVertex;
 
 /* Canto de polígono texturizado: índice do vértice e UV. 12 bytes. */
@@ -59,7 +59,7 @@ typedef struct RzWheel {
 
 /* Um sprite (ver rzSetSprites). 20 bytes. */
 typedef struct RzSprite {
-    uint32_t x, y, z;      /* centro, 8.24 (z para cima) */
+    float    x, y, z;      /* centro, em tiles (z para cima) */
     float    size;         /* diâmetro em tiles */
     uint8_t  color;        /* índice na paleta do jogo */
     uint8_t  pad[3];

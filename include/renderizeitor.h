@@ -26,10 +26,11 @@ typedef struct RzContext RzContext;
 /* Structs da API: passadas só por ponteiro (nunca por valor), layout fixo,
    campos do maior para o menor, padding explícito (zerar). */
 
-/* Posição de um vértice, ponto fixo 8.24 sem sinal (1.0 = 1 tile), eixos do
-   legado: x = coluna, y = linha, z = altura (para cima). 12 bytes. */
+/* Posição de um vértice em tiles (1.0 = 1 tile), eixos do legado: x = coluna,
+   y = linha, z = altura (para cima). Do 8.24 do legado: valor / 16777216.0f.
+   12 bytes. */
 typedef struct RzVertex {
-    uint32_t x, y, z;
+    float x, y, z;
 } RzVertex;
 
 /* Canto de polígono texturizado: índice do vértice e UV. 12 bytes. */
@@ -49,7 +50,7 @@ typedef struct RzWheel {
 
 /* Um sprite (ver rzSetSprites). 20 bytes. */
 typedef struct RzSprite {
-    uint32_t x, y, z;      /* centro, 8.24 como RzVertex (z para cima) */
+    float    x, y, z;      /* centro, em tiles como RzVertex (z para cima) */
     float    size;         /* diâmetro em tiles */
     uint8_t  color;        /* índice na paleta do jogo */
     uint8_t  pad[3];
@@ -177,8 +178,9 @@ RZ_API int32_t RZ_CALL rzSetFog(RzContext* ctx, float start, float end);
 /* Objetos                                                                  */
 /* ------------------------------------------------------------------------ */
 
-/* Vértices: array de vertexCount RzVertex, em ponto fixo 8.24 sem sinal,
-   coordenadas absolutas no mundo: 1.0 = 1 tile.
+/* Vértices: array de vertexCount RzVertex, em float, coordenadas absolutas
+   no mundo: 1.0 = 1 tile. NaN, infinito ou |valor| >= 1e6 em qualquer vértice:
+   RZ_ERR_INVALID_ARG e nada muda.
    Eixos do legado: (x, y, z) = (coluna, linha, altura), z para cima.
 
    Montagem de um objeto (fase de carga):

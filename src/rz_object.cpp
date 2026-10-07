@@ -10,7 +10,7 @@
 // paleta, no pé da textura (kSwatch*, rz_texture.cpp): UV constante, derivada
 // zero, sempre o nível 0 do mipmap. Como a posição do bloco depende do lado
 // da textura, esses UVs são calculados no envio ao VBO.
-// Update (rzUpdateObjectVertices): converte as posições 8.24 para float e
+// Update (rzUpdateObjectVertices): passa as posições (tiles) para o mundo e
 // recalcula a cor sombreada de cada polígono.
 // Frame (drawObjects): reenvia o VBO dos objetos alterados (sem alocar) e faz
 // um glDrawArrays por objeto visível.
@@ -24,7 +24,6 @@ using namespace rz;
 namespace {
 
 constexpr int32_t  kMaxObjectVertices = 65536;              // índice uint16
-constexpr float    kFixed824ToFloat = 1.0f / 16777216.0f;   // 2^-24
 
 bool validId(const RzContext* ctx, int32_t id) {
     return ctx && id >= 0 && id < int32_t(ctx->objects.size()) && ctx->objects[id].alive;
@@ -40,14 +39,14 @@ void freeObject(Object& o) {
     o = Object{};
 }
 
-// 8.24 -> mundo. O legado tem z para cima, (coluna, linha, altura); o renderer
-// tem y para cima: (x, y, z) = (coluna, altura, linha).
+// Tiles -> mundo. O legado tem z para cima, (coluna, linha, altura); o
+// renderer tem y para cima: (x, y, z) = (coluna, altura, linha).
 void loadPositions(const RzContext* ctx, Object& o, const RzVertex* vertices) {
-    const float scale = ctx->cellSize * kFixed824ToFloat;
+    const float scale = ctx->cellSize;
     for (int32_t i = 0; i < o.vertexCount(); ++i) {
-        const float col = float(vertices[i].x) * scale;
-        const float row = float(vertices[i].y) * scale;
-        const float up  = float(vertices[i].z) * scale;
+        const float col = vertices[i].x * scale;
+        const float row = vertices[i].y * scale;
+        const float up  = vertices[i].z * scale;
         o.world[i] = Vec3{ col, up, row };
     }
 
@@ -365,6 +364,11 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t i
                                                        const RzVertex* vertices) {
     if (!validId(ctx, id) || !vertices) return recordError(ctx, "rzUpdateObjectVertices", RZ_ERR_INVALID_ARG);
     Object& o = ctx->objects[id];
+    for (int32_t i = 0; i < o.vertexCount(); ++i) {
+        if (!validCoord(vertices[i].x) || !validCoord(vertices[i].y) || !validCoord(vertices[i].z)) {
+            return recordError(ctx, "rzUpdateObjectVertices", RZ_ERR_INVALID_ARG);
+        }
+    }
     loadPositions(ctx, o, vertices);
     computePolygonColors(o);
     o.positioned = true;

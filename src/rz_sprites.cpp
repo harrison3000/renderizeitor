@@ -4,7 +4,7 @@
 // andarem uma posição), então não há id: rzSetSprites recebe o array inteiro
 // e substitui o anterior. O renderer não guarda estado por sprite.
 //
-// Cada sprite: centro (8.24), diâmetro (tiles) e índice de cor na paleta do
+// Cada sprite: centro (tiles), diâmetro (tiles) e índice de cor na paleta do
 // jogo (a do atlas de blocos; sem atlas, uma rampa de cinza). A forma é uma
 // textura de ruído "spray do Paint" (kSpriteClicks cliques de pontinhos
 // perto do centro), com kSpriteFrames variações numa textura array; o quadro
@@ -30,7 +30,6 @@ namespace rz {
 
 namespace {
 
-constexpr float kFixed824ToFloat = 1.0f / 16777216.0f;   // 2^-24
 
 uint32_t hashU32(uint32_t h) {
     h ^= h >> 16; h *= 0x7FEB352Du;
@@ -222,14 +221,18 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetSprites(RzContext* ctx, const RzSprite* spr
     if (!ctx || count < 0 || (count > 0 && !sprites)) return recordError(ctx, "rzSetSprites", RZ_ERR_INVALID_ARG);
     if (count > kMaxSprites) return recordError(ctx, "rzSetSprites", RZ_ERR_SIZE);
     for (int32_t i = 0; i < count; ++i) {
-        if (!(sprites[i].size > 0.0f && sprites[i].size < 1.0e6f)) return recordError(ctx, "rzSetSprites", RZ_ERR_INVALID_ARG);   // pega NaN
+        const RzSprite& s = sprites[i];
+        if (!(s.size > 0.0f && s.size < 1.0e6f)) return recordError(ctx, "rzSetSprites", RZ_ERR_INVALID_ARG);   // pega NaN
+        if (!validCoord(s.x) || !validCoord(s.y) || !validCoord(s.z)) {
+            return recordError(ctx, "rzSetSprites", RZ_ERR_INVALID_ARG);
+        }
     }
-    const float scale = ctx->cellSize * kFixed824ToFloat;
+    const float scale = ctx->cellSize;
     ctx->sprites.clear();                                      // capacidade reservada: não aloca
     for (int32_t i = 0; i < count; ++i) {
         const RzSprite& s = sprites[i];
         Sprite d;
-        d.center = { float(s.x) * scale, float(s.z) * scale, float(s.y) * scale };   // (coluna, altura, linha)
+        d.center = { s.x * scale, s.z * scale, s.y * scale };   // (coluna, altura, linha)
         d.radius = 0.5f * s.size * ctx->cellSize;
         d.color  = ctx->spritePalette[s.color];
         ctx->sprites.push_back(d);

@@ -242,7 +242,7 @@ static void rztdGenerateTileMap(const uint8_t* heights, uint8_t* tileMap) {
 }
 
 /* ------------------------------------------------------------------------- */
-/* Objetos de teste, no formato do legado: vértices 8.24 absolutos (z para    */
+/* Objetos de teste, no formato da API: vértices em tiles absolutos (z para   */
 /* cima, 1.0 = 1 tile), polígonos convexos fechados repetindo o 1º índice.    */
 /* As funções abaixo recebem (x, y, z) com y para cima e gravam (x, z, y).   */
 /* Faces no sentido do legado: horário na tela quando vistas de fora (a normal */
@@ -255,26 +255,26 @@ static void rztdGenerateTileMap(const uint8_t* heights, uint8_t* tileMap) {
 #define RZTD_MAX_OBJECTS     200
 
 typedef struct {
-    uint32_t vertices[RZTD_MESH_MAX_VERTS * 3];
+    float    vertices[RZTD_MESH_MAX_VERTS * 3];
     uint16_t indices[RZTD_MESH_MAX_INDEX];
     float    pos[RZTD_MESH_MAX_VERTS][3];      /* cópia em float, para orientar as faces */
     int      vertexCount;
     int      indexCount;
 } RztdMesh;
 
-static uint32_t rztdFixed824(float v) {
-    if (v < 0.0f) v = 0.0f;
+static float rztdCoord(float v) {
+    if (v < 0.0f) v = 0.0f;           /* como o legado: sem coordenada negativa */
     if (v > 255.99f) v = 255.99f;
-    return (uint32_t)(v * 16777216.0f);
+    return v;
 }
 
 static int rztdVertex(RztdMesh* m, float x, float y, float z) {
     int i = m->vertexCount++;
     m->pos[i][0] = x; m->pos[i][1] = y; m->pos[i][2] = z;
     /* Formato do legado: (coluna, linha, altura) — z para cima */
-    m->vertices[i * 3 + 0] = rztdFixed824(x);
-    m->vertices[i * 3 + 1] = rztdFixed824(z);
-    m->vertices[i * 3 + 2] = rztdFixed824(y);
+    m->vertices[i * 3 + 0] = rztdCoord(x);
+    m->vertices[i * 3 + 1] = rztdCoord(z);
+    m->vertices[i * 3 + 2] = rztdCoord(y);
     return i;
 }
 
@@ -539,7 +539,7 @@ static int32_t rztdAddVehicleAntenna(RzContext* ctx, int32_t id) {
     return rzAddObjectLine(ctx, id, RZTD_ANTENNA_FIRST, RZTD_ANTENNA_FIRST + 1, 0.02f, RZTD_ANTENNA_COLOR);
 }
 
-/* Posições da malha de teste no formato da API (RztdMesh guarda uint32_t
+/* Posições da malha de teste no formato da API (RztdMesh guarda float
    x, y, z seguidos, o mesmo layout de RzVertex) */
 #define RZTD_VERTICES(m) ((const RzVertex*)(m)->vertices)
 
@@ -632,9 +632,9 @@ static int32_t rztdStepParticles(RzContext* ctx, RztdParticles* p, const RztdMes
         RzSprite* s = &p->sprites[i];
         const float age = 1.0f - p->life[i] / p->maxLife[i];    /* 0 nasce, 1 morre */
         memset(s, 0, sizeof(*s));
-        s->x = rztdFixed824(p->pos[i][0]);
-        s->y = rztdFixed824(p->pos[i][2]);
-        s->z = rztdFixed824(p->pos[i][1] > 0.0f ? p->pos[i][1] : 0.0f);
+        s->x = rztdCoord(p->pos[i][0]);
+        s->y = rztdCoord(p->pos[i][2]);
+        s->z = rztdCoord(p->pos[i][1] > 0.0f ? p->pos[i][1] : 0.0f);
         if (p->debris[i]) {
             s->size  = 0.06f;
             s->color = RZTD_DEBRIS_COLOR;
