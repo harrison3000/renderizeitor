@@ -85,8 +85,13 @@ void buildWheels(Object& o) {
     Vec3 axle2 = rr[1] - rr[0];
     if (dot(axle, axle2) < 0.0f) axle2 = scale(axle2, -1.0f);
     axle = axle + axle2;
+    // O "cima" das rodas: fixa o sentido na 1a montagem (carro em pé, u aponta
+    // para +y) e depois acompanha o corpo continuamente, SEM reforçar o +y a
+    // cada frame. Assim emborcar não inverte o eixo (nem, com ele, a identidade
+    // das tampas): u gira junto com o carro em vez de dar um salto.
     Vec3 u = normalized(cross(axle, f));
-    if (u.y < 0.0f) u = scale(u, -1.0f);
+    if (!o.wheelOuterResolved) o.wheelUpSign = (u.y >= 0.0f) ? 1.0f : -1.0f;
+    u = scale(u, o.wheelUpSign);
     if (dot(u, u) == 0.0f) u = { 0.0f, 1.0f, 0.0f };
 
     // anel unitário (fechado: ring[kWheelSegments] = ring[0])
