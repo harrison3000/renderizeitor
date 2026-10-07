@@ -270,6 +270,14 @@ RZ_API int32_t RZ_CALL rzSetObjectWheels(RzContext* ctx, int32_t id, const RzWhe
 RZ_API int32_t RZ_CALL rzSetObjectWheelFaces(RzContext* ctx, int32_t id,
                                              const RzWheelFace* outer, const RzWheelFace* inner);
 
+/* Velocidade do carro (tiles por frame, = distância andada neste frame, na
+   mesma escala dos vértices). A cada frame renderizado as rodas giram por
+   distância / raio, cada uma pelo seu próprio diâmetro (dianteiras e traseiras
+   podem diferir); positivo = para a frente. Fica guardada: chame uma vez por
+   frame (ou quando mudar). 0 para parar. Não aloca.
+   RZ_ERR_INVALID_ARG sem rzSetObjectWheels antes ou com valor não finito. */
+RZ_API int32_t RZ_CALL rzSetObjectSpeed(RzContext* ctx, int32_t id, float speed);
+
 /* Esterçamento das duas rodas dianteiras (radianos; positivo vira para a
    esquerda, anti-horário visto de cima); as traseiras ficam retas. Não aloca.
    RZ_ERR_INVALID_ARG sem rzSetObjectWheels antes ou com ângulo não finito. */

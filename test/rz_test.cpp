@@ -260,6 +260,9 @@ int main(int argc, char** argv) {
             if (dh >  3.14159265f) dh -= 6.2831853f;
             if (dh < -3.14159265f) dh += 6.2831853f;
             rztdSteerVehicle(ctx, vehicleId, std::fmax(-0.45f, std::fmin(0.45f, -dh * 40.0f)));
+            // velocidade = distância andada neste frame (tiles), para as rodas girarem
+            float dx = x1 - x0, dz = z1 - z0;
+            rzSetObjectSpeed(ctx, vehicleId, std::sqrt(dx * dx + dz * dz) / 8.0f);
             if (rztdStepParticles(ctx, &particles, &vehicle) != RZ_OK) {
                 std::fprintf(stderr, "rzSetSprites falhou\n");
                 return 1;

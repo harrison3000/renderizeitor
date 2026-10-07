@@ -303,6 +303,8 @@ struct Object {
     uint8_t   wheelFront[4] = {};
     float     wheelDiameter[4] = {};    // mundo
     float     wheelSteer = 0.0f;        // dianteiras; radianos, positivo = esquerda
+    float     wheelRoll[4] = {};        // giro acumulado de cada roda; radianos
+    float     wheelSpeed = 0.0f;        // velocidade do carro (tiles/frame); gira as rodas
     std::vector<TerrainVertex> wheelStaging;    // parte plana: pneu (+ faces sem textura)
     GLuint    wheelVao = 0, wheelVbo = 0;
     int32_t   wheelFlatVerts = 0;       // vértices em uso no VBO plano
@@ -608,7 +610,7 @@ void  drawWall(const RzContext* ctx, const Mat4& viewProj);
 
 // rz_wheels.cpp
 void freeWheels(Object& o);
-void prepareWheels(Object& o);
+void prepareWheels(RzContext* ctx, Object& o);
 void drawWheelsDepth(const Object& o);
 void drawWheels(RzContext* ctx, const Mat4& viewProj);
 void drawWheelFaces(RzContext* ctx, const Mat4& viewProj);   // discos, com a textura do objeto

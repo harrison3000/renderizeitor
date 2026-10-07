@@ -105,6 +105,7 @@ typedef char RzAssertSpriteSize[sizeof(RzSprite) == 20 ? 1 : -1];
     X(int32_t, rzSetObjectWheels, (RzContext* ctx, int32_t id, const RzWheel* wheels))               \
     X(int32_t, rzSetObjectWheelFaces, (RzContext* ctx, int32_t id, const RzWheelFace* outer,         \
                                const RzWheelFace* inner))                                            \
+    X(int32_t, rzSetObjectSpeed, (RzContext* ctx, int32_t id, float speed))                          \
     X(int32_t, rzUpdateObjectWheels, (RzContext* ctx, int32_t id, float steer))                      \
     X(int32_t, rzLoadObjectTexture, (RzContext* ctx, int32_t id, const char* pcxPath))               \
     X(int32_t, rzLoadFallbackTexture, (RzContext* ctx, const char* pcxPath))                         \

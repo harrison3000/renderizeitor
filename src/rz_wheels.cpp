@@ -114,17 +114,24 @@ void buildWheels(Object& o) {
         // desse lado do centro do carro; senão a externa é a do lado -eixo.
         const bool plusIsOuter = dot(p - carMid, ax) > 0.0f;
         const uint32_t nOut = packNormal(ax), nIn = packNormal(scale(ax, -1.0f));
+        // Giro da roda (rzSetObjectSpeed): roda o anel em torno do eixo, no
+        // plano (fw, u). Afeta a geometria e a UV da face, então o desenho da
+        // face gira junto. cr/sr: rotação do giro acumulado desta roda.
+        const float cr = cosf(o.wheelRoll[i]), sr = sinf(o.wheelRoll[i]);
         for (int32_t k = 0; k < kWheelSegments; ++k) {
-            const Vec3 r0 = scale(fw, ringC[k] * radius)     + scale(u, ringS[k] * radius);
-            const Vec3 r1 = scale(fw, ringC[k + 1] * radius) + scale(u, ringS[k + 1] * radius);
+            const float c0 = ringC[k] * cr - ringS[k] * sr,     s0 = ringS[k] * cr + ringC[k] * sr;
+            const float c1 = ringC[k + 1] * cr - ringS[k + 1] * sr, s1 = ringS[k + 1] * cr + ringC[k + 1] * sr;
+            const Vec3 r0 = scale(fw, c0 * radius) + scale(u, s0 * radius);
+            const Vec3 r1 = scale(fw, c1 * radius) + scale(u, s1 * radius);
             const Vec3 n  = normalized(r0 + r1);               // normal do lado
             const Vec3 o0 = p + half + r0, o1 = p + half + r1; // lado de fora (+eixo)
             const Vec3 i0 = p - half + r0, i1 = p - half + r1; // lado de dentro
             emitTriangle(out, i0, o0, o1, n);                  // pneu (lateral): sempre plano
             emitTriangle(out, i0, o1, i1, n);
             if (textured) {
-                // disco no círculo unitário: canto k = (ringC, ringS). A face
-                // externa usa o quadrado externo (sem espelho), a interna o
+                // A UV usa o anel SEM o giro (ringC/ringS): a textura fica presa
+                // à roda e gira junto com a geometria (que usa o anel girado). A
+                // face externa usa o quadrado externo (sem espelho), a interna o
                 // interno (espelhado em u).
                 const float* fPlus = plusIsOuter ? o.wheelFaceOuter : o.wheelFaceInner;
                 const float* fMinus = plusIsOuter ? o.wheelFaceInner : o.wheelFaceOuter;
@@ -164,9 +171,20 @@ void freeWheels(Object& o) {
     o.wheelCapVao = 0;
 }
 
-// Antes dos passes do frame (junto com prepareObjects)
-void prepareWheels(Object& o) {
-    if (o.wheelStaging.empty() || !o.positioned || !o.wheelsDirty) return;
+// Antes dos passes do frame (junto com prepareObjects). Com velocidade, adianta
+// o giro de cada roda neste frame: ângulo = distância andada / raio (cada roda
+// pelo seu diâmetro; positivo = para a frente), e remonta.
+void prepareWheels(RzContext* ctx, Object& o) {
+    if (o.wheelStaging.empty() || !o.positioned) return;
+    if (o.wheelSpeed != 0.0f) {
+        const float dist = o.wheelSpeed * ctx->cellSize;       // tiles/frame -> mundo
+        for (int32_t i = 0; i < 4; ++i) {
+            o.wheelRoll[i] -= dist / (0.5f * o.wheelDiameter[i]);   // -: topo vai para a frente
+            o.wheelRoll[i] = fmodf(o.wheelRoll[i], 2.0f * kPi);
+        }
+        o.wheelsDirty = true;
+    }
+    if (!o.wheelsDirty) return;
     buildWheels(o);
     o.wheelsDirty = false;
 }
@@ -245,10 +263,12 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetObjectWheels(RzContext* ctx, int32_t id, co
 
     const float cs = ctx->cellSize;
     o.wheelSteer = 0.0f;
+    o.wheelSpeed = 0.0f;
     for (int32_t i = 0; i < 4; ++i) {
         o.wheelVertex[i]   = wheels[i].hubVertex;
         o.wheelFront[i]    = wheels[i].front ? 1 : 0;
         o.wheelDiameter[i] = wheels[i].diameter * cs;
+        o.wheelRoll[i]     = 0.0f;
     }
     if (!o.wheelVao) {                                          // carga: aloca uma vez
         o.wheelStaging.resize(size_t(4) * kWheelVertices);     // pneu + (faces pretas, se sem textura)
@@ -288,6 +308,14 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetObjectWheelFaces(RzContext* ctx, int32_t id
     }
     o.wheelFacesSet = true;
     o.wheelsDirty = true;
+    return RZ_OK;
+}
+
+RZ_API RZ_ENTRY int32_t RZ_CALL rzSetObjectSpeed(RzContext* ctx, int32_t id, float speed) {
+    if (!validId(ctx, id) || !std::isfinite(speed)) return recordError(ctx, "rzSetObjectSpeed", RZ_ERR_INVALID_ARG);
+    Object& o = ctx->objects[id];
+    if (o.wheelStaging.empty()) return recordError(ctx, "rzSetObjectSpeed", RZ_ERR_INVALID_ARG);   // sem rzSetObjectWheels
+    o.wheelSpeed = speed;
     return RZ_OK;
 }
 

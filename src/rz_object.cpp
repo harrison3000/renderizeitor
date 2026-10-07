@@ -240,7 +240,7 @@ bool objectInRange(const RzContext* ctx, const Object& o) {
 // Os fora do alcance ficam para quando entrarem (gpuDirty continua).
 void prepareObjects(RzContext* ctx) {
     for (Object& o : ctx->objects) {
-        if (o.alive && objectInRange(ctx, o)) prepareWheels(o);
+        if (o.alive && objectInRange(ctx, o)) prepareWheels(ctx, o);
         if (!drawable(o) || !objectInRange(ctx, o)) continue;
         const int32_t side = o.texture ? o.textureSize : ctx->fallbackSize;
         if (o.gpuDirty || o.uploadedSide != side) {   // textura trocada: UVs das cores mudam
