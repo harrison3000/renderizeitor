@@ -262,6 +262,8 @@ static_assert(sizeof(GlassVertex) == 28);
 constexpr int32_t  kWheelSegments = 12;
 constexpr float    kWheelWidth    = 0.4f;           // largura = 0,4 x diâmetro (12:30)
 constexpr uint32_t kWheelColor    = 0x001C1C1Cu;    // quase preto (para a luz ainda aparecer)
+constexpr int32_t  kWheelSideVerts = kWheelSegments * 2 * 3;   // lateral (pneu): 2 tri por segmento
+constexpr int32_t  kWheelCapVerts  = kWheelSegments * 2 * 3;   // as duas tampas (faces): 1 tri cada
 
 // Vidro: brilho especular "embaçado" (Blinn-Phong de expoente baixo)
 constexpr float kGlassSpecular  = 0.45f;
@@ -301,9 +303,18 @@ struct Object {
     uint8_t   wheelFront[4] = {};
     float     wheelDiameter[4] = {};    // mundo
     float     wheelSteer = 0.0f;        // dianteiras; radianos, positivo = esquerda
-    std::vector<TerrainVertex> wheelStaging;
+    std::vector<TerrainVertex> wheelStaging;    // parte plana: pneu (+ faces sem textura)
     GLuint    wheelVao = 0, wheelVbo = 0;
+    int32_t   wheelFlatVerts = 0;       // vértices em uso no VBO plano
     bool      wheelsDirty = false;
+    // Faces texturizadas (rzSetObjectWheelFaces): os discos, com a textura do
+    // objeto; VBO próprio no formato dos objetos (GpuVertex).
+    bool      wheelFacesSet = false;
+    float     wheelFaceOuter[4] = {};   // u0, v0, u1, v1 do quadrado da face externa
+    float     wheelFaceInner[4] = {};   // idem, face interna
+    std::vector<GpuVertex> wheelCapStaging;
+    GLuint    wheelCapVao = 0, wheelCapVbo = 0;
+    int32_t   wheelCapVerts = 0;        // vértices em uso no VBO das faces
 
     GLuint    texture = 0;          // 0: usa a textura fallback do contexto
     int32_t   textureSize = 0;      // lado da textura (potência de 2)
@@ -557,6 +568,9 @@ uint32_t packNormal(Vec3 n);
 // Layout de TerrainVertex no VAO ligado (terreno, continuação e rodas):
 // 0 posição, 1 cor, 2 (u, v, bloco, -), 3 normal
 void setTerrainVertexLayout();
+// Layout de GpuVertex no VAO ligado (objetos e faces das rodas):
+// 0 posição, 1 normal, 2 (u, v)
+void setObjectVertexLayout();
 
 // rz_pcx.cpp: lê um PCX de 8 bits inteiro. Devolve RZ_OK, RZ_ERR_FILE,
 // RZ_ERR_FORMAT ou RZ_ERR_SIZE.
@@ -597,6 +611,7 @@ void freeWheels(Object& o);
 void prepareWheels(Object& o);
 void drawWheelsDepth(const Object& o);
 void drawWheels(RzContext* ctx, const Mat4& viewProj);
+void drawWheelFaces(RzContext* ctx, const Mat4& viewProj);   // discos, com a textura do objeto
 
 // rz_glass.cpp
 bool createGlassProgram(RzContext* ctx);

@@ -57,6 +57,13 @@ typedef struct RzWheel {
     uint8_t  pad;
 } RzWheel;
 
+/* Um quadrado no atlas da textura do objeto, por dois cantos opostos em UV
+   (0..1); o desenho de uma face da roda (ver rzSetObjectWheelFaces). 16 bytes. */
+typedef struct RzWheelFace {
+    float u0, v0;          /* um canto */
+    float u1, v1;          /* o canto oposto */
+} RzWheelFace;
+
 /* Um sprite (ver rzSetSprites). 20 bytes. */
 typedef struct RzSprite {
     float    x, y, z;      /* centro, em tiles (z para cima) */
@@ -69,6 +76,7 @@ typedef struct RzSprite {
 typedef char RzAssertVertexSize[sizeof(RzVertex) == 12 ? 1 : -1];
 typedef char RzAssertTexVertexSize[sizeof(RzTexVertex) == 12 ? 1 : -1];
 typedef char RzAssertWheelSize[sizeof(RzWheel) == 8 ? 1 : -1];
+typedef char RzAssertWheelFaceSize[sizeof(RzWheelFace) == 16 ? 1 : -1];
 typedef char RzAssertSpriteSize[sizeof(RzSprite) == 20 ? 1 : -1];
 
 /* X(retorno, nome, parâmetros) */
@@ -95,6 +103,8 @@ typedef char RzAssertSpriteSize[sizeof(RzSprite) == 20 ? 1 : -1];
     X(int32_t, rzAddObjectLine, (RzContext* ctx, int32_t id, uint16_t a, uint16_t b,                 \
                                float thickness, int32_t paletteIndex))                               \
     X(int32_t, rzSetObjectWheels, (RzContext* ctx, int32_t id, const RzWheel* wheels))               \
+    X(int32_t, rzSetObjectWheelFaces, (RzContext* ctx, int32_t id, const RzWheelFace* outer,         \
+                               const RzWheelFace* inner))                                            \
     X(int32_t, rzUpdateObjectWheels, (RzContext* ctx, int32_t id, float steer))                      \
     X(int32_t, rzLoadObjectTexture, (RzContext* ctx, int32_t id, const char* pcxPath))               \
     X(int32_t, rzLoadFallbackTexture, (RzContext* ctx, const char* pcxPath))                         \

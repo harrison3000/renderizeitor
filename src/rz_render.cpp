@@ -217,7 +217,8 @@ void renderFrame(RzContext* ctx) {
     }
 
     drawObjects(ctx, viewProj);
-    drawWheels(ctx, viewProj);                    // rodas: programa do terreno, sem textura
+    drawWheels(ctx, viewProj);                    // pneus das rodas: programa do terreno, sem textura
+    drawWheelFaces(ctx, viewProj);                // faces das rodas: programa dos objetos, texturizadas
     drawGlass(ctx, viewProj);                     // vidro: filtro + brilho, depois do opaco
     drawSprites(ctx, viewProj);                   // fumaça etc.: alfa, de trás para frente
     drawWall(ctx, viewProj);                      // semitransparente: por último

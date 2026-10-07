@@ -210,6 +210,19 @@ int32_t addPolygon(RzContext* ctx, int32_t id, const uint16_t* indices, const Rz
 
 namespace rz {
 
+// Layout de GpuVertex (objetos e faces das rodas): posição (vec3), normal
+// (4 bytes 2-10-10-10) e UV (vec2). O VAO e o VBO já precisam estar ligados.
+void setObjectVertexLayout() {
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(GpuVertex), reinterpret_cast<void*>(0));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 4, GL_INT_2_10_10_10_REV, GL_TRUE, sizeof(GpuVertex),
+                          reinterpret_cast<void*>(offsetof(GpuVertex, normal)));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(GpuVertex),
+                          reinterpret_cast<void*>(offsetof(GpuVertex, u)));
+    glEnableVertexAttribArray(2);
+}
+
 static bool drawable(const Object& o) {
     return o.alive && o.positioned && !o.staging.empty();
 }
@@ -310,14 +323,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateObject(RzContext* ctx, int32_t vertexCou
     glGenBuffers(1, &o.vbo);
     glBindVertexArray(o.vao);
     glBindBuffer(GL_ARRAY_BUFFER, o.vbo);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(GpuVertex), reinterpret_cast<void*>(0));
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 4, GL_INT_2_10_10_10_REV, GL_TRUE, sizeof(GpuVertex),
-                          reinterpret_cast<void*>(offsetof(GpuVertex, normal)));
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(GpuVertex),
-                          reinterpret_cast<void*>(offsetof(GpuVertex, u)));
-    glEnableVertexAttribArray(2);
+    setObjectVertexLayout();
     glBindVertexArray(0);
 
     o.alive      = true;

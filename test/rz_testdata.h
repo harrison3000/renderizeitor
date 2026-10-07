@@ -524,6 +524,8 @@ static void rztdVehicle(RztdMesh* m, const uint8_t* heights, float heightScale,
 #ifdef RENDERIZEITOR_H
 static int32_t rztdSetVehicleWheels(RzContext* ctx, int32_t id) {
     RzWheel w[4];
+    RzWheelFace outer, inner;
+    int32_t err;
     int i;
     for (i = 0; i < 4; ++i) {
         w[i].diameter  = RZTD_WHEEL_DIAMETER;
@@ -531,7 +533,16 @@ static int32_t rztdSetVehicleWheels(RzContext* ctx, int32_t id) {
         w[i].front     = (uint8_t)(i < 2);
         w[i].pad       = 0;
     }
-    return rzSetObjectWheels(ctx, id, w);
+    err = rzSetObjectWheels(ctx, id, w);
+    if (err != RZ_OK) return err;
+    /* Faces das rodas na textura do carro (256x128 -> 256x256): a externa num
+       quadrado sobre a faixa branca + lataria (disco azul com faixa clara); a
+       interna sobre o farol/lataria. UV = pixel / 256. */
+    outer.u0 =  96.0f / 256.0f; outer.v0 =  48.0f / 256.0f;
+    outer.u1 = 160.0f / 256.0f; outer.v1 = 112.0f / 256.0f;
+    inner.u0 =   0.0f / 256.0f; inner.v0 =  56.0f / 256.0f;
+    inner.u1 =  64.0f / 256.0f; inner.v1 = 120.0f / 256.0f;
+    return rzSetObjectWheelFaces(ctx, id, &outer, &inner);
 }
 
 /* Antena do veículo de teste: uma linha fina (fase de carga) */

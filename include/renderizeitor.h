@@ -48,6 +48,13 @@ typedef struct RzWheel {
     uint8_t  pad;
 } RzWheel;
 
+/* Um quadrado no atlas da textura do objeto, por dois cantos opostos em UV
+   (0..1); o desenho de uma face da roda (ver rzSetObjectWheelFaces). 16 bytes. */
+typedef struct RzWheelFace {
+    float u0, v0;          /* um canto */
+    float u1, v1;          /* o canto oposto */
+} RzWheelFace;
+
 /* Um sprite (ver rzSetSprites). 20 bytes. */
 typedef struct RzSprite {
     float    x, y, z;      /* centro, em tiles como RzVertex (z para cima) */
@@ -60,6 +67,7 @@ typedef struct RzSprite {
 typedef char RzAssertVertexSize[sizeof(RzVertex) == 12 ? 1 : -1];
 typedef char RzAssertTexVertexSize[sizeof(RzTexVertex) == 12 ? 1 : -1];
 typedef char RzAssertWheelSize[sizeof(RzWheel) == 8 ? 1 : -1];
+typedef char RzAssertWheelFaceSize[sizeof(RzWheelFace) == 16 ? 1 : -1];
 typedef char RzAssertSpriteSize[sizeof(RzSprite) == 20 ? 1 : -1];
 
 #define RZ_OK               0
@@ -239,7 +247,8 @@ RZ_API int32_t RZ_CALL rzAddObjectTranslucentPolygon(RzContext* ctx, int32_t id,
 RZ_API int32_t RZ_CALL rzAddObjectLine(RzContext* ctx, int32_t id, uint16_t a, uint16_t b,
                                        float thickness, int32_t paletteIndex);
 
-/* Rodas (por enquanto, cilindros pretos finos). wheels: 4 RzWheel, cada uma:
+/* Rodas: cilindros pretos finos (as faces podem receber textura com
+   rzSetObjectWheelFaces). wheels: 4 RzWheel, cada uma:
    hubVertex  vértice do objeto que é o centro da roda (acompanha
               rzUpdateObjectVertices);
    front      != 0 se dianteira (precisam ser duas dianteiras e duas
@@ -249,6 +258,17 @@ RZ_API int32_t RZ_CALL rzAddObjectLine(RzContext* ctx, int32_t id, uint16_t a, u
    Erros: RZ_ERR_INVALID_ARG (vértice fora do objeto, diâmetro <= 0 ou não
    finito, ou não forem 2 + 2). */
 RZ_API int32_t RZ_CALL rzSetObjectWheels(RzContext* ctx, int32_t id, const RzWheel* wheels);
+
+/* Texturiza as duas faces (os discos) de cada roda com a textura do objeto
+   (a mesma de rzLoadObjectTexture): dois quadrados do atlas, um desenhado na
+   face EXTERNA (a que aponta para fora do carro) e outro na INTERNA. Cada
+   quadrado é dado por dois cantos opostos em UV (0..1); o disco da face é
+   mapeado no círculo inscrito nele. O pneu (a lateral do cilindro) continua
+   preto. As quatro rodas usam o mesmo par de faces.
+   Precisa de rzSetObjectWheels antes. Chamar de novo troca as faces; não aloca.
+   Erros: RZ_ERR_INVALID_ARG (sem rodas, ponteiro nulo ou UV não finito). */
+RZ_API int32_t RZ_CALL rzSetObjectWheelFaces(RzContext* ctx, int32_t id,
+                                             const RzWheelFace* outer, const RzWheelFace* inner);
 
 /* Esterçamento das duas rodas dianteiras (radianos; positivo vira para a
    esquerda, anti-horário visto de cima); as traseiras ficam retas. Não aloca.
