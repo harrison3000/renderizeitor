@@ -101,6 +101,15 @@ void buildWheels(Object& o) {
     const Vec3 fwd[2]  = { f, scale(f, c) + scale(cross(u, f), s) };
     const Vec3 axis[2] = { normalized(cross(fwd[0], u)), normalized(cross(fwd[1], u)) };
 
+    // Decide uma vez (e fixa) qual tampa de cada roda é a externa, pelo eixo
+    // RETO (axis[0], o lado direito do carro), não pelo esterçado: assim o
+    // esterçamento, por maior que seja, não troca mais interna por externa.
+    if (!o.wheelOuterResolved) {
+        for (int32_t i = 0; i < 4; ++i)
+            o.wheelPlusOuter[i] = dot(hub[i] - carMid, axis[0]) > 0.0f ? 1 : 0;
+        o.wheelOuterResolved = true;
+    }
+
     const bool textured = o.wheelFacesSet;
     TerrainVertex* out = o.wheelStaging.data();
     GpuVertex*     cap = o.wheelCapStaging.data();
@@ -110,9 +119,7 @@ void buildWheels(Object& o) {
         const float radius = 0.5f * o.wheelDiameter[i];
         const Vec3 half = scale(ax, 0.5f * kWheelWidth * o.wheelDiameter[i]);
         const Vec3 p = hub[i];
-        // A tampa do lado +eixo (p + half) é a face externa quando o cubo está
-        // desse lado do centro do carro; senão a externa é a do lado -eixo.
-        const bool plusIsOuter = dot(p - carMid, ax) > 0.0f;
+        const bool plusIsOuter = o.wheelPlusOuter[i] != 0;   // tampa +eixo é a externa?
         const uint32_t nOut = packNormal(ax), nIn = packNormal(scale(ax, -1.0f));
         // Giro da roda (rzSetObjectWheelSpin): roda o anel em torno do eixo, no
         // plano (fw, u). Afeta a geometria e a UV da face, então o desenho da
@@ -264,6 +271,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetObjectWheels(RzContext* ctx, int32_t id, co
     const float cs = ctx->cellSize;
     o.wheelSteer = 0.0f;
     o.wheelSpeed = 0.0f;
+    o.wheelOuterResolved = false;      // redecide interna/externa para as novas rodas
     for (int32_t i = 0; i < 4; ++i) {
         o.wheelVertex[i]   = wheels[i].hubVertex;
         o.wheelFront[i]    = wheels[i].front ? 1 : 0;

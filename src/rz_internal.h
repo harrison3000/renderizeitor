@@ -314,6 +314,8 @@ struct Object {
     bool      wheelFacesSet = false;
     float     wheelFaceOuter[4] = {};   // u0, v0, u1, v1 do quadrado da face externa
     float     wheelFaceInner[4] = {};   // idem, face interna
+    uint8_t   wheelPlusOuter[4] = {};   // 1 = a tampa do lado +eixo é a externa (fixado no 1o build)
+    bool      wheelOuterResolved = false;   // já decidiu interna/externa de cada roda
     std::vector<GpuVertex> wheelCapStaging;
     GLuint    wheelCapVao = 0, wheelCapVbo = 0;
     int32_t   wheelCapVerts = 0;        // vértices em uso no VBO das faces
