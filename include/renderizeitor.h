@@ -276,7 +276,7 @@ RZ_API int32_t RZ_CALL rzSetObjectWheelFaces(RzContext* ctx, int32_t id,
    podem diferir); positivo = para a frente. Fica guardada: chame uma vez por
    frame (ou quando mudar). 0 para parar. Não aloca.
    RZ_ERR_INVALID_ARG sem rzSetObjectWheels antes ou com valor não finito. */
-RZ_API int32_t RZ_CALL rzSetObjectSpeed(RzContext* ctx, int32_t id, float speed);
+RZ_API int32_t RZ_CALL rzSetObjectWheelSpin(RzContext* ctx, int32_t id, float speed);
 
 /* Esterçamento das duas rodas dianteiras (radianos; positivo vira para a
    esquerda, anti-horário visto de cima); as traseiras ficam retas. Não aloca.

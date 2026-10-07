@@ -342,7 +342,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         placeVehicle();
         rzUpdateObjectVertices(g_ctx, g_vehicleId, RZTD_VERTICES(&g_vehicle));
         rztdSteerVehicle(g_ctx, g_vehicleId, g_carSteer);
-        rzSetObjectSpeed(g_ctx, g_vehicleId, g_carSpeed);      /* gira as rodas conforme a velocidade */
+        rzSetObjectWheelSpin(g_ctx, g_vehicleId, g_carSpeed);  /* gira as rodas conforme a velocidade */
         rztdStepParticles(g_ctx, &g_particles, &g_vehicle);   /* fumaça e detritos */
 
         g_cubeAngle += 0.03f;

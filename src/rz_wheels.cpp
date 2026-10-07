@@ -114,7 +114,7 @@ void buildWheels(Object& o) {
         // desse lado do centro do carro; senão a externa é a do lado -eixo.
         const bool plusIsOuter = dot(p - carMid, ax) > 0.0f;
         const uint32_t nOut = packNormal(ax), nIn = packNormal(scale(ax, -1.0f));
-        // Giro da roda (rzSetObjectSpeed): roda o anel em torno do eixo, no
+        // Giro da roda (rzSetObjectWheelSpin): roda o anel em torno do eixo, no
         // plano (fw, u). Afeta a geometria e a UV da face, então o desenho da
         // face gira junto. cr/sr: rotação do giro acumulado desta roda.
         const float cr = cosf(o.wheelRoll[i]), sr = sinf(o.wheelRoll[i]);
@@ -311,10 +311,10 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetObjectWheelFaces(RzContext* ctx, int32_t id
     return RZ_OK;
 }
 
-RZ_API RZ_ENTRY int32_t RZ_CALL rzSetObjectSpeed(RzContext* ctx, int32_t id, float speed) {
-    if (!validId(ctx, id) || !std::isfinite(speed)) return recordError(ctx, "rzSetObjectSpeed", RZ_ERR_INVALID_ARG);
+RZ_API RZ_ENTRY int32_t RZ_CALL rzSetObjectWheelSpin(RzContext* ctx, int32_t id, float speed) {
+    if (!validId(ctx, id) || !std::isfinite(speed)) return recordError(ctx, "rzSetObjectWheelSpin", RZ_ERR_INVALID_ARG);
     Object& o = ctx->objects[id];
-    if (o.wheelStaging.empty()) return recordError(ctx, "rzSetObjectSpeed", RZ_ERR_INVALID_ARG);   // sem rzSetObjectWheels
+    if (o.wheelStaging.empty()) return recordError(ctx, "rzSetObjectWheelSpin", RZ_ERR_INVALID_ARG);   // sem rzSetObjectWheels
     o.wheelSpeed = speed;
     return RZ_OK;
 }
