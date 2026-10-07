@@ -62,6 +62,7 @@ constexpr GLenum GL_COMPARE_REF_TO_TEXTURE  = 0x884E;
 constexpr GLenum GL_TEXTURE_2D_ARRAY        = 0x8C1A;
 constexpr GLenum GL_BYTE                    = 0x1400;
 constexpr GLenum GL_UNSIGNED_BYTE           = 0x1401;
+constexpr GLenum GL_INT_2_10_10_10_REV      = 0x8D9F;
 constexpr GLenum GL_FLOAT                   = 0x1406;
 constexpr GLenum GL_RED                     = 0x1903;
 constexpr GLenum GL_RGBA                    = 0x1908;

@@ -40,14 +40,9 @@ Vec3 normalized(Vec3 v) {
 }
 
 void emitTriangle(TerrainVertex*& out, Vec3 a, Vec3 b, Vec3 c, Vec3 normal) {
-    const Vec3 l = lightDirection();
-    float ndotl = dot(normal, l);
-    if (ndotl < 0.0f) ndotl = 0.0f;
-    const float intensity = kAmbient + (1.0f - kAmbient) * ndotl;
-    const uint32_t color = shadeFlat(kWheelColor, normal, false);
-    const uint8_t light = uint8_t(intensity * 255.0f + 0.5f);
+    const uint32_t n = packNormal(normal);
     const Vec3 v[3] = { a, b, c };
-    for (const Vec3& p : v) *out++ = { p.x, p.y, p.z, color, 0, 0, 0, light };
+    for (const Vec3& p : v) *out++ = { p.x, p.y, p.z, kWheelColor, 0, 0, 0, 0, n };
 }
 
 // Monta os quatro cilindros na posição atual e reenvia o VBO (sem alocar)
@@ -183,15 +178,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetObjectWheels(RzContext* ctx, int32_t id, co
         glBindBuffer(GL_ARRAY_BUFFER, o.wheelVbo);
         glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(o.wheelStaging.size() * sizeof(TerrainVertex)),
                      nullptr, GL_DYNAMIC_DRAW);
-        const GLsizei stride = sizeof(TerrainVertex);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride,
-                              reinterpret_cast<void*>(offsetof(TerrainVertex, color)));
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride,
-                              reinterpret_cast<void*>(offsetof(TerrainVertex, u)));
-        glEnableVertexAttribArray(2);
+        setTerrainVertexLayout();
         glBindVertexArray(0);
     }
     o.wheelsDirty = true;

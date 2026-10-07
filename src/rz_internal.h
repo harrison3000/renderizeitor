@@ -227,7 +227,7 @@ struct ObjectLine {
 
 struct GpuVertex {
     float    x, y, z;
-    uint32_t color;
+    uint32_t normal;           // normal da face (packNormal); a luz é feita no shader
     float    u, v;
 };
 static_assert(sizeof(GpuVertex) == 24);
@@ -243,11 +243,12 @@ constexpr int32_t kSwatchRows  = 16;
 // cor flat e o bloco são do triângulo/quad, não do ponto da grade).
 struct TerrainVertex {
     float    x, y, z;
-    uint32_t color;            // cor flat do triângulo (iluminada), 0x00RRGGBB
+    uint32_t color;            // cor flat do triângulo (sem luz), 0x00RRGGBB
     uint8_t  u, v, layer;      // canto do quad (0/1) e bloco do atlas
-    uint8_t  light;            // intensidade da luz no triângulo, 0..255 (para o chão texturizado)
+    uint8_t  pad;
+    uint32_t normal;           // normal da face (packNormal); a luz é feita no shader
 };
-static_assert(sizeof(TerrainVertex) == 20);
+static_assert(sizeof(TerrainVertex) == 24);
 
 // Vértice do vidro (rz_glass.cpp): posição, normal de fora do polígono, cinza
 struct GlassVertex {
@@ -280,7 +281,7 @@ struct Object {
     std::vector<uint16_t> indices;        // cópia dos índices dos polígonos (sem os fechamentos)
     std::vector<float>    uvs;            // (u, v) de cada entrada de `indices`; 0 nos de cor sólida
     std::vector<int16_t>  polygonPalette; // índice de cor (rzAddObjectPolygon) ou -1 (UVs próprios)
-    std::vector<uint32_t> polygonColors;  // cor sombreada por polígono
+    std::vector<uint32_t> polygonNormals; // normal de fora por polígono (Newell, packNormal)
     std::vector<ObjectTriangle> triangles; // leque de cada polígono, montado na carga
     std::vector<ObjectLine> lines;        // rzAddObjectLine: prisma fino gerado no envio
     std::vector<GpuVertex> staging;       // triangles.size() * 3 + lines.size() * kLineVertices
@@ -548,8 +549,14 @@ bool updateTerrain(RzContext* ctx);         // rzUpdateTerrain: só o que mudou
 void buildAtlasLevels(uint32_t* tiles, const uint8_t* indices, const uint8_t* paletteRGB);
 void downsample(const uint32_t* src, uint32_t* dst, int32_t dstSide);
 void fillTransparent(uint32_t* img, int32_t side);   // cor dos texels alfa 0 = vizinhos opacos
-uint32_t shadeFlat(uint32_t base, Vec3 normal, bool twoSided);
 Vec3 lightDirection();
+// Normal de face para o vértice (GL_INT_2_10_10_10_REV normalizado: x, y, z
+// em 10 bits com sinal). Não precisa vir normalizada; a nula (triângulo
+// degenerado) vira "para baixo", que só recebe a luz ambiente, como antes.
+uint32_t packNormal(Vec3 n);
+// Layout de TerrainVertex no VAO ligado (terreno, continuação e rodas):
+// 0 posição, 1 cor, 2 (u, v, bloco, -), 3 normal
+void setTerrainVertexLayout();
 
 // rz_pcx.cpp: lê um PCX de 8 bits inteiro. Devolve RZ_OK, RZ_ERR_FILE,
 // RZ_ERR_FORMAT ou RZ_ERR_SIZE.

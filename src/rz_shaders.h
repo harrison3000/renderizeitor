@@ -4,13 +4,18 @@
 namespace rz {
 
 // Terreno: malha montada na CPU na carga (rz_terrain.cpp), um vértice por
-// canto de triângulo, com a cor flat do triângulo e (u, v, bloco, luz).
+// canto de triângulo, com a cor do triângulo (sem luz), (u, v, bloco) e a
+// normal da face. Luz flat: ambiente + difusa pela normal, por triângulo
+// (os três vértices têm a mesma normal; `flat` pega a do último).
 constexpr const char* kTerrainVertexShader = R"GLSL(#version 330 core
 layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec4 aColor;      // B, G, R, 0 normalizados
-layout(location = 2) in vec4 aUvLayer;    // u, v em {0, 1}; bloco 0..255; luz 0..255
+layout(location = 2) in vec4 aUvLayer;    // u, v em {0, 1}; bloco 0..255; -
+layout(location = 3) in vec4 aNormal;     // normal da face (10 bits por eixo)
 uniform mat4 uViewProj;
 uniform mat4 uShadowMatrix[3];            // luz: cascatas 0, 1 e 2
+uniform vec3  uLight;                     // direção para a luz (normalizada)
+uniform float uAmbient;
 
 flat out vec3  vColor;
 flat out int   vLayer;
@@ -20,10 +25,10 @@ out vec3 vShadow0, vShadow1, vShadow2;
 out vec3 vWorld;                          // para a neblina
 
 void main() {
-    vColor = aColor.bgr;
+    vLight = uAmbient + (1.0 - uAmbient) * max(dot(normalize(aNormal.xyz), uLight), 0.0);
+    vColor = aColor.bgr * vLight;
     vUV    = aUvLayer.xy;
     vLayer = int(aUvLayer.z);
-    vLight = aUvLayer.w / 255.0;
     vec4 world = vec4(aPosition, 1.0);
     vShadow0 = (uShadowMatrix[0] * world).xyz * 0.5 + 0.5;
     vShadow1 = (uShadowMatrix[1] * world).xyz * 0.5 + 0.5;
@@ -122,21 +127,24 @@ void main() {
 }
 )GLSL";
 
-// Objetos: posição no mundo, luz flat por vértice (cinza; B, G, R, 0 lido como
-// vec4 normalizado) e UV. Todo polígono é texturizado (os de cor sólida
-// amostram um bloquinho da faixa de paleta).
+// Objetos: posição no mundo, normal de fora do polígono (a mesma em todos os
+// triângulos dele, mesmo não plano) e UV. Luz flat como no terreno. Todo
+// polígono é texturizado (os de cor sólida amostram um bloquinho da faixa de
+// paleta).
 constexpr const char* kObjectVertexShader = R"GLSL(#version 330 core
 layout(location = 0) in vec3 aPosition;
-layout(location = 1) in vec4 aColor;
+layout(location = 1) in vec4 aNormal;     // 10 bits por eixo
 layout(location = 2) in vec2 aUV;
 uniform mat4 uViewProj;
 uniform mat4 uShadowMatrix[3];            // luz: cascatas 0, 1 e 2
+uniform vec3  uLight;                     // direção para a luz (normalizada)
+uniform float uAmbient;
 flat out float vLight;
 out vec2 vUV;
 out vec3 vShadow0, vShadow1, vShadow2;
 out vec3 vWorld;                          // para a neblina
 void main() {
-    vLight = aColor.b;                     // cinza: os três canais são iguais
+    vLight = uAmbient + (1.0 - uAmbient) * max(dot(normalize(aNormal.xyz), uLight), 0.0);
     vUV = aUV;
     vec4 world = vec4(aPosition, 1.0);
     vShadow0 = (uShadowMatrix[0] * world).xyz * 0.5 + 0.5;

@@ -146,7 +146,6 @@ void buildExtendedHeights(RzContext* ctx) {
 void emitCell(const RzContext* ctx, std::vector<TerrainVertex>& out, const uint32_t* palette,
               int32_t c, int32_t r, int32_t s, uint8_t layer) {
     const float cs = ctx->cellSize, hs = ctx->heightScale;
-    const Vec3 light = lightDirection();
     struct Corner { int32_t dc, dr; };
     constexpr Corner kCorners[2][3] = { { { 0, 0 }, { 0, 1 }, { 1, 0 } },     // mesma do mapa (1 3 2, 2 3 4)
                                         { { 1, 0 }, { 0, 1 }, { 1, 1 } } };
@@ -159,18 +158,13 @@ void emitCell(const RzContext* ctx, std::vector<TerrainVertex>& out, const uint3
             sum += height;
             p[k] = { float(gc) * cs, height * hs, float(gr) * cs };
         }
-        const Vec3 n = cross(p[1] - p[0], p[2] - p[0]);
-        const float len2 = dot(n, n);
-        float ndotl = len2 > 0.0f ? dot(n, light) / sqrtf(len2) : 0.0f;
-        if (ndotl < 0.0f) ndotl = 0.0f;
-        const float intensity = kAmbient + (1.0f - kAmbient) * ndotl;
+        const uint32_t normal = packNormal(cross(p[1] - p[0], p[2] - p[0]));
         int32_t idx = int32_t(sum + 0.5f);
         if (idx > kPaletteSize - 1) idx = kPaletteSize - 1;
-        const uint32_t color = shadeFlat(palette[idx], n, false);
-        const uint8_t l = uint8_t(intensity * 255.0f + 0.5f);
+        const uint32_t color = palette[idx];
         for (int32_t k = 0; k < 3; ++k) {
             out.push_back({ p[k].x, p[k].y, p[k].z, color,
-                            uint8_t(tri[k].dc), uint8_t(tri[k].dr), layer, l });
+                            uint8_t(tri[k].dc), uint8_t(tri[k].dr), layer, 0, normal });
         }
     }
 }
@@ -308,15 +302,7 @@ bool createBorder(RzContext* ctx) {
     glGenBuffers(1, &ctx->skirtVbo);
     glBindVertexArray(ctx->skirtVao);
     glBindBuffer(GL_ARRAY_BUFFER, ctx->skirtVbo);
-    const GLsizei stride = sizeof(TerrainVertex);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride,
-                          reinterpret_cast<void*>(offsetof(TerrainVertex, color)));
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride,
-                          reinterpret_cast<void*>(offsetof(TerrainVertex, u)));
-    glEnableVertexAttribArray(2);
+    setTerrainVertexLayout();
 
     // Parede
     glGenVertexArrays(1, &ctx->wallVao);

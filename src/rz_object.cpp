@@ -66,11 +66,10 @@ void loadPositions(const RzContext* ctx, Object& o, const RzVertex* vertices) {
     o.radius = sqrtf(r2);
 }
 
-// Luz flat do polígono, de um lado só: só a luz, em cinza, que o shader
-// multiplica pela textura. No sentido do legado (horário visto de fora), a
-// normal de Newell aponta para dentro; a de fora é a oposta. Face de costas
-// para a luz fica só com o ambiente.
-uint32_t polygonColor(const Object& o, size_t p) {
+// Normal de fora do polígono (uma só para o polígono inteiro, mesmo não
+// plano), para a luz flat no shader. No sentido do legado (horário visto de
+// fora), a normal de Newell aponta para dentro; a de fora é a oposta.
+uint32_t polygonNormal(const Object& o, size_t p) {
     const uint16_t* idx = o.indices.data() + o.polygonStart[p];
     const int32_t n = o.polygonLength[p];
     Vec3 normal = { 0.0f, 0.0f, 0.0f };
@@ -81,11 +80,11 @@ uint32_t polygonColor(const Object& o, size_t p) {
         normal.y += (cur.z - next.z) * (cur.x + next.x);
         normal.z += (cur.x - next.x) * (cur.y + next.y);
     }
-    return shadeFlat(0x00FFFFFFu, Vec3{ -normal.x, -normal.y, -normal.z }, false);
+    return packNormal(Vec3{ -normal.x, -normal.y, -normal.z });
 }
 
-void computePolygonColors(Object& o) {
-    for (size_t p = 0; p < o.polygonStart.size(); ++p) o.polygonColors[p] = polygonColor(o, p);
+void computePolygonNormals(Object& o) {
+    for (size_t p = 0; p < o.polygonStart.size(); ++p) o.polygonNormals[p] = polygonNormal(o, p);
 }
 
 // Linhas (rzAddObjectLine): prisma de seção quadrada (lado = grossura) em
@@ -120,9 +119,9 @@ void emitLines(const Object& o, int32_t side, GpuVertex*& v) {
         // quad p0..p3 com normal de fora n: ordem horária vista de fora
         auto face = [&](Vec3 p0, Vec3 p1, Vec3 p2, Vec3 p3, Vec3 n) {
             if (dot(cross(p1 - p0, p2 - p0), n) > 0.0f) { const Vec3 t = p1; p1 = p3; p3 = t; }
-            const uint32_t color = shadeFlat(0x00FFFFFFu, n, false);
+            const uint32_t normal = packNormal(n);
             const Vec3 q[6] = { p0, p1, p2, p0, p2, p3 };
-            for (const Vec3& p : q) *v++ = { p.x, p.y, p.z, color, su, sv };
+            for (const Vec3& p : q) *v++ = { p.x, p.y, p.z, normal, su, sv };
         };
         for (int32_t k = 0; k < 4; ++k) {
             const int32_t k1 = (k + 1) & 3;
@@ -149,15 +148,15 @@ void resizeObjectBuffers(Object& o) {
 void uploadObject(Object& o, int32_t side) {
     GpuVertex* v = o.staging.data();
     for (const ObjectTriangle& tri : o.triangles) {
-        const uint32_t color = o.polygonColors[tri.polygon];
+        const uint32_t normal = o.polygonNormals[tri.polygon];
         const int32_t  pal   = o.polygonPalette[tri.polygon];
         float su = 0.0f, sv = 0.0f;
         if (pal >= 0) swatchUV(pal, side, &su, &sv);
         const int32_t corners[3] = { tri.a, tri.b, tri.c };
         for (int32_t corner : corners) {
             const Vec3 p = o.world[o.indices[corner]];
-            if (pal >= 0) *v++ = { p.x, p.y, p.z, color, su, sv };
-            else          *v++ = { p.x, p.y, p.z, color, o.uvs[corner * 2], o.uvs[corner * 2 + 1] };
+            if (pal >= 0) *v++ = { p.x, p.y, p.z, normal, su, sv };
+            else          *v++ = { p.x, p.y, p.z, normal, o.uvs[corner * 2], o.uvs[corner * 2 + 1] };
         }
     }
     emitLines(o, side, v);
@@ -202,7 +201,7 @@ int32_t addPolygon(RzContext* ctx, int32_t id, const uint16_t* indices, const Rz
     for (int32_t i = 1; i + 1 < n; ++i) {
         o.triangles.push_back({ first, first + i, first + i + 1, polygon });
     }
-    o.polygonColors.push_back(polygonColor(o, polygon));
+    o.polygonNormals.push_back(polygonNormal(o, polygon));
     resizeObjectBuffers(o);
     return glGetError() == GL_NO_ERROR ? RZ_OK : RZ_ERR_GL;
 }
@@ -313,8 +312,8 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateObject(RzContext* ctx, int32_t vertexCou
     glBindBuffer(GL_ARRAY_BUFFER, o.vbo);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(GpuVertex), reinterpret_cast<void*>(0));
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(GpuVertex),
-                          reinterpret_cast<void*>(offsetof(GpuVertex, color)));
+    glVertexAttribPointer(1, 4, GL_INT_2_10_10_10_REV, GL_TRUE, sizeof(GpuVertex),
+                          reinterpret_cast<void*>(offsetof(GpuVertex, normal)));
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(GpuVertex),
                           reinterpret_cast<void*>(offsetof(GpuVertex, u)));
@@ -370,7 +369,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t i
         }
     }
     loadPositions(ctx, o, vertices);
-    computePolygonColors(o);
+    computePolygonNormals(o);
     o.positioned = true;
     o.gpuDirty   = true;
     o.glassDirty = !o.glassStaging.empty();

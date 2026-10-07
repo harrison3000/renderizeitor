@@ -121,20 +121,35 @@ Vec3 lightDirection() {
     return { l.x * inv, l.y * inv, l.z * inv };
 }
 
-// Cor flat de uma face com normal `normal` (não precisa estar normalizada).
-// twoSided: ilumina pelos dois lados (|n·L|); hoje ninguém usa (os objetos
-// passaram à luz de um lado só quando o winding do legado foi definido).
-uint32_t shadeFlat(uint32_t base, Vec3 normal, bool twoSided) {
-    const Vec3 light = lightDirection();
-    const float len2 = dot(normal, normal);
-    float ndotl = 0.0f;
-    if (len2 > 0.0f) ndotl = dot(normal, light) / sqrtf(len2);
-    if (twoSided && ndotl < 0.0f) ndotl = -ndotl;
-    if (ndotl < 0.0f) ndotl = 0.0f;
-    const float intensity = kAmbient + (1.0f - kAmbient) * ndotl;
-    return packColor(float((base >> 16) & 0xFF) * intensity,
-                     float((base >> 8) & 0xFF) * intensity,
-                     float(base & 0xFF) * intensity);
+uint32_t packNormal(Vec3 n) {
+    const float len2 = dot(n, n);
+    if (!(len2 > 1.0e-20f)) n = { 0.0f, -1.0f, 0.0f };
+    else {
+        const float inv = 1.0f / sqrtf(len2);
+        n = { n.x * inv, n.y * inv, n.z * inv };
+    }
+    auto q = [](float v) -> uint32_t {
+        int32_t i = int32_t(lrintf(v * 511.0f));
+        if (i > 511) i = 511;
+        if (i < -511) i = -511;
+        return uint32_t(i) & 0x3FFu;
+    };
+    return q(n.x) | (q(n.y) << 10) | (q(n.z) << 20);
+}
+
+void setTerrainVertexLayout() {
+    const GLsizei stride = sizeof(TerrainVertex);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride,
+                          reinterpret_cast<void*>(offsetof(TerrainVertex, color)));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride,
+                          reinterpret_cast<void*>(offsetof(TerrainVertex, u)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(3, 4, GL_INT_2_10_10_10_REV, GL_TRUE, stride,
+                          reinterpret_cast<void*>(offsetof(TerrainVertex, normal)));
+    glEnableVertexAttribArray(3);
 }
 
 // Paleta indexada pela soma das 3 alturas de um triângulo (0..765).
@@ -170,7 +185,6 @@ namespace {
 void buildQuads(RzContext* ctx, int32_t c0, int32_t r0, int32_t c1, int32_t r1) {
     uint32_t palette[kPaletteSize];
     buildPalette(palette);
-    const Vec3 light = lightDirection();
     const uint8_t* h = ctx->heights.data();
     const float cs = ctx->cellSize;
     const float hs = ctx->heightScale;
@@ -191,19 +205,11 @@ void buildQuads(RzContext* ctx, int32_t c0, int32_t r0, int32_t c1, int32_t r1) 
                     sum += height;
                     p[k] = { float(gc) * cs, float(height) * hs, float(gr) * cs };
                 }
-                const Vec3 n = cross(p[1] - p[0], p[2] - p[0]);
-                const float len2 = dot(n, n);
-                float ndotl = len2 > 0.0f ? dot(n, light) / sqrtf(len2) : 0.0f;
-                if (ndotl < 0.0f) ndotl = 0.0f;
-                const float intensity = kAmbient + (1.0f - kAmbient) * ndotl;
-                const uint8_t lightByte = uint8_t(intensity * 255.0f + 0.5f);
-                const uint32_t base = palette[sum];
-                const uint32_t color = packColor(float((base >> 16) & 0xFF) * intensity,
-                                                 float((base >> 8) & 0xFF) * intensity,
-                                                 float(base & 0xFF) * intensity);
+                const uint32_t normal = packNormal(cross(p[1] - p[0], p[2] - p[0]));
+                const uint32_t color = palette[sum];
                 for (int32_t k = 0; k < 3; ++k) {
                     *v++ = { p[k].x, p[k].y, p[k].z, color,
-                             uint8_t(tri[k].dc), uint8_t(tri[k].dr), layer, lightByte };
+                             uint8_t(tri[k].dc), uint8_t(tri[k].dr), layer, 0, normal };
                 }
             }
         }

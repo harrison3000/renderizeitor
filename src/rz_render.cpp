@@ -84,6 +84,14 @@ void bindFog(const RzContext* ctx, const FogUniforms& u) {
     glUniform3f(u.eye, ctx->eyePos.x, ctx->eyePos.y, ctx->eyePos.z);
 }
 
+// Luz flat (terreno e objetos): direção e ambiente, fixos; o programa precisa
+// estar em uso
+void initLightUniforms(GLuint program) {
+    const Vec3 l = lightDirection();
+    glUniform3f(glGetUniformLocation(program, "uLight"), l.x, l.y, l.z);
+    glUniform1f(glGetUniformLocation(program, "uAmbient"), kAmbient);
+}
+
 bool createRenderer(RzContext* ctx) {
     ctx->anisotropy = detectAnisotropy();          // antes de qualquer textura
     TerrainProgram& t = ctx->terrainProgram;
@@ -102,6 +110,7 @@ bool createRenderer(RzContext* ctx) {
     glUniform1f(shadowDim, kShadowTexturedDim);
     initShadowUniforms(t.program, t.shadow);
     initFogUniforms(t.program, t.fog);
+    initLightUniforms(t.program);
 
     ObjectProgram& o = ctx->objectProgram;
     o.program = linkProgram(kObjectVertexShader, kObjectFragmentShader);
@@ -114,6 +123,7 @@ bool createRenderer(RzContext* ctx) {
     glUniform1f(o.ambient, kShadowLight);
     initShadowUniforms(o.program, o.shadow);
     initFogUniforms(o.program, o.fog);
+    initLightUniforms(o.program);
     if (!createFallbackTexture(ctx)) return false;
 
     DepthProgram& d = ctx->depthProgram;
@@ -132,15 +142,7 @@ bool createRenderer(RzContext* ctx) {
     glBindBuffer(GL_ARRAY_BUFFER, ctx->terrainVbo);
     glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(kTriangleCount) * 3 * GLsizeiptr(sizeof(TerrainVertex)),
                  nullptr, GL_STATIC_DRAW);
-    const GLsizei stride = sizeof(TerrainVertex);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride,
-                          reinterpret_cast<void*>(offsetof(TerrainVertex, color)));
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride,
-                          reinterpret_cast<void*>(offsetof(TerrainVertex, u)));
-    glEnableVertexAttribArray(2);
+    setTerrainVertexLayout();
     glBindVertexArray(0);
 
     if (!ctx->windowed) {
