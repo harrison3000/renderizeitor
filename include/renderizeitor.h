@@ -152,8 +152,8 @@ RZ_API int32_t RZ_CALL rzUpdateTerrain(RzContext* ctx);
    redução (longe) nearest dentro do nível de mipmap e mistura linear entre
    níveis (evita o "shimmering" dos polígonos distantes), mais filtro
    anisotrópico 4x sempre que o driver suporta (ou o máximo dele, se menor).
-   Em renderer de software (llvmpipe) o anisotrópico custa caro: lá, uma
-   neblina mais curta (rzSetFog) compensa. */
+   Em renderer de software (llvmpipe/softpipe) o anisotrópico fica desligado:
+   lá ele ignora o nearest (fica bilinear) e custa caro. */
 
 /* Cor de fundo (onde não há terreno nem objeto), 0 a 255 por canal. Vale a
    partir do próximo rzRender. Padrão (32, 40, 48). */

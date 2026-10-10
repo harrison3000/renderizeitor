@@ -75,7 +75,11 @@ int32_t mipLevels(int32_t side) {
 // Nível anisotrópico a usar: kAnisotropy, limitado ao máximo do driver; 0 se
 // o driver não tem EXT/ARB_texture_filter_anisotropic (core só no GL 4.6).
 // Contexto já corrente.
+// Em renderer de software (llvmpipe/softpipe) fica desligado: lá o
+// anisotrópico ignora o NEAREST e borra tudo (fica bilinear), além de caro.
 float detectAnisotropy() {
+    const char* renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+    if (renderer && (std::strstr(renderer, "llvmpipe") || std::strstr(renderer, "softpipe"))) return 0.0f;
     GLint count = 0;
     glGetIntegerv(GL_NUM_EXTENSIONS, &count);
     bool found = false;
