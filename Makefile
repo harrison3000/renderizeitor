@@ -36,13 +36,13 @@ viewer: rz_viewer
 
 build/static/%.o: src/%.cpp $(HDRS)
 	@mkdir -p build/static
-	$(CXX) $(CXXFLAGS) -DRZ_STATIC -c $< -o $@
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 librenderizeitor_static.a: $(OBJ_STATIC)
 	$(AR) rcs $@ $^
 
 rz_test: test/rz_test.cpp test/rz_testdata.h librenderizeitor_static.a $(HDRS)
-	$(CXX) $(CXXFLAGS) -DRZ_STATIC test/rz_test.cpp librenderizeitor_static.a -ldl -o $@
+	$(CXX) $(CXXFLAGS) test/rz_test.cpp librenderizeitor_static.a -ldl -o $@
 
 VIEWER_CFLAGS = -std=c11 -O2 -Wall -Wextra -Iinclude
 

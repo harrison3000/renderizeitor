@@ -11,7 +11,7 @@
 #include "rz_gl.h"
 #include "rz_platform.h"
 
-// Exportações: pilha realinhada na entrada (Win32 só garante 4 bytes, SSE2 quer 16).
+// Entradas da API: pilha realinhada no i386 (a ABI garante 4 bytes, o SSE quer 16).
 #if defined(__i386__)
 #  define RZ_ENTRY __attribute__((force_align_arg_pointer))
 #else

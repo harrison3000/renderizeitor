@@ -170,10 +170,6 @@ Platform* platformCreateOffscreen() {
     return p;
 }
 
-Platform* platformCreateChildWindow(void*, int32_t, int32_t, int32_t, int32_t) {
-    return nullptr;     // janela filha não é usada no Linux; ver platformCreateAdopted
-}
-
 Platform* platformCreateAdopted() {
     if (!loadGlLib()) return nullptr;
     Platform* p = static_cast<Platform*>(std::malloc(sizeof(Platform)));
@@ -202,10 +198,6 @@ bool platformMakeCurrent(Platform* p) {
 }
 
 void platformSwapBuffers(Platform*) {}   // OFFSCREEN: nada; ADOPTED: quem troca é o host
-
-bool platformMoveWindow(Platform*, int32_t, int32_t, int32_t, int32_t) {
-    return false;
-}
 
 void* platformGetProc(const char* name) {
     return g_getProc ? g_getProc(name) : nullptr;

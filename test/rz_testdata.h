@@ -678,7 +678,7 @@ static void rztdVehiclePath(float t, float* x, float* z, float* heading) {
 /* ------------------------------------------------------------------------- */
 
 /* Parede 300x240: tijolos com janelas. As 44 colunas à direita (256..299) são
-   verde puro: a DLL deve descartá-las (a textura fica 256x256, com padding
+   verde puro: a biblioteca deve descartá-las (a textura fica 256x256, com padding
    embaixo, onde entra a faixa de paleta); os UVs usam v de 0 a 240/256. */
 #define RZTD_WALL_W 300
 #define RZTD_WALL_H 240

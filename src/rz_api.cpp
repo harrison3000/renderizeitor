@@ -46,7 +46,7 @@ int32_t createContext(RzContext** outCtx, Platform* platform, bool windowed,
     return RZ_OK;
 }
 
-// Erro da última rzCreate/rzCreateWindow que falhou (não há contexto onde
+// Erro da última rzCreate/rzCreateCurrent que falhou (não há contexto onde
 // guardar); devolvido por rzGetError(NULL).
 int32_t     g_createError = RZ_OK;
 const char* g_createErrorFunction = nullptr;
@@ -96,17 +96,6 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreate(int32_t width, int32_t height,
         createContext(outCtx, platformCreateOffscreen(), false, width, height, pixels));
 }
 
-RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateWindow(void* parentWindow, int32_t x, int32_t y,
-                                               int32_t width, int32_t height, RzContext** outCtx) {
-    if (!outCtx) return recordCreateError("rzCreateWindow", RZ_ERR_INVALID_ARG);
-    *outCtx = nullptr;
-    if (!parentWindow || width < 1 || height < 1) return recordCreateError("rzCreateWindow", RZ_ERR_INVALID_ARG);
-    if (width > kMaxWindowSize || height > kMaxWindowSize) return recordCreateError("rzCreateWindow", RZ_ERR_SIZE);
-    return recordCreateError("rzCreateWindow",
-        createContext(outCtx, platformCreateChildWindow(parentWindow, x, y, width, height),
-                      true, width, height, nullptr));
-}
-
 RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateCurrent(int32_t width, int32_t height, RzContext** outCtx) {
     if (!outCtx) return recordCreateError("rzCreateCurrent", RZ_ERR_INVALID_ARG);
     *outCtx = nullptr;
@@ -115,16 +104,6 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateCurrent(int32_t width, int32_t height, R
     // windowed=true: desenha no framebuffer padrão (sem cópia), orientação normal.
     return recordCreateError("rzCreateCurrent",
         createContext(outCtx, platformCreateAdopted(), true, width, height, nullptr));
-}
-
-RZ_API RZ_ENTRY int32_t RZ_CALL rzSetViewport(RzContext* ctx, int32_t x, int32_t y,
-                                              int32_t width, int32_t height) {
-    if (!ctx || !ctx->windowed) return recordError(ctx, "rzSetViewport", RZ_ERR_INVALID_ARG);
-    if (width < 1 || height < 1) return recordError(ctx, "rzSetViewport", RZ_ERR_INVALID_ARG);
-    if (width > kMaxWindowSize || height > kMaxWindowSize) return recordError(ctx, "rzSetViewport", RZ_ERR_SIZE);
-    if (!platformMoveWindow(ctx->platform, x, y, width, height)) return recordError(ctx, "rzSetViewport", RZ_ERR_GL);
-    setSize(ctx, width, height);
-    return RZ_OK;
 }
 
 RZ_API RZ_ENTRY void RZ_CALL rzDestroy(RzContext* ctx) {

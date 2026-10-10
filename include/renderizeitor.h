@@ -7,19 +7,10 @@
 extern "C" {
 #endif
 
-#if defined(RZ_STATIC) || !defined(_WIN32)
-#  define RZ_API
-#elif defined(RZ_BUILD_DLL)
-#  define RZ_API __declspec(dllexport)
-#else
-#  define RZ_API __declspec(dllimport)
-#endif
-
-#if defined(_WIN32)
-#  define RZ_CALL __cdecl
-#else
-#  define RZ_CALL
-#endif
+/* Biblioteca estática: sem exportação de símbolos nem convenção de chamada
+   especial (era o que a antiga DLL de 32 bits precisava). */
+#define RZ_API
+#define RZ_CALL
 
 typedef struct RzContext RzContext;
 
@@ -87,34 +78,23 @@ typedef char RzAssertSpriteSize[sizeof(RzSprite) == 20 ? 1 : -1];
    rzCreate        offscreen: renderiza num framebuffer da GPU e, a cada
                    rzRender, copia a imagem para `pixels` (width*height de
                    RGBQUAD, uint32 0x00RRGGBB, top-down, de posse do host,
-                   válido até rzDestroy). Igual à versão de software; útil para
-                   testes e para rodar sem janela (llvmpipe).
+                   válido até rzDestroy). Útil para testes e para rodar sem
+                   janela (llvmpipe).
 
-   rzCreateWindow  janela filha: cria uma janela dentro de `parentWindow` (HWND
-                   no Windows) em (x, y, width, height), no cliente do pai, e
-                   rzRender desenha direto nela (sem cópia). O pai deve ter
-                   WS_CLIPCHILDREN. O mouse e o teclado continuam indo para o
-                   pai. Deve ser chamada da thread do loop de mensagens do pai.
+   rzCreateCurrent janela: adota um contexto OpenGL 3.3 core que o host já
+                   criou e deixou corrente (ex.: SDL2 com SDL_GL_CreateContext).
+                   rzRender desenha direto no framebuffer padrão da janela do
+                   host (sem cópia); o host é quem troca os buffers
+                   (SDL_GL_SwapWindow) depois de rzRender e quem trata a entrada
+                   e o laço de frames. A janela e o contexto continuam do host:
+                   rzDestroy não os destrói.
 
    Em ambos, o contexto OpenGL pertence à thread que chamou rzCreate*: todas
    as outras funções devem ser chamadas dessa mesma thread. */
 RZ_API int32_t RZ_CALL rzCreate(int32_t width, int32_t height,
                                 void* pixels, RzContext** outCtx);
 
-RZ_API int32_t RZ_CALL rzCreateWindow(void* parentWindow, int32_t x, int32_t y,
-                                      int32_t width, int32_t height, RzContext** outCtx);
-
-/* rzCreateCurrent  adota um contexto OpenGL 3.3 core que o host já criou e
-   deixou corrente (ex.: SDL2 com SDL_GL_CreateContext). rzRender desenha
-   direto no framebuffer padrão da janela do host (sem cópia); o host é quem
-   troca os buffers (SDL_GL_SwapWindow) depois de rzRender e quem trata a
-   entrada e o laço de frames. A janela e o contexto continuam do host:
-   rzDestroy não os destrói. Deve ser chamada da thread dona do contexto. */
 RZ_API int32_t RZ_CALL rzCreateCurrent(int32_t width, int32_t height, RzContext** outCtx);
-
-/* Só no modo janela: move/redimensiona a janela filha (coordenadas do cliente do pai). */
-RZ_API int32_t RZ_CALL rzSetViewport(RzContext* ctx, int32_t x, int32_t y,
-                                     int32_t width, int32_t height);
 
 RZ_API void    RZ_CALL rzDestroy(RzContext* ctx);
 
@@ -310,7 +290,7 @@ RZ_API int32_t RZ_CALL rzLoadObjectTexture(RzContext* ctx, int32_t id, const cha
 /* Troca a textura fallback (a dos objetos sem textura ou cuja carga falhou),
    com as mesmas regras de rzLoadObjectTexture. Vale para todos os objetos,
    inclusive os já criados. Em caso de erro, a fallback atual continua.
-   pcxPath == NULL volta ao xadrez magenta gerado pela DLL. */
+   pcxPath == NULL volta ao xadrez magenta gerado pela biblioteca. */
 RZ_API int32_t RZ_CALL rzLoadFallbackTexture(RzContext* ctx, const char* pcxPath);
 
 /* Posições de todos os vértices (vertexCount RzVertex; mesmo layout de um
@@ -362,14 +342,14 @@ RZ_API int32_t RZ_CALL rzSetCameraFollow(RzContext* ctx, float distance, float h
                                          float stiffness);
 
 /* Avança a câmera e renderiza o frame: offscreen, copia para o buffer do host;
-   janela, apresenta (SwapBuffers). Não aloca. */
+   janela, desenha no framebuffer do host (o host apresenta). Não aloca. */
 RZ_API int32_t RZ_CALL rzRender(RzContext* ctx);
 
 /* Checagem de erros em bloco: todas as funções que devolvem código guardam o
    primeiro erro no contexto. Dá para inicializar tudo sem olhar os retornos e
    checar uma vez no fim:
 
-       rzCreateWindow(hwnd, 0, 0, w, h, &ctx);
+       rzCreateCurrent(w, h, &ctx);
        rzSetHeightmap(ctx, ...);  rzLoadTileAtlas(ctx, ...);  ...
        const char* where;
        if (rzGetError(ctx, &where) != RZ_OK) { ... where = "rzLoadTileAtlas" ... }
@@ -377,7 +357,7 @@ RZ_API int32_t RZ_CALL rzRender(RzContext* ctx);
    Devolve o primeiro erro desde a última chamada (RZ_OK se nada falhou) e
    zera o registro. outFunction (pode ser NULL) recebe o nome da função que
    falhou primeiro (string estática), ou NULL.
-   ctx NULL (rzCreate/rzCreateWindow falhou): devolve o erro da criação, ou
+   ctx NULL (rzCreate/rzCreateCurrent falhou): devolve o erro da criação, ou
    RZ_ERR_INVALID_ARG se não houve falha de criação registrada.
    Chamadas com ctx NULL não têm onde registrar: só devolvem o erro. */
 RZ_API int32_t RZ_CALL rzGetError(RzContext* ctx, const char** outFunction);

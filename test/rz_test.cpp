@@ -1,5 +1,5 @@
 // rz_test: executável de teste do Renderizeitor (versão OpenGL).
-// Linka o núcleo estaticamente (RZ_STATIC), usa a mesma API C da DLL e
+// Linka o núcleo estaticamente, usa a mesma API C da biblioteca e
 // renderiza no modo offscreen (rzCreate com buffer de pixels).
 // Os hashes só são comparáveis na mesma máquina/driver.
 //

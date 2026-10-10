@@ -2,32 +2,30 @@
 
 ## 1. Visão geral
 
-Renderizeitor é um renderizador 3D em OpenGL 3.3 core, escrito em C++23 no estilo "C com classes". É distribuído como DLL de 32 bits com interface C, para ser conectado a um código legado em C compilado com MinGW.
+Renderizeitor é um renderizador 3D em OpenGL 3.3 core, escrito em C++23 no estilo "C com classes". É uma biblioteca estática com interface C, linkada direto no host.
 
 Ele renderiza um terreno a partir de um heightmap 256×256, com texturas por bloco vindas de um atlas paletizado. Também desenha objetos poligonais que o host atualiza, e a câmera persegue um vértice-alvo.
 
 Há dois modos de saída:
 
-- janela filha ancorada numa janela do host;
+- janela: adota um contexto OpenGL que o host já criou (ex.: SDL2) e desenha direto nele;
 - offscreen, com cópia para um buffer RGBQUAD do host.
 
 ## 2. Plataforma e build
 
 | Item | Valor |
 |---|---|
-| Alvo | Windows, x86 32 bits, MinGW32 com GCC 12+ (host e plugin com o mesmo compilador) |
-| GPU | OpenGL 3.3 core (WGL). No Linux, só para testes: EGL surfaceless (Mesa/llvmpipe) |
-| Flags | `-std=c++23 -O2 -msse2 -mfpmath=sse -ffp-contract=off -fno-exceptions -fno-rtti -Wall -Wextra -Wdouble-promotion` |
-| Link | `-static-libgcc -static-libstdc++ -static -lopengl32 -lgdi32`, `-Wl,--out-implib,librenderizeitor.dll.a` |
-| Build | `build.bat` (Windows, sem make), `build_linux.sh` (EGL, `-ldl`); Makefile em `meiquifaiou.txt` |
+| Alvo | Linux, x86-64, GCC (C++23) |
+| GPU | OpenGL 3.3 core. Offscreen via EGL surfaceless (Mesa/llvmpipe); janela via SDL2 (contexto do host) |
+| Flags | `-std=c++23 -O2 -ffp-contract=off -fno-exceptions -fno-rtti -Wall -Wextra -Wdouble-promotion` |
+| Link | biblioteca estática `librenderizeitor_static.a`; `rz_test` liga com `-ldl`; `rz_viewer` com `pkg-config sdl2` + `-lstdc++ -ldl -lm` |
+| Build | `build_linux.sh` ou `make` (alvos: `lib`, `test`, `viewer`, `check`) |
 
-**Critério de aceitação do build:** `objdump -p renderizeitor.dll` lista apenas DLLs do sistema: KERNEL32, USER32, GDI32, OPENGL32 e msvcrt.
-
-As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32 só garante pilha alinhada em 4 bytes, enquanto o SSE quer 16.
+Suporte a Windows (DLL de 32 bits, WGL/GDI, MinGW32) e o carregamento como plugin foram removidos.
 
 ## 3. Dependências e estilo
 
-- **Sem bibliotecas de terceiros, sem headers de GL do sistema.** `rz_gl.h/.cpp` declara o subconjunto do GL 3.3 usado e o carrega por X-macro. No Win32, os ponteiros usam `__stdcall` (`RZ_GLAPI`), e as funções do GL 1.1 vêm de `opengl32.dll` via `GetProcAddress`.
+- **Única dependência externa é o SDL2, e só no `rz_viewer` (janela e entrada).** O núcleo não usa bibliotecas de terceiros nem headers de GL do sistema: `rz_gl.h/.cpp` declara o subconjunto do GL 3.3 usado e o carrega por X-macro, resolvendo os ponteiros via `libGL` (GLX/`dlsym`) ou EGL.
 - **Std liberada quando simplifica o código**, desde que linke estática (`-static-libstdc++`). Containers como `std::vector` são o caso principal: buffers do terreno, do atlas e dos objetos, e o contexto inteiro (`new RzContext`, com os padrões nos inicializadores dos membros).
 - **Sem exceções** (`-fno-exceptions`): uma falha de alocação aborta o programa em vez de virar `RZ_ERR_NO_MEMORY`. A chance é baixíssima e isso foi aceito.
 - **O que não se usa:** streams e RTTI.
@@ -41,17 +39,16 @@ As funções exportadas usam `__attribute__((force_align_arg_pointer))`. O Win32
 ### 4.1 Regras
 
 - **Header:** `include/renderizeitor.h` compila como C puro e é a referência completa da API.
-- **Carga dinâmica (plugin):** `include/renderizeitor_plugin.h` é só header, em C, e independente do `renderizeitor.h` (repete as constantes e o tipo do contexto). `rzPluginLoad(&rz, "renderizeitor.dll")` faz `LoadLibrary` e resolve todas as exportações numa struct `RzPlugin`, e o host chama `rz.rzRender(ctx)` etc., sem linkar com a import library. `rzPluginUnload` descarrega. Ao adicionar uma função à API, acrescente-a também em `RZ_PLUGIN_FUNCTIONS`.
-- **Chamadas:** `__cdecl`, nomes sem decoração e nenhum struct passado por valor. As funções devolvem `int32_t` com um código `RZ_*`.
-- **Memória:** nunca troca de dono na fronteira. A DLL libera o que alocou em `rzDestroy`.
-- **Thread:** o contexto GL pertence à thread que chamou `rzCreate*`. Todas as chamadas do contexto devem vir dela, e no modo janela ela é a thread do loop de mensagens do pai.
+- **Chamadas:** nenhum struct passado por valor. As funções devolvem `int32_t` com um código `RZ_*`.
+- **Memória:** nunca troca de dono na fronteira. A biblioteca libera o que alocou em `rzDestroy`.
+- **Thread:** o contexto GL pertence à thread que chamou `rzCreate*`. Todas as chamadas do contexto devem vir dela, e no modo janela ela é a thread que criou o contexto e trata o laço de frames.
 - **Alocação:** só nas funções de carga (heightmap, atlas, mapa de blocos, `rzCreateObject`, `rzAddObjectPolygon`). `rzRender` e `rzUpdateObjectVertices` não alocam (os vetores já têm o tamanho final).
 
 ### 4.2 Funções
 
 | Grupo | Funções |
 |---|---|
-| Contexto | `rzCreate(w, h, pixels)` offscreen; `rzCreateWindow(hwndPai, x, y, w, h)` janela filha; `rzSetViewport` (só no modo janela); `rzDestroy` |
+| Contexto | `rzCreate(w, h, pixels)` offscreen; `rzCreateCurrent(w, h)` adota o contexto do host (janela); `rzDestroy` |
 | Terreno | `rzSetHeightmap` (256×256; guarda o ponteiro); `rzSetTerrainScale(cellSize, heightScale)`; `rzUpdateTerrain()` (relê os buffers e refaz só o que mudou) |
 | Texturas | `rzLoadTileAtlas(caminhoPcx)`; `rzSetTileMap` (256×256, NULL desliga as texturas; guarda o ponteiro) |
 | Objetos | `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count, paletteIndex)`, `rzAddObjectTexturedPolygon(id, RzTexVertex* corners, count)`, `rzAddObjectTranslucentPolygon(id, indices, count, tone)`, `rzAddObjectLine(id, a, b, thickness, paletteIndex)`, `rzLoadObjectTexture(id, caminhoPcx)`, `rzLoadFallbackTexture(caminhoPcx)`, `rzUpdateObjectVertices(id, RzVertex*)`, `rzDestroyObject` |
@@ -76,7 +73,7 @@ Erros:
 **Checagem em bloco (`rzGetError`):** as funções que devolvem código continuam devolvendo, mas também guardam no contexto o **primeiro** erro desde a última leitura e o nome da função que falhou. Assim o host pode inicializar tudo sem olhar retorno nenhum e checar uma vez no fim:
 
 - **Leitura:** `rzGetError(ctx, &funcao)` devolve esse erro (`RZ_OK` se nada falhou), põe em `funcao` o nome da função (string estática, ou NULL) e zera o registro.
-- **Contexto que não foi criado:** se `rzCreate` ou `rzCreateWindow` falhou, o `ctx` fica NULL e as chamadas seguintes só devolvem `RZ_ERR_INVALID_ARG`, sem ter onde registrar. `rzGetError(NULL, ...)` devolve o erro da criação; sem falha de criação registrada, devolve `RZ_ERR_INVALID_ARG`.
+- **Contexto que não foi criado:** se `rzCreate` ou `rzCreateCurrent` falhou, o `ctx` fica NULL e as chamadas seguintes só devolvem `RZ_ERR_INVALID_ARG`, sem ter onde registrar. `rzGetError(NULL, ...)` devolve o erro da criação; sem falha de criação registrada, devolve `RZ_ERR_INVALID_ARG`.
 - **Durante o jogo:** erros do `rzRender` e dos updates também entram no registro. Quem não lê o registro não é afetado.
 - **Implementação:** todo `return` de erro de uma função exportada passa por `recordError(ctx, "rzNome", erro)`. As de criação usam `recordCreateError`. Função nova ou `return` novo de erro precisa seguir o mesmo padrão.
 
@@ -88,21 +85,19 @@ Limites:
 
 ## 5. Saída
 
-### 5.1 Janela filha (Windows)
+### 5.1 Janela (contexto adotado)
 
-- **Criação:** `WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS` dentro do pai, com a classe `CS_OWNDC` e pixel format e contexto próprios. O DC do host não é tocado.
-- **Contexto 3.3 core:** é criado com `wglCreateContextAttribsARB`. Essa função só existe com um contexto corrente, então ela é buscada uma vez por uma janela e um contexto descartáveis.
-- **Entrada:** o mouse vai para o pai (`HTTRANSPARENT`), e o foco do teclado é devolvido ao pai.
-- **Ritmo:** sem v-sync (`wglSwapIntervalEXT(0)`); o host controla o ritmo, e `rzRender` termina com `SwapBuffers`.
-- **Requisitos do pai:** precisa de `WS_CLIPCHILDREN`. O host chama `rzDestroy` no `WM_DESTROY` do pai.
-- **Limitação:** GDI não desenha por cima da área GL, então um HUD sobre o 3D vai precisar de overlay próprio (seção 12).
+- **Criação:** o host cria a janela e o contexto OpenGL 3.3 core (ex.: SDL2 com `SDL_GL_CreateContext`), deixa o contexto corrente e chama `rzCreateCurrent(w, h, &ctx)`. A plataforma (`rz_platform_egl.cpp`, modo ADOPTED) só resolve os ponteiros do GL via `libGL` (GLX/`dlsym`, com EGL de reserva para Wayland); não cria janela, não troca buffers nem destrói o contexto.
+- **Desenho:** `rzRender` desenha direto no framebuffer padrão da janela (sem cópia), com o winding de frente `GL_CCW`.
+- **Ritmo e apresentação:** o host desliga o v-sync (`SDL_GL_SetSwapInterval(0)`), controla o ritmo dos frames e, depois de `rzRender`, apresenta com `SDL_GL_SwapWindow`.
+- **Entrada e ciclo de vida:** a janela e o contexto são do host; a entrada e o laço de eventos também. O host chama `rzDestroy` ao sair (que não destrói a janela nem o contexto do host) e depois libera o contexto e a janela pelo SDL.
 
 ### 5.2 Offscreen
 
 - **Destino:** o desenho vai para um FBO com cor RGBA8 e profundidade de 24 bits.
 - **Cópia:** `glReadPixels(GL_BGRA)` copia direto para o buffer do host, que é RGBQUAD `0x00RRGGBB`, top-down, com stride igual à largura e byte reservado 0.
 - **Orientação:** a projeção espelha o Y, então a linha 0 lida já é a de cima. Com o espelhamento, o winding de frente vira `GL_CW`.
-- **No Windows:** usa uma janela oculta só para ter o contexto.
+- **Contexto:** EGL surfaceless (sem janela); o renderer desenha num FBO.
 
 ## 6. Mundo e unidades
 
@@ -248,7 +243,7 @@ Sem API; constantes `kSkirt*`/`kBorder*` em `rz_internal.h`, código em `src/rz_
 4. Faz bind do FBO (offscreen) ou do framebuffer padrão (janela) e limpa com a cor de fundo (`rzSetBackgroundColor`, padrão 32, 40, 48), com profundidade em `GL_LESS`.
 5. Desenha o terreno em um draw: textura se houver atlas e mapa de blocos, senão as cores flat. Seguindo um alvo, também a continuação (9.5).
 6. Desenha os objetos e, por último, a parede de limite (semitransparente).
-7. Faz `SwapBuffers` (janela) ou `glReadPixels` para o buffer do host (offscreen).
+7. Janela: deixa o frame pronto no framebuffer (quem apresenta é o host, com `SDL_GL_SwapWindow`). Offscreen: `glReadPixels` para o buffer do host.
 
 Sem heightmap, só limpa e apresenta.
 
@@ -277,7 +272,7 @@ Sem API: tudo fixo em constantes (`kCascade*`, `rz_internal.h`); o código fica 
 ## 11. Testes
 
 - **`test/rz_test.cpp`:**
-  - linka o núcleo estático (`RZ_STATIC`) e renderiza offscreen;
+  - linka o núcleo estático e renderiza offscreen;
   - grava `.ppm`; `-c 0` testa a visão geral;
   - `-x 0` não carrega texturas nos objetos (tudo cai no fallback) (com ela ligada, grava `rz_wall.pcx` e `rz_car.pcx` na pasta de saída; o cubo pede um arquivo inexistente e mostra o fallback);
   - `-a atlas.pcx` usa um atlas próprio; sem ele, grava o procedural em `atlas.pcx` na pasta de saída e carrega de lá;
@@ -287,7 +282,7 @@ Sem API: tudo fixo em constantes (`kCascade*`, `rz_internal.h`); o código fica 
   - Casas e torres.
   - Um veículo de ~0,85 tile que segue o terreno.
   - Percurso automático.
-- **`test/rz_viewer.c`:** aplicação Win32 que usa `rzCreateWindow`. Uso: `rz_viewer.exe [heightmap.raw] [atlas.pcx]`, em qualquer ordem; sem PCX, grava o atlas procedural em `%TEMP%\rz_atlas_teste.pcx`.
+- **`test/rz_viewer.c`:** aplicação SDL2 que cria a janela e o contexto OpenGL e usa `rzCreateCurrent`. Uso: `rz_viewer [heightmap.raw] [atlas.pcx]`, em qualquer ordem; sem PCX, grava o atlas procedural em `$TMPDIR/rz_atlas_teste.pcx` (padrão `/tmp`).
 
   | Tecla | Ação |
   |---|---|
