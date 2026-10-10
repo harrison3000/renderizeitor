@@ -70,3 +70,6 @@ desktop.ini
 .DS_Store
 
 clauderancias/
+
+# --- Claude Code (config local) ---
+.claude/settings.local.json
