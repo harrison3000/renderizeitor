@@ -107,6 +107,16 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateWindow(void* parentWindow, int32_t x, in
                       true, width, height, nullptr));
 }
 
+RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateCurrent(int32_t width, int32_t height, RzContext** outCtx) {
+    if (!outCtx) return recordCreateError("rzCreateCurrent", RZ_ERR_INVALID_ARG);
+    *outCtx = nullptr;
+    if (width < 1 || height < 1) return recordCreateError("rzCreateCurrent", RZ_ERR_INVALID_ARG);
+    if (width > kMaxWindowSize || height > kMaxWindowSize) return recordCreateError("rzCreateCurrent", RZ_ERR_SIZE);
+    // windowed=true: desenha no framebuffer padrão (sem cópia), orientação normal.
+    return recordCreateError("rzCreateCurrent",
+        createContext(outCtx, platformCreateAdopted(), true, width, height, nullptr));
+}
+
 RZ_API RZ_ENTRY int32_t RZ_CALL rzSetViewport(RzContext* ctx, int32_t x, int32_t y,
                                               int32_t width, int32_t height) {
     if (!ctx || !ctx->windowed) return recordError(ctx, "rzSetViewport", RZ_ERR_INVALID_ARG);

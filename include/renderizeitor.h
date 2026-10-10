@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-#if defined(RZ_STATIC)
+#if defined(RZ_STATIC) || !defined(_WIN32)
 #  define RZ_API
 #elif defined(RZ_BUILD_DLL)
 #  define RZ_API __declspec(dllexport)
@@ -103,6 +103,14 @@ RZ_API int32_t RZ_CALL rzCreate(int32_t width, int32_t height,
 
 RZ_API int32_t RZ_CALL rzCreateWindow(void* parentWindow, int32_t x, int32_t y,
                                       int32_t width, int32_t height, RzContext** outCtx);
+
+/* rzCreateCurrent  adota um contexto OpenGL 3.3 core que o host já criou e
+   deixou corrente (ex.: SDL2 com SDL_GL_CreateContext). rzRender desenha
+   direto no framebuffer padrão da janela do host (sem cópia); o host é quem
+   troca os buffers (SDL_GL_SwapWindow) depois de rzRender e quem trata a
+   entrada e o laço de frames. A janela e o contexto continuam do host:
+   rzDestroy não os destrói. Deve ser chamada da thread dona do contexto. */
+RZ_API int32_t RZ_CALL rzCreateCurrent(int32_t width, int32_t height, RzContext** outCtx);
 
 /* Só no modo janela: move/redimensiona a janela filha (coordenadas do cliente do pai). */
 RZ_API int32_t RZ_CALL rzSetViewport(RzContext* ctx, int32_t x, int32_t y,

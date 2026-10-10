@@ -1,8 +1,9 @@
-/* rz_viewer: aplicação Win32 que mostra o terreno e os objetos (versão OpenGL).
+/* rz_viewer: aplicação SDL2 que mostra o terreno e os objetos (versão OpenGL).
  *
- * Escrita em C e linkada contra a DLL (import lib), como o código legado faria.
- * A DLL cria uma janela filha OpenGL dentro da janela deste programa
- * (rzCreateWindow) e desenha direto nela.
+ * Escrita em C e linkada contra a biblioteca estática. O host (este programa)
+ * cria a janela e o contexto OpenGL 3.3 core com o SDL2, deixa o contexto
+ * corrente e chama rzCreateCurrent; a biblioteca desenha direto no framebuffer
+ * da janela e o host troca os buffers (SDL_GL_SwapWindow) a cada frame.
  *
  *   W / S                   acelera / freia e dá ré no carro
  *   A / D                   vira o carro para a esquerda / direita
@@ -13,16 +14,15 @@
  *   R                       volta a câmera aos valores iniciais
  *   Esc                     sai
  *
- * Uso: rz_viewer.exe [heightmap.raw] [atlas.pcx]   (em qualquer ordem)
+ * Uso: rz_viewer [heightmap.raw] [atlas.pcx]   (em qualquer ordem)
  *   heightmap.raw : 256x256, 1 byte por ponto; sem ele, gera a ilha do rz_test
  *   atlas.pcx     : PCX de 8 bits, pelo menos 256x256 (só o canto 256x256 é
- *                   usado); sem ele, grava o atlas procedural em
- *                   %TEMP%\rz_atlas_teste.pcx e carrega de lá
+ *                   usado); sem ele, grava o atlas procedural num PCX temporário
+ *                   e carrega de lá
  */
 
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <mmsystem.h>
+#include <SDL.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -71,17 +71,23 @@ static float    g_carX, g_carZ, g_carHeading, g_carSpeed, g_carSteer;
 #define CAR_STEER_MAX    0.45f            /* rad: esterçamento visual das rodas dianteiras */
 #define CAR_STEER_RATE   0.06f            /* rad/frame para chegar lá */
 
+/* Entrada: teclas seguradas (lidas por scancode) e foco da janela. */
+static const Uint8* g_keys;              /* SDL_GetKeyboardState: 1 = segurada */
+static int g_hasFocus = 1;
+
+static int keyDown(SDL_Scancode sc) {
+    return g_keys && g_keys[sc];
+}
+
 static void placeVehicle(void) {
     rztdVehicle(&g_vehicle, g_heights, HEIGHT_SCALE, g_carX, g_carZ, g_carHeading);
 }
 
-static int keyDown(int vk);
-
 static void driveCar(int active) {
-    int forward = active && keyDown('W');
-    int back    = active && keyDown('S');
-    int left    = active && keyDown('A');
-    int right   = active && keyDown('D');
+    int forward = active && keyDown(SDL_SCANCODE_W);
+    int back    = active && keyDown(SDL_SCANCODE_S);
+    int left    = active && keyDown(SDL_SCANCODE_A);
+    int right   = active && keyDown(SDL_SCANCODE_D);
     float turn, nx, nz;
 
     if (forward)    g_carSpeed += (g_carSpeed < 0.0f) ? CAR_BRAKE : CAR_ACCEL;
@@ -123,148 +129,135 @@ static int loadRaw(const char* path, uint8_t* out) {
     return n == 256 * 256;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Janela                                                                     */
-/* ------------------------------------------------------------------------- */
-
-static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-    switch (msg) {
-    case WM_KEYDOWN:
-        if (wp == VK_ESCAPE) {
-            DestroyWindow(hwnd);
-        } else if (wp == 'C' && !(lp & (1 << 30))) {     /* ignora auto-repeat */
-            g_follow = !g_follow;
-            rzSetCameraTarget(g_ctx, g_follow ? g_vehicleId : -1, RZTD_VEHICLE_TARGET);
-        } else if (wp == 'T' && !(lp & (1 << 30))) {
-            g_textures = !g_textures;
-            rzSetTileMap(g_ctx, g_textures ? g_tileMap : NULL, 256, 256);
-        } else if (wp == 'R') {
-            g_followDist = FOLLOW_DIST_DEFAULT;
-            g_followHeight = FOLLOW_HEIGHT_DEFAULT;
-        }
-        return 0;
-    case WM_ERASEBKGND:
-        return 1;                       /* a área toda é da janela filha OpenGL */
-    case WM_DESTROY:
-        if (g_ctx) {                    /* antes da janela filha ser destruída junto */
-            rzDestroy(g_ctx);
-            g_ctx = NULL;
-        }
-        PostQuitMessage(0);
-        return 0;
-    }
-    return DefWindowProcA(hwnd, msg, wp, lp);
-}
-
-static int keyDown(int vk) {
-    return (GetAsyncKeyState(vk) & 0x8000) != 0;
-}
-
 /* Lê as teclas da câmera (seguradas) uma vez por frame. */
-static void handleInput(HWND hwnd) {
-    if (GetForegroundWindow() != hwnd) return;
-    if (keyDown(VK_UP))    g_followHeight += 0.03f;
-    if (keyDown(VK_DOWN))  g_followHeight -= 0.03f;
-    if (keyDown(VK_PRIOR)) g_followDist /= ZOOM_SPEED;     /* Page Up: aproxima */
-    if (keyDown(VK_NEXT))  g_followDist *= ZOOM_SPEED;     /* Page Down: afasta */
+static void handleInput(void) {
+    if (!g_hasFocus) return;
+    if (keyDown(SDL_SCANCODE_UP))       g_followHeight += 0.03f;
+    if (keyDown(SDL_SCANCODE_DOWN))     g_followHeight -= 0.03f;
+    if (keyDown(SDL_SCANCODE_PAGEUP))   g_followDist /= ZOOM_SPEED;     /* aproxima */
+    if (keyDown(SDL_SCANCODE_PAGEDOWN)) g_followDist *= ZOOM_SPEED;     /* afasta */
     if (g_followHeight < -0.5f) g_followHeight = -0.5f;
     if (g_followHeight > 20.0f) g_followHeight = 20.0f;
     if (g_followDist < 1.0f)    g_followDist = 1.0f;
     if (g_followDist > 40.0f)   g_followDist = 40.0f;
 }
 
-static void updateTitle(HWND hwnd, int32_t renderUs, int32_t fps) {
+static void updateTitle(SDL_Window* win, int32_t renderUs, int32_t fps) {
     char title[256];
-    /* Só inteiros: wsprintf não formata float. */
-    int32_t rope10 = (int32_t)(g_followDist * 10.0f);
-    int32_t height10 = (int32_t)(g_followHeight * 10.0f);
-    int32_t absHeight10 = height10 < 0 ? -height10 : height10;
-
     if (g_follow) {
-        wsprintfA(title,
-                  "Renderizeitor  |  %d fps  |  render %d.%02d ms  |  seguindo: corda %d.%d  altura %s%d.%d",
-                  fps, renderUs / 1000, (renderUs % 1000) / 10,
-                  rope10 / 10, rope10 % 10,
-                  height10 < 0 ? "-" : "", absHeight10 / 10, absHeight10 % 10);
+        snprintf(title, sizeof(title),
+                 "Renderizeitor  |  %d fps  |  render %d.%02d ms  |  seguindo: corda %.1f  altura %.1f",
+                 fps, renderUs / 1000, (renderUs % 1000) / 10,
+                 (double)g_followDist, (double)g_followHeight);
     } else {
-        wsprintfA(title, "Renderizeitor  |  %d fps  |  render %d.%02d ms  |  visao geral",
-                  fps, renderUs / 1000, (renderUs % 1000) / 10);
+        snprintf(title, sizeof(title),
+                 "Renderizeitor  |  %d fps  |  render %d.%02d ms  |  visao geral",
+                 fps, renderUs / 1000, (renderUs % 1000) / 10);
     }
-    SetWindowTextA(hwnd, title);
+    SDL_SetWindowTitle(win, title);
 }
 
-int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
-    static uint8_t heightmap[256 * 256];
-    WNDCLASSA wc;
-    RECT rc;
-    HWND hwnd;
-    /* WS_CLIPCHILDREN: o GDI desta janela não pinta por cima da janela filha OpenGL */
-    DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
-    LARGE_INTEGER freq, now, next, t0, t1, fpsStart;
-    LONGLONG frameTicks;
-    int32_t err, running = 1, frames = 0, renderUsSum = 0;
-    char pcxPath[MAX_PATH], tempDir[MAX_PATH], wallPath[MAX_PATH], carPath[MAX_PATH];
-    const char* rawPath = NULL;
-    DWORD tempLen;
-    int i;
-    (void)prev;
-    (void)cmdLine;
+/* Diretório temporário para os PCX gerados (com a barra no fim). */
+static void tempDirPath(char* out, size_t cap) {
+    const char* t = getenv("TMPDIR");
+    if (!t || !t[0]) t = "/tmp";
+    snprintf(out, cap, "%s/", t);
+}
 
-    /* Argumentos (já separados pelo runtime): .pcx é o atlas, o resto é o heightmap */
+static void fatal(SDL_Window* win, const char* msg) {
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "rz_viewer", msg, win);
+    fprintf(stderr, "rz_viewer: %s\n", msg);
+}
+
+int main(int argc, char** argv) {
+    static uint8_t heightmap[256 * 256];
+    SDL_Window* win = NULL;
+    SDL_GLContext gl = NULL;
+    Uint64 freq, next, now, fpsStart;
+    Sint64 frameTicks;
+    int32_t err, running = 1, frames = 0, renderUsSum = 0;
+    char pcxPath[1024], tempDir[512], wallPath[1024], carPath[1024];
+    const char* rawPath = NULL;
+    int i;
+
+    /* Argumentos: .pcx é o atlas, o resto é o heightmap */
     pcxPath[0] = 0;
-    for (i = 1; i < __argc; ++i) {
-        const char* a = __argv[i];
+    for (i = 1; i < argc; ++i) {
+        const char* a = argv[i];
         size_t len = strlen(a);
-        if (len > 4 && lstrcmpiA(a + len - 4, ".pcx") == 0) lstrcpynA(pcxPath, a, MAX_PATH);
-        else rawPath = a;
+        if (len > 4 && SDL_strcasecmp(a + len - 4, ".pcx") == 0) {
+            snprintf(pcxPath, sizeof(pcxPath), "%s", a);
+        } else {
+            rawPath = a;
+        }
     }
+
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        fprintf(stderr, "rz_viewer: SDL_Init falhou: %s\n", SDL_GetError());
+        return 1;
+    }
+
     if (rawPath) {
         if (!loadRaw(rawPath, heightmap)) {
-            MessageBoxA(NULL, "Falha ao ler o heightmap (256x256 bytes).", "rz_viewer", MB_ICONERROR);
+            fatal(NULL, "Falha ao ler o heightmap (256x256 bytes).");
+            SDL_Quit();
             return 1;
         }
     } else {
         rztdGenerateHeightmap(heightmap);
     }
-    tempLen = GetTempPathA(MAX_PATH, tempDir);
-    if (tempLen == 0 || tempLen + 24 >= MAX_PATH) lstrcpyA(tempDir, ".\\");
+
+    tempDirPath(tempDir, sizeof(tempDir));
     /* Texturas dos objetos: geradas e gravadas como PCX temporários */
-    if (!rztdWriteObjectTextures(tempDir, wallPath, carPath, MAX_PATH)) {
-        MessageBoxA(NULL, "Falha ao gravar as texturas de teste.", "rz_viewer", MB_ICONERROR);
+    if (!rztdWriteObjectTextures(tempDir, wallPath, carPath, sizeof(wallPath))) {
+        fatal(NULL, "Falha ao gravar as texturas de teste.");
+        SDL_Quit();
         return 1;
     }
     if (!pcxPath[0]) {
         /* Sem atlas: grava o procedural num PCX temporário */
         static uint8_t atlas[RZTD_ATLAS_SIZE * RZTD_ATLAS_SIZE];
         static uint8_t palette[768];
-        lstrcpyA(pcxPath, tempDir);
-        lstrcatA(pcxPath, "rz_atlas_teste.pcx");
+        snprintf(pcxPath, sizeof(pcxPath), "%srz_atlas_teste.pcx", tempDir);
         rztdGenerateAtlas(atlas, palette);
         if (!rztdWritePcx(pcxPath, atlas, RZTD_ATLAS_SIZE, RZTD_ATLAS_SIZE, palette)) {
-            MessageBoxA(NULL, "Falha ao gravar o atlas de teste.", "rz_viewer", MB_ICONERROR);
+            fatal(NULL, "Falha ao gravar o atlas de teste.");
+            SDL_Quit();
             return 1;
         }
     }
 
-    /* Janela do "host" */
-    memset(&wc, 0, sizeof(wc));
-    wc.lpfnWndProc   = wndProc;
-    wc.hInstance     = inst;
-    wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
-    wc.lpszClassName = "RenderizeitorViewer";
-    RegisterClassA(&wc);
+    /* Contexto OpenGL 3.3 core */
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
-    rc.left = 0; rc.top = 0; rc.right = FB_WIDTH; rc.bottom = FB_HEIGHT;
-    AdjustWindowRect(&rc, style, FALSE);
-    hwnd = CreateWindowA(wc.lpszClassName, "Renderizeitor", style,
-                         CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top,
-                         NULL, NULL, inst, NULL);
-    if (!hwnd) return 1;
-    ShowWindow(hwnd, show);
+    win = SDL_CreateWindow("Renderizeitor",
+                           SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                           FB_WIDTH, FB_HEIGHT, SDL_WINDOW_OPENGL);
+    if (!win) {
+        fprintf(stderr, "rz_viewer: SDL_CreateWindow falhou: %s\n", SDL_GetError());
+        SDL_Quit();
+        return 1;
+    }
+    gl = SDL_GL_CreateContext(win);
+    if (!gl) {
+        fatal(win, "Nao foi possivel criar um contexto OpenGL 3.3 core.");
+        SDL_DestroyWindow(win);
+        SDL_Quit();
+        return 1;
+    }
+    SDL_GL_MakeCurrent(win, gl);
+    SDL_GL_SetSwapInterval(0);           /* sem v-sync: o host controla o ritmo */
 
-    /* Renderer: janela filha OpenGL ocupando toda a área cliente. Inicializa
-       tudo sem olhar os retornos e checa uma vez no fim (rzGetError). */
-    rzCreateWindow(hwnd, 0, 0, FB_WIDTH, FB_HEIGHT, &g_ctx);
+    g_keys = SDL_GetKeyboardState(NULL);
+
+    /* Renderer: adota o contexto do SDL e desenha no framebuffer da janela.
+       Inicializa tudo sem olhar os retornos e checa uma vez no fim. */
+    rzCreateCurrent(FB_WIDTH, FB_HEIGHT, &g_ctx);
     rzSetHeightmap(g_ctx, heightmap, 256, 256);
     rzLoadTileAtlas(g_ctx, pcxPath);                 /* atlas do PCX */
     rztdGenerateTileMap(heightmap, g_tileMap);       /* mapa de blocos procedural */
@@ -286,7 +279,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         static uint32_t colors[RZTD_MAX_OBJECTS];
         const float heightScale = RZTD_HEIGHT_SCALE;   /* padrão de rzSetTerrainScale */
         int count = rztdGenerateBuildings(heightmap, heightScale, buildings, colors, RZTD_MAX_OBJECTS);
-        int i, top = 0;
+        int top = 0;
         for (i = 0; i < count; ++i) {
             int32_t id;
             rztdCreateObject(g_ctx, &buildings[i], RZTD_WALL_V, RZTD_WALL_ROOF, &id);
@@ -300,15 +293,16 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
 
     {
         const char* where = NULL;
-        err = rzGetError(g_ctx, &where);    /* g_ctx NULL: erro do rzCreateWindow */
+        err = rzGetError(g_ctx, &where);    /* g_ctx NULL: erro do rzCreateCurrent */
         if (err != RZ_OK) {
-            char msg[MAX_PATH + 128];
-            wsprintfA(msg, "%s falhou (erro %d)%s%s", where ? where : "Renderizeitor", (int)err,
-                      err == RZ_ERR_GL ? ":\nOpenGL 3.3 indisponivel." : "",
-                      (where && !lstrcmpA(where, "rzLoadTileAtlas")) ? ":\n" : "");
-            if (where && !lstrcmpA(where, "rzLoadTileAtlas")) lstrcatA(msg, pcxPath);
-            MessageBoxA(hwnd, msg, "rz_viewer", MB_ICONERROR);
-            DestroyWindow(hwnd);
+            char msg[1024 + 128];
+            snprintf(msg, sizeof(msg), "%s falhou (erro %d)%s", where ? where : "Renderizeitor", (int)err,
+                     err == RZ_ERR_GL ? ":\nOpenGL 3.3 indisponivel." : "");
+            fatal(win, msg);
+            if (g_ctx) rzDestroy(g_ctx);
+            SDL_GL_DeleteContext(gl);
+            SDL_DestroyWindow(win);
+            SDL_Quit();
             return 1;
         }
     }
@@ -320,25 +314,54 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
 
     /* Laço com frame rate fixo: o carro e a câmera andam por frame, então o
        fps fixo mantém a velocidade constante. */
-    timeBeginPeriod(1);
-    QueryPerformanceFrequency(&freq);
-    frameTicks = freq.QuadPart / TARGET_FPS;
-    QueryPerformanceCounter(&next);
+    freq = SDL_GetPerformanceFrequency();
+    frameTicks = (Sint64)(freq / TARGET_FPS);
+    next = SDL_GetPerformanceCounter();
     fpsStart = next;
 
     while (running) {
-        MSG msg;
-        while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE)) {
-            if (msg.message == WM_QUIT) { running = 0; break; }
-            TranslateMessage(&msg);
-            DispatchMessageA(&msg);
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev)) {
+            switch (ev.type) {
+            case SDL_QUIT:
+                running = 0;
+                break;
+            case SDL_WINDOWEVENT:
+                if (ev.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) g_hasFocus = 1;
+                else if (ev.window.event == SDL_WINDOWEVENT_FOCUS_LOST) g_hasFocus = 0;
+                break;
+            case SDL_KEYDOWN:
+                if (ev.key.repeat) break;              /* ignora auto-repeat */
+                switch (ev.key.keysym.sym) {
+                case SDLK_ESCAPE:
+                    running = 0;
+                    break;
+                case SDLK_c:
+                    g_follow = !g_follow;
+                    rzSetCameraTarget(g_ctx, g_follow ? g_vehicleId : -1, RZTD_VEHICLE_TARGET);
+                    break;
+                case SDLK_t:
+                    g_textures = !g_textures;
+                    rzSetTileMap(g_ctx, g_textures ? g_tileMap : NULL, 256, 256);
+                    break;
+                case SDLK_r:
+                    g_followDist = FOLLOW_DIST_DEFAULT;
+                    g_followHeight = FOLLOW_HEIGHT_DEFAULT;
+                    break;
+                default:
+                    break;
+                }
+                break;
+            default:
+                break;
+            }
         }
         if (!running) break;
 
-        handleInput(hwnd);
+        handleInput();
 
         /* O host move o carro e o cubo e avisa o renderer */
-        driveCar(GetForegroundWindow() == hwnd);
+        driveCar(g_hasFocus);
         placeVehicle();
         rzUpdateObjectVertices(g_ctx, g_vehicleId, RZTD_VERTICES(&g_vehicle));
         rztdSteerVehicle(g_ctx, g_vehicleId, g_carSteer);
@@ -350,33 +373,38 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdLine, int show) {
         rzUpdateObjectVertices(g_ctx, g_cubeId, RZTD_VERTICES(&g_cube));
         rzSetCameraFollow(g_ctx, g_followDist, g_followHeight, 0.08f);
 
-        QueryPerformanceCounter(&t0);
-        rzRender(g_ctx);                /* desenha e apresenta (SwapBuffers) */
-        QueryPerformanceCounter(&t1);
-        renderUsSum += (int32_t)((t1.QuadPart - t0.QuadPart) * 1000000 / freq.QuadPart);
+        {
+            Uint64 t0 = SDL_GetPerformanceCounter(), t1;
+            rzRender(g_ctx);                 /* desenha no framebuffer da janela */
+            SDL_GL_SwapWindow(win);          /* o host apresenta */
+            t1 = SDL_GetPerformanceCounter();
+            renderUsSum += (int32_t)((t1 - t0) * 1000000 / freq);
+        }
 
         ++frames;
-        QueryPerformanceCounter(&now);
-        if (now.QuadPart - fpsStart.QuadPart >= freq.QuadPart / 2) {
-            int32_t fps = (int32_t)((LONGLONG)frames * freq.QuadPart / (now.QuadPart - fpsStart.QuadPart));
-            updateTitle(hwnd, renderUsSum / frames, fps);
+        now = SDL_GetPerformanceCounter();
+        if (now - fpsStart >= freq / 2) {
+            int32_t fps = (int32_t)((Uint64)frames * freq / (now - fpsStart));
+            updateTitle(win, renderUsSum / frames, fps);
             frames = 0;
             renderUsSum = 0;
             fpsStart = now;
         }
 
         /* Espera o próximo tick; se atrasou demais, ressincroniza. */
-        next.QuadPart += frameTicks;
-        QueryPerformanceCounter(&now);
-        if (now.QuadPart > next.QuadPart + frameTicks) next = now;
-        while (now.QuadPart < next.QuadPart) {
-            LONGLONG remainMs = (next.QuadPart - now.QuadPart) * 1000 / freq.QuadPart;
-            if (remainMs > 1) Sleep((DWORD)(remainMs - 1));
-            QueryPerformanceCounter(&now);
+        next += frameTicks;
+        now = SDL_GetPerformanceCounter();
+        if (now > next + (Uint64)frameTicks) next = now;
+        while (now < next) {
+            Sint64 remainMs = (Sint64)((next - now) * 1000 / freq);
+            if (remainMs > 1) SDL_Delay((Uint32)(remainMs - 1));
+            now = SDL_GetPerformanceCounter();
         }
     }
 
-    timeEndPeriod(1);
     if (g_ctx) rzDestroy(g_ctx);
+    SDL_GL_DeleteContext(gl);
+    SDL_DestroyWindow(win);
+    SDL_Quit();
     return 0;
 }

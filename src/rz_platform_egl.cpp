@@ -1,6 +1,13 @@
-// Plataforma EGL (Linux): contexto OpenGL 3.3 core surfaceless, só offscreen.
-// Usada pelos testes automáticos (llvmpipe) e para rodar em Linux sem GPU.
-// libEGL é carregada com dlopen; nenhum header de EGL é necessário.
+// Plataforma Linux. Dois modos:
+//
+//   OFFSCREEN  contexto OpenGL 3.3 core surfaceless via EGL (sem janela).
+//              Usado pelos testes automáticos (llvmpipe) e para rodar sem GPU.
+//              libEGL é carregada com dlopen; nenhum header de EGL é preciso.
+//
+//   ADOPTED    o contexto OpenGL já existe e está corrente (quem cria a janela
+//              e o contexto é o host, ex.: SDL2). A plataforma não cria, não
+//              troca buffers nem destrói nada: só resolve os ponteiros das
+//              funções do OpenGL (via libGL). O host faz o swap.
 
 #if !defined(_WIN32)
 
@@ -46,6 +53,18 @@ struct Egl {
 
 Egl g_egl;
 
+// Resolvedor das funções do OpenGL para o modo ADOPTED: libGL (GLX) resolve
+// tanto contextos GLX (X11) quanto, via glXGetProcAddress, os símbolos do core.
+struct GlLib {
+    void* lib = nullptr;
+    void* (*getProcAddress)(const unsigned char*) = nullptr;   // glXGetProcAddressARB
+};
+
+GlLib g_gl;
+
+// Qual resolvedor usar em platformGetProc (depende do modo criado).
+void* (*g_getProc)(const char* name) = nullptr;
+
 bool loadEgl() {
     if (g_egl.lib) return true;
     void* lib = dlopen("libEGL.so.1", RTLD_NOW | RTLD_LOCAL);
@@ -72,11 +91,45 @@ bool loadEgl() {
     return true;
 }
 
+bool loadGlLib() {
+    if (g_gl.lib) return true;
+    void* lib = dlopen("libGL.so.1", RTLD_NOW | RTLD_GLOBAL);
+    if (!lib) return false;
+    g_gl.getProcAddress = reinterpret_cast<void* (*)(const unsigned char*)>(dlsym(lib, "glXGetProcAddressARB"));
+    if (!g_gl.getProcAddress)
+        g_gl.getProcAddress = reinterpret_cast<void* (*)(const unsigned char*)>(dlsym(lib, "glXGetProcAddress"));
+    g_gl.lib = lib;
+    return true;
+}
+
+// Modo OFFSCREEN: as funções do GL vêm do EGL corrente.
+void* eglProc(const char* name) {
+    return g_egl.getProcAddress ? g_egl.getProcAddress(name) : nullptr;
+}
+
+// Modo ADOPTED: glXGetProcAddress resolve o core; dlsym do libGL cobre o que
+// falta; eglGetProcAddress ajuda quando a janela do host usa EGL (Wayland).
+void* adoptedProc(const char* name) {
+    if (g_gl.getProcAddress) {
+        void* p = g_gl.getProcAddress(reinterpret_cast<const unsigned char*>(name));
+        if (p) return p;
+    }
+    if (g_gl.lib) {
+        void* p = dlsym(g_gl.lib, name);
+        if (p) return p;
+    }
+    if (g_egl.getProcAddress) return g_egl.getProcAddress(name);
+    return nullptr;
+}
+
+enum Mode { kOffscreen, kAdopted };
+
 } // namespace
 
 struct Platform {
-    EGLDisplay display;
-    EGLContext context;
+    Mode       mode;
+    EGLDisplay display;     // só OFFSCREEN
+    EGLContext context;     // só OFFSCREEN
 };
 
 Platform* platformCreateOffscreen() {
@@ -106,8 +159,10 @@ Platform* platformCreateOffscreen() {
         g_egl.destroyContext(display, context);
         return nullptr;
     }
+    p->mode    = kOffscreen;
     p->display = display;
     p->context = context;
+    g_getProc = eglProc;
     if (!platformMakeCurrent(p)) {
         platformDestroy(p);
         return nullptr;
@@ -116,28 +171,44 @@ Platform* platformCreateOffscreen() {
 }
 
 Platform* platformCreateChildWindow(void*, int32_t, int32_t, int32_t, int32_t) {
-    return nullptr;     // só offscreen nesta plataforma
+    return nullptr;     // janela filha não é usada no Linux; ver platformCreateAdopted
+}
+
+Platform* platformCreateAdopted() {
+    if (!loadGlLib()) return nullptr;
+    Platform* p = static_cast<Platform*>(std::malloc(sizeof(Platform)));
+    if (!p) return nullptr;
+    p->mode    = kAdopted;
+    p->display = nullptr;
+    p->context = nullptr;
+    g_getProc = adoptedProc;
+    return p;
 }
 
 void platformDestroy(Platform* p) {
     if (!p) return;
-    g_egl.makeCurrent(p->display, nullptr, nullptr, nullptr);
-    g_egl.destroyContext(p->display, p->context);
+    if (p->mode == kOffscreen) {
+        g_egl.makeCurrent(p->display, nullptr, nullptr, nullptr);
+        g_egl.destroyContext(p->display, p->context);
+    }
+    // ADOPTED: o contexto e a janela são do host; nada a destruir aqui.
     std::free(p);
 }
 
 bool platformMakeCurrent(Platform* p) {
-    return g_egl.makeCurrent(p->display, nullptr, nullptr, p->context) != 0;
+    if (p->mode == kOffscreen)
+        return g_egl.makeCurrent(p->display, nullptr, nullptr, p->context) != 0;
+    return true;    // ADOPTED: o host mantém o contexto corrente
 }
 
-void platformSwapBuffers(Platform*) {}
+void platformSwapBuffers(Platform*) {}   // OFFSCREEN: nada; ADOPTED: quem troca é o host
 
 bool platformMoveWindow(Platform*, int32_t, int32_t, int32_t, int32_t) {
     return false;
 }
 
 void* platformGetProc(const char* name) {
-    return g_egl.getProcAddress ? g_egl.getProcAddress(name) : nullptr;
+    return g_getProc ? g_getProc(name) : nullptr;
 }
 
 } // namespace rz

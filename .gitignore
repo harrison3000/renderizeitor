@@ -13,6 +13,7 @@ build/
 *.so
 *.dylib
 rz_test
+rz_viewer
 
 # --- Saídas do rz_test ---
 *.ppm
