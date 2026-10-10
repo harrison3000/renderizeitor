@@ -1,5 +1,4 @@
-#ifndef RENDERIZEITOR_H
-#define RENDERIZEITOR_H
+#pragma once
 
 #include <stdint.h>
 
@@ -366,4 +365,3 @@ RZ_API int32_t RZ_CALL rzGetError(RzContext* ctx, const char** outFunction);
 }
 #endif
 
-#endif
