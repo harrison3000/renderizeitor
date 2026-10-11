@@ -13,13 +13,13 @@ rm -rf build/static && mkdir -p build/static
 OBJS=""
 for s in $SRCS; do
     o="build/static/$(basename "$s" .cpp).o"
-    g++ $FLAGS -c "$s" -o "$o"
+    g++ $FLAGS $(pkg-config --cflags sdl2) -c "$s" -o "$o"
     OBJS="$OBJS $o"
 done
 ar rcs librenderizeitor_static.a $OBJS
 
 echo "[2/3] rz_test (offscreen, EGL)"
-g++ $FLAGS test/rz_test.cpp librenderizeitor_static.a -ldl -o rz_test
+g++ $FLAGS test/rz_test.cpp librenderizeitor_static.a $(pkg-config --libs sdl2) -ldl -o rz_test
 
 echo "[3/3] rz_viewer (SDL2)"
 gcc -std=c11 -O2 -Wall -Wextra -Iinclude $(pkg-config --cflags sdl2) \

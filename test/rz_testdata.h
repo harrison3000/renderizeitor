@@ -19,6 +19,8 @@
 #include <string.h>
 #include <math.h>
 
+#include "renderizeitor.h"
+
 #define RZTD_ATLAS_SIZE 256
 #define RZTD_HEIGHT_SCALE (16.0f / 255.0f)   /* byte 255 = 16 tiles, como no legado */
 
@@ -521,7 +523,6 @@ static void rztdVehicle(RztdMesh* m, const uint8_t* heights, float heightScale,
 }
 
 /* Rodas do veículo de teste no renderer (dianteiras = as duas primeiras) */
-#ifdef RENDERIZEITOR_H
 static int32_t rztdSetVehicleWheels(RzContext* ctx, int32_t id) {
     RzWheel w[4];
     RzWheelFace outer, inner;
@@ -656,7 +657,6 @@ static int32_t rztdStepParticles(RzContext* ctx, RztdParticles* p, const RztdMes
     }
     return rzSetSprites(ctx, p->sprites, p->count);
 }
-#endif
 
 /* Posição no percurso automático (volta em torno do centro da ilha) no
    instante t (em voltas, 1.0 = uma volta). Devolve x, z e o rumo. */
@@ -818,9 +818,7 @@ static float rztdFaceUp(const RztdMesh* m, const uint16_t* ids, int n) {
    índice de fechamento) e rzUpdateObjectVertices. Faces viradas para cima
    (telhados, tetos) e, com vMax <= 0, todas as faces usam a cor sólida
    paletteIndex (rzAddObjectPolygon); as outras, UVs planares com v até vMax
-   (rzAddObjectTexturedPolygon). Só existe quando renderizeitor.h foi incluído
-   antes. */
-#ifdef RENDERIZEITOR_H
+   (rzAddObjectTexturedPolygon). */
 static int32_t rztdCreateObject(RzContext* ctx, const RztdMesh* m, float vMax, int paletteIndex,
                                 int32_t* outId) {
     float uv[(RZTD_MESH_MAX_INDEX + 1) * 2];
@@ -853,6 +851,5 @@ static int32_t rztdCreateObject(RzContext* ctx, const RztdMesh* m, float vMax, i
     if (err == RZ_OK) err = rzUpdateObjectVertices(ctx, *outId, RZTD_VERTICES(m));
     return err;
 }
-#endif
 
 #endif

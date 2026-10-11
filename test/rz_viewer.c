@@ -1,9 +1,8 @@
 /* rz_viewer: aplicação SDL2 que mostra o terreno e os objetos (versão OpenGL).
  *
  * Escrita em C e linkada contra a biblioteca estática. O host (este programa)
- * cria a janela e o contexto OpenGL 3.3 core com o SDL2, deixa o contexto
- * corrente e chama rzCreateCurrent; a biblioteca desenha direto no framebuffer
- * da janela e o host troca os buffers (SDL_GL_SwapWindow) a cada frame.
+ * cria a janela SDL2 e a passa para rzCreateWindow, que cria nela o contexto
+ * OpenGL; a cada frame, rzRender desenha e o host troca os buffers.
  *
  *   W / S                   acelera / freia e dá ré no carro
  *   A / D                   vira o carro para a esquerda / direita
@@ -172,7 +171,6 @@ static void fatal(SDL_Window* win, const char* msg) {
 int main(int argc, char** argv) {
     static uint8_t heightmap[256 * 256];
     SDL_Window* win = NULL;
-    SDL_GLContext gl = NULL;
     Uint64 freq, next, now, fpsStart;
     Sint64 frameTicks;
     int32_t err, running = 1, frames = 0, renderUsSum = 0;
@@ -227,13 +225,9 @@ int main(int argc, char** argv) {
         }
     }
 
-    /* Contexto OpenGL 3.3 core */
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    /* Formato do framebuffer: escolhido na criação da janela */
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
     win = SDL_CreateWindow("Renderizeitor",
                            SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
@@ -243,21 +237,13 @@ int main(int argc, char** argv) {
         SDL_Quit();
         return 1;
     }
-    gl = SDL_GL_CreateContext(win);
-    if (!gl) {
-        fatal(win, "Nao foi possivel criar um contexto OpenGL 3.3 core.");
-        SDL_DestroyWindow(win);
-        SDL_Quit();
-        return 1;
-    }
-    SDL_GL_MakeCurrent(win, gl);
-    SDL_GL_SetSwapInterval(0);           /* sem v-sync: o host controla o ritmo */
 
     g_keys = SDL_GetKeyboardState(NULL);
 
-    /* Renderer: adota o contexto do SDL e desenha no framebuffer da janela.
+    /* Renderer: cria o contexto OpenGL na janela e desenha nela.
        Inicializa tudo sem olhar os retornos e checa uma vez no fim. */
-    rzCreateCurrent(FB_WIDTH, FB_HEIGHT, &g_ctx);
+    rzCreateWindow(win, &g_ctx);
+    SDL_GL_SetSwapInterval(0);           /* sem v-sync: o laço abaixo controla o ritmo */
     rzSetHeightmap(g_ctx, heightmap, 256, 256);
     rzLoadTileAtlas(g_ctx, pcxPath);                 /* atlas do PCX */
     rztdGenerateTileMap(heightmap, g_tileMap);       /* mapa de blocos procedural */
@@ -293,14 +279,13 @@ int main(int argc, char** argv) {
 
     {
         const char* where = NULL;
-        err = rzGetError(g_ctx, &where);    /* g_ctx NULL: erro do rzCreateCurrent */
+        err = rzGetError(g_ctx, &where);    /* g_ctx NULL: erro do rzCreateWindow */
         if (err != RZ_OK) {
             char msg[1024 + 128];
             snprintf(msg, sizeof(msg), "%s falhou (erro %d)%s", where ? where : "Renderizeitor", (int)err,
                      err == RZ_ERR_GL ? ":\nOpenGL 3.3 indisponivel." : "");
             fatal(win, msg);
             if (g_ctx) rzDestroy(g_ctx);
-            SDL_GL_DeleteContext(gl);
             SDL_DestroyWindow(win);
             SDL_Quit();
             return 1;
@@ -375,7 +360,7 @@ int main(int argc, char** argv) {
 
         {
             Uint64 t0 = SDL_GetPerformanceCounter(), t1;
-            rzRender(g_ctx);                 /* desenha no framebuffer da janela */
+            rzRender(g_ctx);                 /* desenha no back buffer */
             SDL_GL_SwapWindow(win);          /* o host apresenta */
             t1 = SDL_GetPerformanceCounter();
             renderUsSum += (int32_t)((t1 - t0) * 1000000 / freq);
@@ -402,8 +387,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (g_ctx) rzDestroy(g_ctx);
-    SDL_GL_DeleteContext(gl);
+    if (g_ctx) rzDestroy(g_ctx);         /* apaga o contexto; a janela é nossa */
     SDL_DestroyWindow(win);
     SDL_Quit();
     return 0;

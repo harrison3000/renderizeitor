@@ -225,9 +225,8 @@ void renderFrame(RzContext* ctx) {
     drawSprites(ctx, viewProj);                   // fumaça etc.: alfa, de trás para frente
     drawWall(ctx, viewProj);                      // semitransparente: por último
 
-    if (ctx->windowed) {
-        platformSwapBuffers(ctx->platform);
-    } else {
+    // Janela: o frame fica no back buffer; quem troca os buffers é o host.
+    if (!ctx->windowed) {
         // Cópia para o buffer do host: BGRA em bytes = RGBQUAD; a imagem já
         // foi desenhada espelhada, então a linha 0 lida é a de cima.
         glPixelStorei(GL_PACK_ALIGNMENT, 4);

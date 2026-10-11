@@ -8,7 +8,7 @@ Ele renderiza um terreno a partir de um heightmap 256×256, com texturas por blo
 
 Há dois modos de saída:
 
-- janela: adota um contexto OpenGL que o host já criou (ex.: SDL2) e desenha direto nele;
+- janela: cria um contexto OpenGL numa janela SDL2 do host e desenha direto nela;
 - offscreen, com cópia para um buffer RGBQUAD do host.
 
 ## 2. Plataforma e build
@@ -16,16 +16,16 @@ Há dois modos de saída:
 | Item | Valor |
 |---|---|
 | Alvo | Linux, x86-64, GCC (C++23) |
-| GPU | OpenGL 3.3 core. Offscreen via EGL surfaceless (Mesa/llvmpipe); janela via SDL2 (contexto do host) |
+| GPU | OpenGL 3.3 core. Offscreen via EGL surfaceless (Mesa/llvmpipe); janela via SDL2 (contexto criado pela biblioteca) |
 | Flags | `-std=c++23 -O2 -ffp-contract=off -fno-exceptions -fno-rtti -Wall -Wextra -Wdouble-promotion` |
-| Link | biblioteca estática `librenderizeitor_static.a`; `rz_test` liga com `-ldl`; `rz_viewer` com `pkg-config sdl2` + `-lstdc++ -ldl -lm` |
+| Link | biblioteca estática `librenderizeitor_static.a`; a biblioteca depende do SDL2 (`pkg-config sdl2`); `rz_test` liga com `-lSDL2 -ldl`; `rz_viewer` com `-lSDL2 -lstdc++ -ldl -lm` |
 | Build | `build_linux.sh` ou `make` (alvos: `lib`, `test`, `viewer`, `check`) |
 
 Suporte a Windows (DLL de 32 bits, WGL/GDI, MinGW32) e o carregamento como plugin foram removidos.
 
 ## 3. Dependências e estilo
 
-- **Única dependência externa é o SDL2, e só no `rz_viewer` (janela e entrada).** O núcleo não usa bibliotecas de terceiros nem headers de GL do sistema: `rz_gl.h/.cpp` declara o subconjunto do GL 3.3 usado e o carrega por X-macro, resolvendo os ponteiros via `libGL` (GLX/`dlsym`) ou EGL.
+- **Única dependência externa é o SDL2** (contexto da janela; no `rz_viewer`, também janela e entrada). Sem headers de GL do sistema: `rz_gl.h/.cpp` declara o subconjunto do GL 3.3 usado e o carrega por X-macro, resolvendo os ponteiros via `SDL_GL_GetProcAddress` (janela) ou EGL (offscreen).
 - **Std liberada quando simplifica o código**, desde que linke estática (`-static-libstdc++`). Containers como `std::vector` são o caso principal: buffers do terreno, do atlas e dos objetos, e o contexto inteiro (`new RzContext`, com os padrões nos inicializadores dos membros).
 - **Sem exceções** (`-fno-exceptions`): uma falha de alocação aborta o programa em vez de virar `RZ_ERR_NO_MEMORY`. A chance é baixíssima e isso foi aceito.
 - **O que não se usa:** streams e RTTI.
@@ -48,7 +48,7 @@ Suporte a Windows (DLL de 32 bits, WGL/GDI, MinGW32) e o carregamento como plugi
 
 | Grupo | Funções |
 |---|---|
-| Contexto | `rzCreate(w, h, pixels)` offscreen; `rzCreateCurrent(w, h)` adota o contexto do host (janela); `rzDestroy` |
+| Contexto | `rzCreate(w, h, pixels)` offscreen; `rzCreateWindow(sdlWindow)` cria o contexto na janela SDL2 do host; `rzDestroy` |
 | Terreno | `rzSetHeightmap` (256×256; guarda o ponteiro); `rzSetTerrainScale(cellSize, heightScale)`; `rzUpdateTerrain()` (relê os buffers e refaz só o que mudou) |
 | Texturas | `rzLoadTileAtlas(caminhoPcx)`; `rzSetTileMap` (256×256, NULL desliga as texturas; guarda o ponteiro) |
 | Objetos | `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count, paletteIndex)`, `rzAddObjectTexturedPolygon(id, RzTexVertex* corners, count)`, `rzAddObjectTranslucentPolygon(id, indices, count, tone)`, `rzAddObjectLine(id, a, b, thickness, paletteIndex)`, `rzLoadObjectTexture(id, caminhoPcx)`, `rzLoadFallbackTexture(caminhoPcx)`, `rzUpdateObjectVertices(id, RzVertex*)`, `rzDestroyObject` |
@@ -73,7 +73,7 @@ Erros:
 **Checagem em bloco (`rzGetError`):** as funções que devolvem código continuam devolvendo, mas também guardam no contexto o **primeiro** erro desde a última leitura e o nome da função que falhou. Assim o host pode inicializar tudo sem olhar retorno nenhum e checar uma vez no fim:
 
 - **Leitura:** `rzGetError(ctx, &funcao)` devolve esse erro (`RZ_OK` se nada falhou), põe em `funcao` o nome da função (string estática, ou NULL) e zera o registro.
-- **Contexto que não foi criado:** se `rzCreate` ou `rzCreateCurrent` falhou, o `ctx` fica NULL e as chamadas seguintes só devolvem `RZ_ERR_INVALID_ARG`, sem ter onde registrar. `rzGetError(NULL, ...)` devolve o erro da criação; sem falha de criação registrada, devolve `RZ_ERR_INVALID_ARG`.
+- **Contexto que não foi criado:** se `rzCreate` ou `rzCreateWindow` falhou, o `ctx` fica NULL e as chamadas seguintes só devolvem `RZ_ERR_INVALID_ARG`, sem ter onde registrar. `rzGetError(NULL, ...)` devolve o erro da criação; sem falha de criação registrada, devolve `RZ_ERR_INVALID_ARG`.
 - **Durante o jogo:** erros do `rzRender` e dos updates também entram no registro. Quem não lê o registro não é afetado.
 - **Implementação:** todo `return` de erro de uma função exportada passa por `recordError(ctx, "rzNome", erro)`. As de criação usam `recordCreateError`. Função nova ou `return` novo de erro precisa seguir o mesmo padrão.
 
@@ -85,12 +85,12 @@ Limites:
 
 ## 5. Saída
 
-### 5.1 Janela (contexto adotado)
+### 5.1 Janela (SDL2)
 
-- **Criação:** o host cria a janela e o contexto OpenGL 3.3 core (ex.: SDL2 com `SDL_GL_CreateContext`), deixa o contexto corrente e chama `rzCreateCurrent(w, h, &ctx)`. A plataforma (`rz_platform_egl.cpp`, modo ADOPTED) só resolve os ponteiros do GL via `libGL` (GLX/`dlsym`, com EGL de reserva para Wayland); não cria janela, não troca buffers nem destrói o contexto.
-- **Desenho:** `rzRender` desenha direto no framebuffer padrão da janela (sem cópia), com o winding de frente `GL_CCW`.
-- **Ritmo e apresentação:** o host desliga o v-sync (`SDL_GL_SetSwapInterval(0)`), controla o ritmo dos frames e, depois de `rzRender`, apresenta com `SDL_GL_SwapWindow`.
-- **Entrada e ciclo de vida:** a janela e o contexto são do host; a entrada e o laço de eventos também. O host chama `rzDestroy` ao sair (que não destrói a janela nem o contexto do host) e depois libera o contexto e a janela pelo SDL.
+- **Criação:** o host cria a janela SDL2 com `SDL_WINDOW_OPENGL` e chama `rzCreateWindow(window, &ctx)`. A plataforma (`rz_platform_egl.cpp`, modo SDL) cria um contexto OpenGL 3.3 core próprio na janela (`SDL_GL_CreateContext`, devolvendo depois os atributos de versão/perfil que o host tinha), resolve os ponteiros do GL com `SDL_GL_GetProcAddress` e usa o tamanho do drawable (`SDL_GL_GetDrawableSize`).
+- **Formato do framebuffer:** é escolhido na criação da janela, então o host pede `SDL_GL_DEPTH_SIZE` 24 e `SDL_GL_DOUBLEBUFFER` 1 antes do `SDL_CreateWindow`.
+- **Desenho e ritmo:** `rzRender` desenha direto no framebuffer padrão da janela (sem cópia, winding de frente `GL_CCW`) e deixa o frame no back buffer. Quem troca os buffers (`SDL_GL_SwapWindow`) depois de cada `rzRender` é o host, que também escolhe o v-sync (`SDL_GL_SetSwapInterval`, logo após `rzCreateWindow`, com o contexto já corrente) e controla o ritmo dos frames.
+- **Ciclo de vida:** a janela, a entrada e o laço de eventos são do host. `rzDestroy` apaga o contexto; o host destrói a janela depois.
 
 ### 5.2 Offscreen
 
@@ -243,9 +243,9 @@ Sem API; constantes `kSkirt*`/`kBorder*` em `rz_internal.h`, código em `src/rz_
 4. Faz bind do FBO (offscreen) ou do framebuffer padrão (janela) e limpa com a cor de fundo (`rzSetBackgroundColor`, padrão 32, 40, 48), com profundidade em `GL_LESS`.
 5. Desenha o terreno em um draw: textura se houver atlas e mapa de blocos, senão as cores flat. Seguindo um alvo, também a continuação (9.5).
 6. Desenha os objetos e, por último, a parede de limite (semitransparente).
-7. Janela: deixa o frame pronto no framebuffer (quem apresenta é o host, com `SDL_GL_SwapWindow`). Offscreen: `glReadPixels` para o buffer do host.
+7. Janela: nada (o host chama `SDL_GL_SwapWindow`). Offscreen: `glReadPixels` para o buffer do host.
 
-Sem heightmap, só limpa e apresenta.
+Sem heightmap, só limpa.
 
 ### 10.1 Sombras (cascatas)
 
@@ -282,7 +282,7 @@ Sem API: tudo fixo em constantes (`kCascade*`, `rz_internal.h`); o código fica 
   - Casas e torres.
   - Um veículo de ~0,85 tile que segue o terreno.
   - Percurso automático.
-- **`test/rz_viewer.c`:** aplicação SDL2 que cria a janela e o contexto OpenGL e usa `rzCreateCurrent`. Uso: `rz_viewer [heightmap.raw] [atlas.pcx]`, em qualquer ordem; sem PCX, grava o atlas procedural em `$TMPDIR/rz_atlas_teste.pcx` (padrão `/tmp`).
+- **`test/rz_viewer.c`:** aplicação SDL2 que cria a janela e a passa para `rzCreateWindow`. Uso: `rz_viewer [heightmap.raw] [atlas.pcx]`, em qualquer ordem; sem PCX, grava o atlas procedural em `$TMPDIR/rz_atlas_teste.pcx` (padrão `/tmp`).
 
   | Tecla | Ação |
   |---|---|

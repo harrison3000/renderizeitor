@@ -4,15 +4,16 @@
 //              Usado pelos testes automáticos (llvmpipe) e para rodar sem GPU.
 //              libEGL é carregada com dlopen; nenhum header de EGL é preciso.
 //
-//   ADOPTED    o contexto OpenGL já existe e está corrente (quem cria a janela
-//              e o contexto é o host, ex.: SDL2). A plataforma não cria, não
-//              troca buffers nem destrói nada: só resolve os ponteiros das
-//              funções do OpenGL (via libGL). O host faz o swap.
+//   SDL        janela SDL2 criada pelo host (com SDL_WINDOW_OPENGL): cria um
+//              contexto OpenGL 3.3 core próprio nela e destrói o contexto no
+//              fim. A janela e a troca de buffers (SDL_GL_SwapWindow) são do host.
 
 #if !defined(_WIN32)
 
 #include <dlfcn.h>
 #include <cstdlib>
+
+#include <SDL.h>
 
 #include "rz_platform.h"
 
@@ -53,15 +54,6 @@ struct Egl {
 
 Egl g_egl;
 
-// Resolvedor das funções do OpenGL para o modo ADOPTED: libGL (GLX) resolve
-// tanto contextos GLX (X11) quanto, via glXGetProcAddress, os símbolos do core.
-struct GlLib {
-    void* lib = nullptr;
-    void* (*getProcAddress)(const unsigned char*) = nullptr;   // glXGetProcAddressARB
-};
-
-GlLib g_gl;
-
 // Qual resolvedor usar em platformGetProc (depende do modo criado).
 void* (*g_getProc)(const char* name) = nullptr;
 
@@ -91,45 +83,26 @@ bool loadEgl() {
     return true;
 }
 
-bool loadGlLib() {
-    if (g_gl.lib) return true;
-    void* lib = dlopen("libGL.so.1", RTLD_NOW | RTLD_GLOBAL);
-    if (!lib) return false;
-    g_gl.getProcAddress = reinterpret_cast<void* (*)(const unsigned char*)>(dlsym(lib, "glXGetProcAddressARB"));
-    if (!g_gl.getProcAddress)
-        g_gl.getProcAddress = reinterpret_cast<void* (*)(const unsigned char*)>(dlsym(lib, "glXGetProcAddress"));
-    g_gl.lib = lib;
-    return true;
-}
-
 // Modo OFFSCREEN: as funções do GL vêm do EGL corrente.
 void* eglProc(const char* name) {
     return g_egl.getProcAddress ? g_egl.getProcAddress(name) : nullptr;
 }
 
-// Modo ADOPTED: glXGetProcAddress resolve o core; dlsym do libGL cobre o que
-// falta; eglGetProcAddress ajuda quando a janela do host usa EGL (Wayland).
-void* adoptedProc(const char* name) {
-    if (g_gl.getProcAddress) {
-        void* p = g_gl.getProcAddress(reinterpret_cast<const unsigned char*>(name));
-        if (p) return p;
-    }
-    if (g_gl.lib) {
-        void* p = dlsym(g_gl.lib, name);
-        if (p) return p;
-    }
-    if (g_egl.getProcAddress) return g_egl.getProcAddress(name);
-    return nullptr;
+// Modo SDL: as funções do GL vêm do SDL (GLX ou EGL, conforme o driver de vídeo).
+void* sdlProc(const char* name) {
+    return SDL_GL_GetProcAddress(name);
 }
 
-enum Mode { kOffscreen, kAdopted };
+enum Mode { kOffscreen, kSdl };
 
 } // namespace
 
 struct Platform {
-    Mode       mode;
-    EGLDisplay display;     // só OFFSCREEN
-    EGLContext context;     // só OFFSCREEN
+    Mode          mode;
+    EGLDisplay    display;     // só OFFSCREEN
+    EGLContext    context;     // só OFFSCREEN
+    SDL_Window*   window;      // só SDL (do host)
+    SDL_GLContext glContext;   // só SDL (nosso)
 };
 
 Platform* platformCreateOffscreen() {
@@ -159,9 +132,11 @@ Platform* platformCreateOffscreen() {
         g_egl.destroyContext(display, context);
         return nullptr;
     }
-    p->mode    = kOffscreen;
-    p->display = display;
-    p->context = context;
+    p->mode      = kOffscreen;
+    p->display   = display;
+    p->context   = context;
+    p->window    = nullptr;
+    p->glContext = nullptr;
     g_getProc = eglProc;
     if (!platformMakeCurrent(p)) {
         platformDestroy(p);
@@ -170,14 +145,44 @@ Platform* platformCreateOffscreen() {
     return p;
 }
 
-Platform* platformCreateAdopted() {
-    if (!loadGlLib()) return nullptr;
+Platform* platformCreateSdl(void* sdlWindow, int32_t* outWidth, int32_t* outHeight) {
+    SDL_Window* window = static_cast<SDL_Window*>(sdlWindow);
+    if (!(SDL_GetWindowFlags(window) & SDL_WINDOW_OPENGL)) return nullptr;
+
+    // Pede 3.3 core só para este contexto: guarda e devolve os atributos do host
+    int major = 0, minor = 0, profile = 0;
+    SDL_GL_GetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, &major);
+    SDL_GL_GetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, &minor);
+    SDL_GL_GetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, &profile);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GLContext glContext = SDL_GL_CreateContext(window);     // já fica corrente
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, major);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, minor);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, profile);
+    if (!glContext) return nullptr;
+
     Platform* p = static_cast<Platform*>(std::malloc(sizeof(Platform)));
-    if (!p) return nullptr;
-    p->mode    = kAdopted;
-    p->display = nullptr;
-    p->context = nullptr;
-    g_getProc = adoptedProc;
+    if (!p) {
+        SDL_GL_DeleteContext(glContext);
+        return nullptr;
+    }
+    p->mode      = kSdl;
+    p->display   = nullptr;
+    p->context   = nullptr;
+    p->window    = window;
+    p->glContext = glContext;
+    g_getProc = sdlProc;
+    if (!platformMakeCurrent(p)) {
+        platformDestroy(p);
+        return nullptr;
+    }
+
+    int w = 0, h = 0;
+    SDL_GL_GetDrawableSize(window, &w, &h);
+    *outWidth  = w;
+    *outHeight = h;
     return p;
 }
 
@@ -186,18 +191,19 @@ void platformDestroy(Platform* p) {
     if (p->mode == kOffscreen) {
         g_egl.makeCurrent(p->display, nullptr, nullptr, nullptr);
         g_egl.destroyContext(p->display, p->context);
+    } else {
+        if (SDL_GL_GetCurrentContext() == p->glContext) SDL_GL_MakeCurrent(p->window, nullptr);
+        SDL_GL_DeleteContext(p->glContext);     // a janela é do host
     }
-    // ADOPTED: o contexto e a janela são do host; nada a destruir aqui.
     std::free(p);
 }
 
 bool platformMakeCurrent(Platform* p) {
     if (p->mode == kOffscreen)
         return g_egl.makeCurrent(p->display, nullptr, nullptr, p->context) != 0;
-    return true;    // ADOPTED: o host mantém o contexto corrente
+    if (SDL_GL_GetCurrentContext() == p->glContext) return true;
+    return SDL_GL_MakeCurrent(p->window, p->glContext) == 0;
 }
-
-void platformSwapBuffers(Platform*) {}   // OFFSCREEN: nada; ADOPTED: quem troca é o host
 
 void* platformGetProc(const char* name) {
     return g_getProc ? g_getProc(name) : nullptr;

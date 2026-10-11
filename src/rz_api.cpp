@@ -46,7 +46,7 @@ int32_t createContext(RzContext** outCtx, Platform* platform, bool windowed,
     return RZ_OK;
 }
 
-// Erro da última rzCreate/rzCreateCurrent que falhou (não há contexto onde
+// Erro da última rzCreate/rzCreateWindow que falhou (não há contexto onde
 // guardar); devolvido por rzGetError(NULL).
 int32_t     g_createError = RZ_OK;
 const char* g_createErrorFunction = nullptr;
@@ -96,14 +96,20 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreate(int32_t width, int32_t height,
         createContext(outCtx, platformCreateOffscreen(), false, width, height, pixels));
 }
 
-RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateCurrent(int32_t width, int32_t height, RzContext** outCtx) {
-    if (!outCtx) return recordCreateError("rzCreateCurrent", RZ_ERR_INVALID_ARG);
+RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateWindow(struct SDL_Window* window, RzContext** outCtx) {
+    if (!outCtx) return recordCreateError("rzCreateWindow", RZ_ERR_INVALID_ARG);
     *outCtx = nullptr;
-    if (width < 1 || height < 1) return recordCreateError("rzCreateCurrent", RZ_ERR_INVALID_ARG);
-    if (width > kMaxWindowSize || height > kMaxWindowSize) return recordCreateError("rzCreateCurrent", RZ_ERR_SIZE);
-    // windowed=true: desenha no framebuffer padrão (sem cópia), orientação normal.
-    return recordCreateError("rzCreateCurrent",
-        createContext(outCtx, platformCreateAdopted(), true, width, height, nullptr));
+    if (!window) return recordCreateError("rzCreateWindow", RZ_ERR_INVALID_ARG);
+    int32_t width = 0, height = 0;
+    Platform* platform = platformCreateSdl(window, &width, &height);
+    if (!platform) return recordCreateError("rzCreateWindow", RZ_ERR_GL);
+    if (width < 1 || height < 1 || width > kMaxWindowSize || height > kMaxWindowSize) {
+        platformDestroy(platform);
+        return recordCreateError("rzCreateWindow", RZ_ERR_SIZE);
+    }
+    // windowed=true: desenha no framebuffer padrão (sem cópia) e rzRender troca os buffers
+    return recordCreateError("rzCreateWindow",
+        createContext(outCtx, platform, true, width, height, nullptr));
 }
 
 RZ_API RZ_ENTRY void RZ_CALL rzDestroy(RzContext* ctx) {
