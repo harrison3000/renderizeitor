@@ -55,7 +55,7 @@ Suporte a Windows (DLL de 32 bits, WGL/GDI, MinGW32) e o carregamento como plugi
 | Rodas | `rzSetObjectWheels(id, RzWheel[4])`, `rzUpdateObjectWheels(id, steer)` |
 | Sprites | `rzSetSprites(RzSprite*, count)` (array inteiro a cada chamada, até 256) |
 | Câmera | `rzSetCameraTarget(id, vertex)`, `rzSetCameraFollow(distance, height, stiffness)` |
-| Cena | `rzSetBackgroundColor(r, g, b)` (0..255; padrão 32, 40, 48), `rzSetFog(start, end)` (tiles; padrão 30, 65) |
+| Cena | `rzSetBackgroundColor(índice)` (índice na paleta do atlas; sem atlas, 32, 40, 48), `rzSetFog(start, end)` (tiles; padrão 30, 65) |
 | Frame | `rzRender` |
 | Erros | `rzGetError(ctx, &funcao)` |
 
@@ -240,7 +240,7 @@ Sem API; constantes `kSkirt*`/`kBorder*` em `rz_internal.h`, código em `src/rz_
 1. Atualiza a câmera e monta a view-projection e a matriz da luz (sombra).
 2. Reenvia os VBOs de objetos alterados.
 3. Sombras (10.1): refaz as cascatas 0 e 1; a 2 só se o olho andou 10 tiles, a neblina mudou ou o terreno mudou.
-4. Faz bind do FBO (offscreen) ou do framebuffer padrão (janela) e limpa com a cor de fundo (`rzSetBackgroundColor`, padrão 32, 40, 48), com profundidade em `GL_LESS`.
+4. Faz bind do FBO (offscreen) ou do framebuffer padrão (janela) e limpa com a cor de fundo (`rzSetBackgroundColor`: índice na paleta do atlas; sem índice ou sem atlas, 32, 40, 48), com profundidade em `GL_LESS`.
 5. Desenha o terreno em um draw: textura se houver atlas e mapa de blocos, senão as cores flat. Seguindo um alvo, também a continuação (9.5).
 6. Desenha os objetos e, por último, a parede de limite (semitransparente).
 7. Janela: nada (o host chama `SDL_GL_SwapWindow`). Offscreen: `glReadPixels` para o buffer do host.

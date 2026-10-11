@@ -161,9 +161,12 @@ RZ_API int32_t RZ_CALL rzUpdateTerrain(RzContext* ctx);
    Em renderer de software (llvmpipe/softpipe) o anisotrópico fica desligado:
    lá ele ignora o nearest (fica bilinear) e custa caro. */
 
-/* Cor de fundo (onde não há terreno nem objeto), 0 a 255 por canal. Vale a
-   partir do próximo rzRender. Padrão (32, 40, 48). */
-RZ_API int32_t RZ_CALL rzSetBackgroundColor(RzContext* ctx, uint8_t r, uint8_t g, uint8_t b);
+/* Cor de fundo (onde não há terreno nem objeto; também a cor da neblina):
+   índice na paleta do atlas (a do PCX de rzLoadTileAtlas). Pode ser chamada
+   antes do atlas: a cor vale assim que ele for carregado, e um atlas novo
+   troca a cor junto. Vale a partir do próximo rzRender. Sem índice ou sem
+   atlas: (32, 40, 48). */
+RZ_API int32_t RZ_CALL rzSetBackgroundColor(RzContext* ctx, uint8_t paletteIndex);
 
 /* Neblina (draw distance), em tiles de distância 3D ao olho: limpa até
    start, some na cor de fundo em end; além de end nada é desenhado. Só vale

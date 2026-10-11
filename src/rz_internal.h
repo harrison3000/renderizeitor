@@ -30,7 +30,7 @@ constexpr int32_t kVertexCount   = kGridSize * kGridSize;       // 65.536
 constexpr int32_t kTriangleCount = kQuadsPerSide * kQuadsPerSide * 2; // 130.050
 constexpr int32_t kPaletteSize   = 766;                         // soma de 3 alturas: 0..765
 
-// Cor de fundo padrão (rzSetBackgroundColor), já em float para o glClearColor
+// Cor de fundo padrão (antes de rzSetBackgroundColor + rzLoadTileAtlas), já em float
 constexpr float kBackgroundR = 32.0f / 255.0f;
 constexpr float kBackgroundG = 40.0f / 255.0f;
 constexpr float kBackgroundB = 48.0f / 255.0f;
@@ -421,12 +421,16 @@ struct RzContext {
     // Offscreen: FBO com cor e profundidade
     rz::GLuint fbo = 0, colorRb = 0, depthRb = 0;
 
-    // Cor de fundo em float (0..1), convertida só em rzSetBackgroundColor
     float     fogStart = rz::kFogStartDefault;   // tiles (rzSetFog)
     float     fogEnd   = rz::kFogEndDefault;
     float     backgroundR = rz::kBackgroundR;
     float     backgroundG = rz::kBackgroundG;
     float     backgroundB = rz::kBackgroundB;
+    // Fundo: índice na paleta do atlas (rzSetBackgroundColor; -1 = cor padrão).
+    // A cor em float acima é refeita quando o índice ou a paleta mudam.
+    int32_t   backgroundIndex = -1;
+    bool      hasAtlasPalette = false;
+    uint8_t   atlasPalette[768];      // RGB do PCX do atlas (rzLoadTileAtlas)
 
     rz::TerrainProgram terrainProgram;
     rz::ObjectProgram  objectProgram;

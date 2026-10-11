@@ -2,6 +2,7 @@
 // GPU acontecem na criação e nas funções de carga; rzRender não aloca.
 
 #include <cmath>
+#include <cstring>
 
 #include "rz_internal.h"
 
@@ -20,6 +21,22 @@ void setSize(RzContext* ctx, int32_t width, int32_t height) {
     ctx->height = height;
     ctx->focalY = focal;
     ctx->focalX = focal * float(height) / float(width);
+}
+
+// Cor de fundo em float a partir do índice e da paleta do atlas; sem índice
+// ou sem atlas, a cor padrão.
+void updateBackgroundColor(RzContext* ctx) {
+    if (ctx->backgroundIndex < 0 || !ctx->hasAtlasPalette) {
+        ctx->backgroundR = kBackgroundR;
+        ctx->backgroundG = kBackgroundG;
+        ctx->backgroundB = kBackgroundB;
+        return;
+    }
+    constexpr float inv255 = 1.0f / 255.0f;
+    const uint8_t* rgb = ctx->atlasPalette + ctx->backgroundIndex * 3;
+    ctx->backgroundR = float(rgb[0]) * inv255;
+    ctx->backgroundG = float(rgb[1]) * inv255;
+    ctx->backgroundB = float(rgb[2]) * inv255;
 }
 
 // Estado padrão + plataforma + OpenGL. Comum aos dois modos.
@@ -184,6 +201,9 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzLoadTileAtlas(RzContext* ctx, const char* pcxP
     if (glGetError() != GL_NO_ERROR) return recordError(ctx, "rzLoadTileAtlas", RZ_ERR_GL);
     ctx->hasAtlas = true;
     setSpritePalette(ctx, paletteRGB);                // sprites: paleta do jogo
+    std::memcpy(ctx->atlasPalette, paletteRGB, sizeof(ctx->atlasPalette));
+    ctx->hasAtlasPalette = true;
+    updateBackgroundColor(ctx);                       // fundo: índice nesta paleta
     return RZ_OK;
 }
 
@@ -213,12 +233,10 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateTerrain(RzContext* ctx) {
     return recordError(ctx, "rzUpdateTerrain", updateTerrain(ctx) ? RZ_OK : RZ_ERR_GL);
 }
 
-RZ_API RZ_ENTRY int32_t RZ_CALL rzSetBackgroundColor(RzContext* ctx, uint8_t r, uint8_t g, uint8_t b) {
+RZ_API RZ_ENTRY int32_t RZ_CALL rzSetBackgroundColor(RzContext* ctx, uint8_t paletteIndex) {
     if (!ctx) return RZ_ERR_INVALID_ARG;
-    constexpr float inv255 = 1.0f / 255.0f;
-    ctx->backgroundR = float(r) * inv255;
-    ctx->backgroundG = float(g) * inv255;
-    ctx->backgroundB = float(b) * inv255;
+    ctx->backgroundIndex = paletteIndex;
+    updateBackgroundColor(ctx);
     return RZ_OK;
 }
 
