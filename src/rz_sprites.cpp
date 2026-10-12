@@ -4,12 +4,17 @@
 // andarem uma posição), então não há id: rzSetSprites recebe o array inteiro
 // e substitui o anterior. O renderer não guarda estado por sprite.
 //
-// Cada sprite: centro (tiles), diâmetro (tiles) e índice de cor na paleta do
-// jogo (a do atlas de blocos; sem atlas, uma rampa de cinza). A forma é uma
-// textura de ruído "spray do Paint" (kSpriteClicks cliques de pontinhos
-// perto do centro), com kSpriteFrames variações numa textura array; o quadro
-// de cada sprite gira a cada kSpriteFrameTicks frames, deslocado pela
-// posição no array, para não ficar estático.
+// Cada sprite: centro (tiles), diâmetro (tiles) e tipo.
+//   Detrito: índice de cor na paleta do jogo (a do atlas de blocos; sem
+//     atlas, uma rampa de cinza). A forma é uma textura de ruído "spray do
+//     Paint" (kSpriteClicks cliques de pontinhos perto do centro), com
+//     kSpriteFrames variações numa textura array; o quadro de cada sprite
+//     gira a cada kSpriteFrameTicks frames, deslocado pela posição no array,
+//     para não ficar estático.
+//   Fumaça: disco branco com ruído de valor 3D de baixa frequência, calculado
+//     no shader (x, y no disco + centro no mundo, z = tempo), então muda
+//     sozinho e acompanha o sprite sem saltar quando o array é compactado.
+//     Alfa = ruído x opacidade, com a borda do disco suavizada.
 //
 // Desenho: depois do vidro (fumaça na frente de um vidro não sai tingida) e
 // antes da parede de limite. Blending alfa comum, ordenado de trás para
@@ -114,6 +119,7 @@ bool createSprites(RzContext* ctx) {
     p.right    = glGetUniformLocation(p.program, "uRight");
     p.up       = glGetUniformLocation(p.program, "uUp");
     p.noise    = glGetUniformLocation(p.program, "uNoise");
+    p.time     = glGetUniformLocation(p.program, "uTime");
     initFogUniforms(p.program, p.fog);
 
     ctx->sprites.reserve(kMaxSprites);
@@ -131,12 +137,15 @@ bool createSprites(RzContext* ctx) {
     const GLsizei stride = sizeof(SpriteVertex);
     glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));   // centro + raio
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 4, GL_BYTE, GL_FALSE, stride,                                 // canto, quadro
+    glVertexAttribPointer(1, 4, GL_BYTE, GL_FALSE, stride,                                 // canto, quadro, tipo
                           reinterpret_cast<void*>(offsetof(SpriteVertex, cornerX)));
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride,                         // cor
                           reinterpret_cast<void*>(offsetof(SpriteVertex, color)));
     glEnableVertexAttribArray(2);
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, stride,                                // opacidade
+                          reinterpret_cast<void*>(offsetof(SpriteVertex, opacity)));
+    glEnableVertexAttribArray(3);
     glBindVertexArray(0);
     return glGetError() == GL_NO_ERROR;
 }
@@ -181,7 +190,7 @@ void drawSprites(RzContext* ctx, const Mat4& viewProj) {
         const Sprite& s = ctx->sprites[size_t(k.index)];
         const int8_t frame = int8_t((tick + uint32_t(k.index) * 3u) % uint32_t(kSpriteFrames));
         for (const auto& c : kCorners) {
-            *v++ = { s.center.x, s.center.y, s.center.z, s.radius, c[0], c[1], frame, 0, s.color };
+            *v++ = { s.center.x, s.center.y, s.center.z, s.radius, s.opacity, c[0], c[1], frame, int8_t(s.type), s.color };
         }
     }
     const GLsizei count = GLsizei(ctx->spriteOrder.size() * 6);
@@ -197,6 +206,7 @@ void drawSprites(RzContext* ctx, const Mat4& viewProj) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D_ARRAY, ctx->spriteNoiseTex);
     glUniform1i(p.noise, 0);
+    glUniform1f(p.time, float(ctx->frameCount) * (kSmokeNoiseSpeed / 60.0f));
     bindFog(ctx, p.fog);
 
     glDisable(GL_CULL_FACE);
@@ -226,6 +236,8 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetSprites(RzContext* ctx, const RzSprite* spr
         if (!validCoord(s.x) || !validCoord(s.y) || !validCoord(s.z)) {
             return recordError(ctx, "rzSetSprites", RZ_ERR_INVALID_ARG);
         }
+        if (s.type != RZ_SPRITE_DEBRIS && s.type != RZ_SPRITE_SMOKE) return recordError(ctx, "rzSetSprites", RZ_ERR_INVALID_ARG);
+        if (!(s.opacity >= 0.0f && s.opacity < 1.0e6f)) return recordError(ctx, "rzSetSprites", RZ_ERR_INVALID_ARG);   // pega NaN
     }
     const float scale = ctx->cellSize;
     ctx->sprites.clear();                                      // capacidade reservada: não aloca
@@ -234,6 +246,8 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetSprites(RzContext* ctx, const RzSprite* spr
         Sprite d;
         d.center = { s.x * scale, s.z * scale, s.y * scale };   // (coluna, altura, linha)
         d.radius = 0.5f * s.size * ctx->cellSize;
+        d.type   = s.type;
+        d.opacity = s.opacity;
         d.color  = ctx->spritePalette[s.color];
         ctx->sprites.push_back(d);
     }

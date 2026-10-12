@@ -563,10 +563,9 @@ static void rztdSteerVehicle(RzContext* ctx, int32_t id, float angle) {
 /* Fumaça e detritos do veículo de teste, como o legado guarda: um array
    compacto, sem id (quando um morre, os seguintes andam uma posição).
    A cada passo: emite fumaça do meio das rodas traseiras (sobe, cresce,
-   clareia) e, de vez em quando, um detrito (marrom, cai com gravidade);
+   some aos poucos) e, de vez em quando, um detrito (marrom, cai com gravidade);
    move, mata os vencidos compactando, e manda o array com rzSetSprites. */
 #define RZTD_MAX_PARTICLES 256   /* = máximo de rzSetSprites */
-#define RZTD_SMOKE_COLOR   168   /* rampa cinza/branca (tipo 5) da paleta de teste */
 #define RZTD_DEBRIS_COLOR  132   /* rampa marrom (tipo 4) */
 typedef struct RztdParticles {
     int      count;
@@ -649,10 +648,12 @@ static int32_t rztdStepParticles(RzContext* ctx, RztdParticles* p, const RztdMes
         s->z = rztdCoord(p->pos[i][1] > 0.0f ? p->pos[i][1] : 0.0f);
         if (p->debris[i]) {
             s->size  = 0.06f;
+            s->type  = RZ_SPRITE_DEBRIS;
             s->color = RZTD_DEBRIS_COLOR;
         } else {
-            s->size  = 0.12f + age * 0.6f;
-            s->color = (uint8_t)(RZTD_SMOKE_COLOR + (int)(age * 20.0f));   /* clareia */
+            s->size    = 0.12f + age * 0.6f;
+            s->type    = RZ_SPRITE_SMOKE;
+            s->opacity = 0.8f * (1.0f - age);   /* some aos poucos */
         }
     }
     return rzSetSprites(ctx, p->sprites, p->count);

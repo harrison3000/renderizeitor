@@ -137,6 +137,7 @@ constexpr int32_t kSpriteClicks        = 2;      // "cliques do spray" por quadr
 constexpr int32_t kSpriteDotsPerClick  = 260;    // pontinhos por clique
 constexpr float   kSpriteClickRadius   = 0.36f;  // raio do clique (fração do lado)
 constexpr float   kSpriteClickJitter   = 0.10f;  // deslocamento do centro do clique
+constexpr float   kSmokeNoiseSpeed     = 0.4f;   // fumaça: avanço do ruído por segundo (60 frames)
 
 // Sombras: cascatas da luz direcional (detalhes em rz_shadow.cpp), por
 // distância ao olho: 0 de 0 a kCascadeSplit0 tiles, 1 até kCascadeSplit1 (as
@@ -371,7 +372,7 @@ struct WallProgram {
 
 struct SpriteProgram {
     GLuint program = 0;
-    GLint  viewProj = -1, right = -1, up = -1, noise = -1;
+    GLint  viewProj = -1, right = -1, up = -1, noise = -1, time = -1;
     FogUniforms fog;
 };
 
@@ -379,13 +380,16 @@ struct SpriteProgram {
 struct Sprite {
     Vec3     center;
     float    radius;       // mundo
-    uint32_t color;        // 0x00RRGGBB, já com luz
+    float    opacity;      // fumaça: multiplicador do ruído
+    uint32_t color;        // detrito: 0x00RRGGBB, já com luz
+    uint8_t  type;         // RZ_SPRITE_*
 };
 struct SpriteKey { float depth; int32_t index; };    // ordenação de trás para frente
-struct SpriteVertex {      // 24 bytes; seis por sprite
+struct SpriteVertex {      // 28 bytes; seis por sprite
     float    x, y, z, radius;
-    int8_t   cornerX, cornerY, frame, pad;
-    uint32_t color;
+    float    opacity;         // fumaça
+    int8_t   cornerX, cornerY, frame, type;
+    uint32_t color;           // B, G, R, 0 em bytes
 };
 
 struct DepthProgram {

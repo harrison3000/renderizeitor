@@ -45,12 +45,18 @@ typedef struct RzWheelFace {
     float u1, v1;          /* o canto oposto */
 } RzWheelFace;
 
-/* Um sprite (ver rzSetSprites). 20 bytes. */
+/* Tipos de sprite (RzSprite.type) */
+#define RZ_SPRITE_DEBRIS  0   /* detrito: ruído de spray na cor `color` */
+#define RZ_SPRITE_SMOKE   1   /* fumaça: redonda, branca, ruído suave animado */
+
+/* Um sprite (ver rzSetSprites). 24 bytes. */
 typedef struct RzSprite {
     float    x, y, z;      /* centro, em tiles como RzVertex (z para cima) */
     float    size;         /* diâmetro em tiles */
-    uint8_t  color;        /* índice na paleta do jogo */
-    uint8_t  pad[3];
+    float    opacity;      /* só RZ_SPRITE_SMOKE: multiplica o ruído (>= 0; 1 = normal) */
+    uint8_t  color;        /* índice na paleta do jogo (só RZ_SPRITE_DEBRIS) */
+    uint8_t  type;         /* RZ_SPRITE_* */
+    uint8_t  pad[2];
 } RzSprite;
 
 /* Tamanhos conferidos em compilação (C89: array de tamanho negativo) */
@@ -58,7 +64,7 @@ typedef char RzAssertVertexSize[sizeof(RzVertex) == 12 ? 1 : -1];
 typedef char RzAssertTexVertexSize[sizeof(RzTexVertex) == 12 ? 1 : -1];
 typedef char RzAssertWheelSize[sizeof(RzWheel) == 8 ? 1 : -1];
 typedef char RzAssertWheelFaceSize[sizeof(RzWheelFace) == 16 ? 1 : -1];
-typedef char RzAssertSpriteSize[sizeof(RzSprite) == 20 ? 1 : -1];
+typedef char RzAssertSpriteSize[sizeof(RzSprite) == 24 ? 1 : -1];
 
 #define RZ_OK               0
 #define RZ_ERR_INVALID_ARG  1   /* ponteiro nulo ou parâmetro fora de faixa */
@@ -315,13 +321,19 @@ RZ_API int32_t RZ_CALL rzDestroyObject(RzContext* ctx, int32_t id);
 /* Substitui todos os sprites pelos count de `sprites` (copiados; 0 limpa).
    Sem id: cada chamada é o array inteiro, na ordem que for (o legado pode
    compactar o array quando um sprite morre). Cada um vira um quad virado
-   para a câmera, do tamanho `size`, com a forma de um ruído de spray
-   (8 variações que vão se alternando sozinhas a cada poucos frames) na cor
-   `color` da paleta do jogo (a do PCX de rzLoadTileAtlas; antes dele, cinza
-   = índice). Translúcidos, ordenados pelo renderer; com neblina; sem sombra.
+   para a câmera, do tamanho `size`, conforme o tipo:
+     RZ_SPRITE_DEBRIS  forma de um ruído de spray (8 variações que vão se
+                       alternando sozinhas a cada poucos frames) na cor
+                       `color` da paleta do jogo (a do PCX de rzLoadTileAtlas;
+                       antes dele, cinza = índice); `opacity` é ignorado.
+     RZ_SPRITE_SMOKE   disco branco semitransparente com ruído de baixa
+                       frequência que muda sozinho com o tempo; alfa = ruído
+                       x opacity (com borda suave); `color` é ignorado.
+   Translúcidos, ordenados pelo renderer; com neblina; sem sombra.
    Custo: baixo, não aloca; feita para ser chamada todo frame.
    Erros (nada muda): RZ_ERR_INVALID_ARG (sprites nulo com count > 0, count
-   < 0, size <= 0 ou não finito), RZ_ERR_SIZE (count > 256). */
+   < 0, size <= 0 ou não finito, type desconhecido, opacity < 0 ou não
+   finito), RZ_ERR_SIZE (count > 256). */
 RZ_API int32_t RZ_CALL rzSetSprites(RzContext* ctx, const RzSprite* sprites, int32_t count);
 
 

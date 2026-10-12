@@ -309,21 +309,31 @@ void main() {
 )GLSL";
 
 // Sprites (rz_sprites.cpp): quad virado para a câmera, aberto no vertex
-// shader a partir do centro, do raio e do canto (-1/+1); alfa da textura de
-// ruído (array, uma camada por quadro); cor já com luz; neblina.
+// shader a partir do centro, do raio e do canto (-1/+1); neblina.
+//   Detrito (tipo 0): alfa da textura de ruído (array, uma camada por quadro);
+//     cor já com luz.
+//   Fumaça (tipo 1): disco branco, alfa = ruído de valor 3D (posição no disco
+//     + centro no mundo, tempo) x opacidade, com a borda suavizada.
 constexpr const char* kSpriteVertexShader = R"GLSL(#version 330 core
 layout(location = 0) in vec4 aCenterRadius;
-layout(location = 1) in vec4 aCornerFrame;  // canto x, canto y (-1/+1), quadro, 0
+layout(location = 1) in vec4 aCornerFrame;  // canto x, canto y (-1/+1), quadro, tipo
 layout(location = 2) in vec4 aColor;        // B, G, R, 0 normalizados
+layout(location = 3) in float aOpacity;     // fumaça: multiplicador do ruído
 uniform mat4 uViewProj;
 uniform vec3 uRight, uUp;
 out vec3 vUV;
 flat out vec3 vColor;
+flat out float vOpacity;
+flat out int vType;
+flat out vec3 vCenter;
 out vec3 vWorld;
 void main() {
     vec3 p = aCenterRadius.xyz + (uRight * aCornerFrame.x + uUp * aCornerFrame.y) * aCenterRadius.w;
     vUV = vec3(aCornerFrame.xy * 0.5 + 0.5, aCornerFrame.z);
     vColor = aColor.bgr;
+    vOpacity = aOpacity;
+    vType = int(aCornerFrame.w);
+    vCenter = aCenterRadius.xyz;
     vWorld = p;
     gl_Position = uViewProj * vec4(p, 1.0);
 }
@@ -332,20 +342,49 @@ void main() {
 constexpr const char* kSpriteFragmentShader = R"GLSL(#version 330 core
 in vec3 vUV;
 flat in vec3 vColor;
+flat in float vOpacity;
+flat in int vType;
+flat in vec3 vCenter;
 in vec3 vWorld;
 uniform sampler2DArray uNoise;
+uniform float uTime;        // segundos x velocidade do ruído da fumaça
 uniform int   uFogOn;
 uniform float uFogStart, uFogEnd;
 uniform vec3  uFogColor;
 uniform vec3  uEye;
 uniform vec3  uFogOrigin;   // olho (seguindo) ou centro do mapa (visão geral)
 out vec4 fragColor;
+float hash3(vec3 p) {
+    p = fract(p * 0.3183099 + 0.1) * 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float valueNoise(vec3 x) {          // 0..1, suave (interpolação cúbica)
+    vec3 i = floor(x), f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(hash3(i),                   hash3(i + vec3(1.0, 0.0, 0.0)), f.x),
+                   mix(hash3(i + vec3(0.0, 1.0, 0.0)), hash3(i + vec3(1.0, 1.0, 0.0)), f.x), f.y),
+               mix(mix(hash3(i + vec3(0.0, 0.0, 1.0)), hash3(i + vec3(1.0, 0.0, 1.0)), f.x),
+                   mix(hash3(i + vec3(0.0, 1.0, 1.0)), hash3(i + vec3(1.0, 1.0, 1.0)), f.x), f.y), f.z);
+}
 void main() {
-    float a = texture(uNoise, vUV).r;
+    vec3 color;
+    float a;
+    if (vType == 1) {               // fumaça
+        vec2 q = vUV.xy * 2.0 - 1.0;
+        float d = length(q);
+        if (d >= 1.0) discard;
+        vec3 np = vec3(q * 1.6 + vCenter.xz * 0.7 + vec2(vCenter.y * 0.5), uTime);
+        float n = 0.65 * valueNoise(np) + 0.35 * valueNoise(np * 2.03 + 17.0);
+        a = n * vOpacity * (1.0 - smoothstep(0.5, 1.0, d));
+        color = vec3(1.0);
+    } else {                        // detrito
+        a = texture(uNoise, vUV).r;
+        color = vColor;
+    }
     if (a <= 0.0) discard;
     float fog = uFogOn != 0 ? smoothstep(uFogStart, uFogEnd, length(vWorld - uFogOrigin)) : 0.0;
     if (fog >= 1.0) discard;
-    fragColor = vec4(mix(vColor, uFogColor, fog), a);
+    fragColor = vec4(mix(color, uFogColor, fog), a);
 }
 )GLSL";
 
