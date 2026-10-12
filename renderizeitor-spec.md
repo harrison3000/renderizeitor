@@ -17,7 +17,7 @@ Há dois modos de saída:
 |---|---|
 | Alvo | Linux, x86-64, GCC (C++23) |
 | GPU | OpenGL 3.3 core. Offscreen via EGL surfaceless (Mesa/llvmpipe); janela via SDL2 (contexto criado pela biblioteca) |
-| Flags | `-std=c++23 -O2 -ffp-contract=off -fno-exceptions -fno-rtti -Wall -Wextra -Wdouble-promotion` |
+| Flags | `-std=c++23 -O2 -fno-exceptions -fno-rtti -Wall -Wextra -Wdouble-promotion` |
 | Link | biblioteca estática `librenderizeitor_static.a`; a biblioteca depende do SDL2 (`pkg-config sdl2`); `rz_test` liga com `-lSDL2 -ldl`; `rz_viewer` com `-lSDL2 -lstdc++ -ldl -lm` |
 | Build | `build_linux.sh` ou `make` (alvos: `lib`, `test`, `viewer`, `check`) |
 

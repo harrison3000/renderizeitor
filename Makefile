@@ -12,7 +12,7 @@ CXX ?= g++
 CC  ?= gcc
 AR  ?= ar
 
-CXXFLAGS = -std=c++23 -O2 -ffp-contract=off \
+CXXFLAGS = -std=c++23 -O2 \
            -fno-exceptions -fno-rtti \
            -Wall -Wextra -Wdouble-promotion \
            -Iinclude
