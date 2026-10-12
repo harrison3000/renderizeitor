@@ -34,12 +34,13 @@ void main() {
         if (d >= 1.0) discard;
         vec3 np = vec3(q * 1.6 + vCenter.xz * 0.7 + vec2(vCenter.y * 0.5), uTime);
         float n = 0.65 * valueNoise(np) + 0.35 * valueNoise(np * 2.03 + 17.0);
-        a = n * vOpacity * (1.0 - smoothstep(0.5, 1.0, d));
+        a = n * (1.0 - smoothstep(0.5, 1.0, d));
         color = vec3(1.0);
     } else {                        // detrito
-        a = texture(uNoise, vUV).r * vOpacity;
+        a = texture(uNoise, vUV).r;
         color = vColor;
     }
+    a *= vOpacity;
     if (a <= 0.0) discard;
     float fog = uFogOn != 0 ? smoothstep(uFogStart, uFogEnd, length(vWorld - uFogOrigin)) : 0.0;
     if (fog >= 1.0) discard;
