@@ -156,10 +156,7 @@ RZ_API int32_t RZ_CALL rzUpdateTerrain(RzContext* ctx);
 
 /* Filtragem das texturas (chão e objetos): fixa. Ampliação (perto) nearest;
    redução (longe) nearest dentro do nível de mipmap e mistura linear entre
-   níveis (evita o "shimmering" dos polígonos distantes), mais filtro
-   anisotrópico 4x sempre que o driver suporta (ou o máximo dele, se menor).
-   Em renderer de software (llvmpipe/softpipe) o anisotrópico fica desligado:
-   lá ele ignora o nearest (fica bilinear) e custa caro. */
+   níveis (evita o "shimmering" dos polígonos distantes). */
 
 /* Cor de fundo (onde não há terreno nem objeto; também a cor da neblina):
    índice na paleta do atlas (a do PCX de rzLoadTileAtlas). Pode ser chamada

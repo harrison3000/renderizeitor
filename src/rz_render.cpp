@@ -93,7 +93,6 @@ void initLightUniforms(GLuint program) {
 }
 
 bool createRenderer(RzContext* ctx) {
-    ctx->anisotropy = detectAnisotropy();          // antes de qualquer textura
     TerrainProgram& t = ctx->terrainProgram;
     t.program = linkProgram(kTerrainVertexShader, kTerrainFragmentShader);
     if (!t.program) return false;

@@ -41,7 +41,7 @@ uint32_t packColor(float r, float g, float b) {
 
 // Texels transparentes (alfa 0) recebem a cor dos opacos vizinhos (duas
 // passadas de dilatação, 4-vizinhos; o que sobrar, a média dos opacos), para
-// a filtragem (anisotrópico, mistura entre níveis) não puxar a cor do índice
+// a filtragem (mistura entre níveis) não puxar a cor do índice
 // 255 nem preto nas bordas dos buracos. O alfa não muda. Imagem quadrada.
 void fillTransparent(uint32_t* img, int32_t side) {
     uint64_t sum[3] = { 0, 0, 0 };

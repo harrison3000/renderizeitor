@@ -72,44 +72,18 @@ int32_t mipLevels(int32_t side) {
     return levels;
 }
 
-// Nível anisotrópico a usar: kAnisotropy, limitado ao máximo do driver; 0 se
-// o driver não tem EXT/ARB_texture_filter_anisotropic (core só no GL 4.6).
-// Contexto já corrente.
-// Em renderer de software (llvmpipe/softpipe) fica desligado: lá o
-// anisotrópico ignora o NEAREST e borra tudo (fica bilinear), além de caro.
-float detectAnisotropy() {
-    const char* renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
-    if (renderer && (std::strstr(renderer, "llvmpipe") || std::strstr(renderer, "softpipe"))) return 0.0f;
-    GLint count = 0;
-    glGetIntegerv(GL_NUM_EXTENSIONS, &count);
-    bool found = false;
-    for (GLint i = 0; i < count && !found; ++i) {
-        const char* e = reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, GLuint(i)));
-        if (!e) continue;
-        found = std::strcmp(e, "GL_EXT_texture_filter_anisotropic") == 0 ||
-                std::strcmp(e, "GL_ARB_texture_filter_anisotropic") == 0;
-    }
-    if (!found) return 0.0f;
-    GLfloat maxAniso = 0.0f;
-    glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &maxAniso);
-    if (!(maxAniso >= 1.0f)) return 0.0f;
-    return maxAniso < kAnisotropy ? maxAniso : kAnisotropy;
-}
-
 // Filtro fixo: ampliação nearest; redução nearest dentro do nível e mistura
-// linear entre níveis (GL_NEAREST_MIPMAP_LINEAR), mais o anisotrópico quando o
-// driver tem (anisotropy > 0; na prática os drivers filtram a redução)
-void applyFilter2D(GLuint texture, int32_t side, float anisotropy) {
+// linear entre níveis (GL_NEAREST_MIPMAP_LINEAR)
+void applyFilter2D(GLuint texture, int32_t side) {
     glBindTexture(GL_TEXTURE_2D, texture);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
-    if (anisotropy > 0.0f) glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY, anisotropy);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, mipLevels(side) - 1);
 }
 
 // rgb: side x side em 0x00RRGGBB (linha 0 = v 0). Gera os mipmaps na CPU e sobe
 // tudo; devolve 0 se o OpenGL falhar.
-GLuint uploadSquareTexture(const uint32_t* rgb, int32_t side, float anisotropy) {
+GLuint uploadSquareTexture(const uint32_t* rgb, int32_t side) {
     const int32_t levels = mipLevels(side);
     std::vector<uint32_t> chain;                         // temporário da carga
     size_t total = 0;
@@ -135,7 +109,7 @@ GLuint uploadSquareTexture(const uint32_t* rgb, int32_t side, float anisotropy) 
     }
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    applyFilter2D(texture, side, anisotropy);
+    applyFilter2D(texture, side);
     if (glGetError() != GL_NO_ERROR) {
         glDeleteTextures(1, &texture);
         return 0;
@@ -145,7 +119,7 @@ GLuint uploadSquareTexture(const uint32_t* rgb, int32_t side, float anisotropy) 
 
 // PCX -> textura quadrada (regras do topo do arquivo). Em caso de erro, nada é
 // criado e *outTexture fica 0.
-static int32_t loadSquareTextureFromPcx(const char* path, float anisotropy, GLuint* outTexture, int32_t* outSide) {
+static int32_t loadSquareTextureFromPcx(const char* path, GLuint* outTexture, int32_t* outSide) {
     *outTexture = 0;
     *outSide = 0;
     PcxImage img;
@@ -186,7 +160,7 @@ static int32_t loadSquareTextureFromPcx(const char* path, float anisotropy, GLui
         }
     }
 
-    *outTexture = uploadSquareTexture(rgb.data(), side, anisotropy);
+    *outTexture = uploadSquareTexture(rgb.data(), side);
     if (!*outTexture) return RZ_ERR_GL;
     *outSide = side;
     return RZ_OK;
@@ -202,7 +176,7 @@ bool createFallbackTexture(RzContext* ctx) {
             rgb[size_t(y) * kFallbackSize + x] = (a ? kFallbackColorA : kFallbackColorB) | kOpaqueAlpha;
         }
     }
-    const GLuint texture = uploadSquareTexture(rgb.data(), kFallbackSize, ctx->anisotropy);
+    const GLuint texture = uploadSquareTexture(rgb.data(), kFallbackSize);
     if (!texture) return false;
     if (ctx->fallbackTex) glDeleteTextures(1, &ctx->fallbackTex);
     ctx->fallbackTex  = texture;
@@ -221,7 +195,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzLoadObjectTexture(RzContext* ctx, int32_t id, 
     if (!platformMakeCurrent(ctx->platform)) return recordError(ctx, "rzLoadObjectTexture", RZ_ERR_GL);
     Object& o = ctx->objects[id];
     releaseTexture(o);                       // em caso de erro: fallback
-    return recordError(ctx, "rzLoadObjectTexture", loadSquareTextureFromPcx(pcxPath, ctx->anisotropy, &o.texture, &o.textureSize));
+    return recordError(ctx, "rzLoadObjectTexture", loadSquareTextureFromPcx(pcxPath, &o.texture, &o.textureSize));
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzLoadFallbackTexture(RzContext* ctx, const char* pcxPath) {
@@ -231,7 +205,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzLoadFallbackTexture(RzContext* ctx, const char
 
     GLuint texture;
     int32_t side;
-    const int32_t err = loadSquareTextureFromPcx(pcxPath, ctx->anisotropy, &texture, &side);
+    const int32_t err = loadSquareTextureFromPcx(pcxPath, &texture, &side);
     if (err != RZ_OK) return recordError(ctx, "rzLoadFallbackTexture", err);   // a fallback atual continua
     glDeleteTextures(1, &ctx->fallbackTex);
     ctx->fallbackTex  = texture;
