@@ -654,6 +654,10 @@ inline int32_t recordError(RzContext* ctx, const char* function, int32_t err) {
 
 // rz_render.cpp
 GLuint linkProgram(const char* vertexSource, const char* fragmentSource);
+// Shaders de rz_shaders.h (#embed: bytes terminados em 0)
+inline GLuint linkProgram(const unsigned char* vertexSource, const unsigned char* fragmentSource) {
+    return linkProgram(reinterpret_cast<const char*>(vertexSource), reinterpret_cast<const char*>(fragmentSource));
+}
 
 // rz_render.cpp: neblina (programa já em uso)
 void initFogUniforms(GLuint program, FogUniforms& u);

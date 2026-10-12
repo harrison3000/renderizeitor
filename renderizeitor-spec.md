@@ -26,6 +26,7 @@ Suporte a Windows (DLL de 32 bits, WGL/GDI, MinGW32) e o carregamento como plugi
 ## 3. Dependências e estilo
 
 - **Única dependência externa é o SDL2** (contexto da janela; no `rz_viewer`, também janela e entrada). Sem headers de GL do sistema: `rz_gl.h/.cpp` declara o subconjunto do GL 3.3 usado e o carrega por X-macro, resolvendo os ponteiros via `SDL_GL_GetProcAddress` (janela) ou EGL (offscreen).
+- **Shaders:** GLSL 3.30 core, um por arquivo em `src/shaders/` (`<nome>.vert` / `<nome>.frag`), incorporados em `src/rz_shaders.h` com `#embed` (extensão do GCC antes do C++26) como `unsigned char[]` terminado em 0.
 - **Std liberada quando simplifica o código**, desde que linke estática (`-static-libstdc++`). Containers como `std::vector` são o caso principal: buffers do terreno, do atlas e dos objetos, e o contexto inteiro (`new RzContext`, com os padrões nos inicializadores dos membros).
 - **Sem exceções** (`-fno-exceptions`): uma falha de alocação aborta o programa em vez de virar `RZ_ERR_NO_MEMORY`. A chance é baixíssima e isso foi aceito.
 - **O que não se usa:** streams e RTTI.
