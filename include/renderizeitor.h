@@ -53,7 +53,7 @@ typedef struct RzWheelFace {
 typedef struct RzSprite {
     float    x, y, z;      /* centro, em tiles como RzVertex (z para cima) */
     float    size;         /* diâmetro em tiles */
-    float    opacity;      /* só RZ_SPRITE_SMOKE: multiplica o ruído (>= 0; 1 = normal) */
+    float    opacity;      /* multiplica o alfa (>= 0; 1 = normal) */
     uint8_t  color;        /* índice na paleta do jogo (só RZ_SPRITE_DEBRIS) */
     uint8_t  type;         /* RZ_SPRITE_* */
     uint8_t  pad[2];
@@ -322,10 +322,11 @@ RZ_API int32_t RZ_CALL rzDestroyObject(RzContext* ctx, int32_t id);
    Sem id: cada chamada é o array inteiro, na ordem que for (o legado pode
    compactar o array quando um sprite morre). Cada um vira um quad virado
    para a câmera, do tamanho `size`, conforme o tipo:
-     RZ_SPRITE_DEBRIS  forma de um ruído de spray (8 variações que vão se
+     RZ_SPRITE_DEBRIS  círculo semitransparente com um ruído de spray mais
+                       opaco por cima (8 variações que vão se
                        alternando sozinhas a cada poucos frames) na cor
                        `color` da paleta do jogo (a do PCX de rzLoadTileAtlas;
-                       antes dele, cinza = índice); `opacity` é ignorado.
+                       antes dele, cinza = índice); alfa x opacity.
      RZ_SPRITE_SMOKE   disco branco semitransparente com ruído de baixa
                        frequência que muda sozinho com o tempo; alfa = ruído
                        x opacity (com borda suave); `color` é ignorado.

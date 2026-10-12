@@ -43,24 +43,38 @@ uint32_t hashU32(uint32_t h) {
 }
 
 // Ruído "spray": kSpriteClicks cliques, cada um uma nuvem de pontinhos
-// uniformes num disco, com o centro do clique sorteado perto do meio.
+// uniformes num disco, com o centro do clique sorteado perto do meio. Alfa em
+// quatro níveis: fora do círculo do sprite 0; dentro, pelo número de cliques
+// que acertaram o pixel (kSpriteAlphaByHits: nenhum, um, dois ou mais).
 // Mipmaps na CPU (média 2x2 do alfa). Uma camada por quadro.
 void buildNoiseTexture(RzContext* ctx) {
     constexpr int32_t N = kSpriteNoiseSize;
     constexpr int32_t kLevels = 7;                         // 64 .. 1
     std::vector<uint8_t> level0(size_t(N) * N * kSpriteFrames, 0);
+    std::vector<uint8_t> hits(size_t(N) * N), hit(size_t(N) * N);
     uint32_t seed = 12345u;
     auto rnd = [&]() { seed = hashU32(seed + 0x9E3779B9u); return float(seed & 0xFFFFFFu) / 16777216.0f; };
     for (int32_t f = 0; f < kSpriteFrames; ++f) {
-        uint8_t* img = level0.data() + size_t(f) * N * N;
+        std::fill(hits.begin(), hits.end(), uint8_t(0));
         for (int32_t click = 0; click < kSpriteClicks; ++click) {
+            std::fill(hit.begin(), hit.end(), uint8_t(0));
             const float ca = rnd() * 2.0f * kPi, cr = rnd() * kSpriteClickJitter * N;
             const float cx = 0.5f * N + cosf(ca) * cr, cy = 0.5f * N + sinf(ca) * cr;
             const float radius = kSpriteClickRadius * N;
             for (int32_t d = 0; d < kSpriteDotsPerClick; ++d) {
                 const float a = rnd() * 2.0f * kPi, r = sqrtf(rnd()) * radius;   // uniforme no disco
                 const int32_t px = int32_t(cx + cosf(a) * r), py = int32_t(cy + sinf(a) * r);
-                if (px >= 0 && px < N && py >= 0 && py < N) img[py * N + px] = 255;
+                if (px >= 0 && px < N && py >= 0 && py < N) hit[py * N + px] = 1;
+            }
+            for (size_t i = 0; i < hits.size(); ++i) hits[i] = uint8_t(hits[i] + hit[i]);   // um clique conta uma vez
+        }
+        uint8_t* img = level0.data() + size_t(f) * N * N;
+        for (int32_t y = 0; y < N; ++y) {
+            for (int32_t x = 0; x < N; ++x) {
+                const float dx = float(x) + 0.5f - 0.5f * N, dy = float(y) + 0.5f - 0.5f * N;
+                if (dx * dx + dy * dy >= 0.25f * N * N) continue;          // fora do círculo: 0
+                const int32_t h = hits[y * N + x] < 2 ? hits[y * N + x] : 2;
+                img[y * N + x] = kSpriteAlphaByHits[h];
             }
         }
     }

@@ -648,8 +648,9 @@ static int32_t rztdStepParticles(RzContext* ctx, RztdParticles* p, const RztdMes
         s->z = rztdCoord(p->pos[i][1] > 0.0f ? p->pos[i][1] : 0.0f);
         if (p->debris[i]) {
             s->size  = 0.06f;
-            s->type  = RZ_SPRITE_DEBRIS;
-            s->color = RZTD_DEBRIS_COLOR;
+            s->type    = RZ_SPRITE_DEBRIS;
+            s->color   = RZTD_DEBRIS_COLOR;
+            s->opacity = 1.0f;
         } else {
             s->size    = 0.12f + age * 0.6f;
             s->type    = RZ_SPRITE_SMOKE;

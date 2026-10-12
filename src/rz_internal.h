@@ -137,6 +137,9 @@ constexpr int32_t kSpriteClicks        = 2;      // "cliques do spray" por quadr
 constexpr int32_t kSpriteDotsPerClick  = 260;    // pontinhos por clique
 constexpr float   kSpriteClickRadius   = 0.36f;  // raio do clique (fração do lado)
 constexpr float   kSpriteClickJitter   = 0.10f;  // deslocamento do centro do clique
+// Detrito: alfa dentro do círculo por cliques que acertaram o pixel (0, 1, 2+);
+// fora do círculo, 0 (ajustados no olho)
+constexpr uint8_t kSpriteAlphaByHits[3] = { 40, 200, 255 };
 constexpr float   kSmokeNoiseSpeed     = 0.4f;   // fumaça: avanço do ruído por segundo (60 frames)
 
 // Sombras: cascatas da luz direcional (detalhes em rz_shadow.cpp), por

@@ -37,7 +37,7 @@ void main() {
         a = n * vOpacity * (1.0 - smoothstep(0.5, 1.0, d));
         color = vec3(1.0);
     } else {                        // detrito
-        a = texture(uNoise, vUV).r;
+        a = texture(uNoise, vUV).r * vOpacity;
         color = vColor;
     }
     if (a <= 0.0) discard;
