@@ -116,7 +116,7 @@ constexpr int32_t kSkirtMeanderPeriod = 24;    // período do ruído do serpente
 constexpr float   kBorderWallHeight = 6.0f;   // tiles acima do chão
 constexpr float   kBorderFadeFar    = 25.0f;  // alvo a 25 tiles: começa a aparecer
 constexpr float   kBorderFadeNear   = 6.0f;   // a 6 tiles: totalmente visível
-constexpr float   kBorderXSize      = 2.0f;   // célula de cada círculo (tiles), presa ao mundo
+constexpr float   kBorderXSize      = 2.125f; // célula de cada círculo (tiles), presa ao mundo
 constexpr float   kFogMaxEnd = 120.0f;   // rzSetFog (a continuação vai a kSkirtExtent, com folga)
 static_assert(kFogEndDefault <= kFogMaxEnd && kFogMaxEnd <= float(kSkirtExtent),
               "a continuação tem que ir até o fim da neblina");

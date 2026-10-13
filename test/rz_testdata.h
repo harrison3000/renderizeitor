@@ -22,6 +22,7 @@
 #include "renderizeitor.h"
 
 #define RZTD_ATLAS_SIZE 256
+#define RZTD_FIRE_RAMP  192   /* 32 cores de fogo na paleta de teste (não usadas nos blocos) */
 #define RZTD_HEIGHT_SCALE (16.0f / 255.0f)   /* byte 255 = 16 tiles, como no legado */
 
 /* Tipos de bloco: cada um ocupa uma linha do atlas (16 variações) e usa uma
@@ -101,6 +102,7 @@ static void rztdBuildPalette(uint8_t* paletteRGB) {
         {  70, 130, 200 }, { 240, 225, 170 }, { 120, 190,  70 },
         {  60, 120,  45 }, { 175, 165, 150 }, { 255, 255, 255 },
     };
+    static const uint8_t fireDark[3] = { 140, 20, 0 }, fireLight[3] = { 255, 235, 90 };
     int t, i, k;
     memset(paletteRGB, 0, 768);
     for (t = 0; t < RZTD_TYPE_COUNT; ++t) {
@@ -111,6 +113,10 @@ static void rztdBuildPalette(uint8_t* paletteRGB) {
             }
         }
     }
+    /* Fogo (sprites do turbo): rampa vermelho escuro -> amarelo, fora dos blocos */
+    for (i = 0; i < 32; ++i)
+        for (k = 0; k < 3; ++k)
+            paletteRGB[(RZTD_FIRE_RAMP + i) * 3 + k] = (uint8_t)(fireDark[k] + (fireLight[k] - fireDark[k]) * i / 31);
 }
 
 /* Tom 0..31 de um texel do bloco (tipo, variação), padrão diferente por tipo. */
@@ -560,22 +566,28 @@ static void rztdSteerVehicle(RzContext* ctx, int32_t id, float angle) {
     rzUpdateObjectWheels(ctx, id, angle);
 }
 
-/* Fumaça e detritos do veículo de teste, como o legado guarda: um array
-   compacto, sem id (quando um morre, os seguintes andam uma posição).
+/* Fumaça, detritos e fogo do veículo de teste, como o legado guarda: um
+   array compacto, sem id (quando um morre, os seguintes andam uma posição).
    A cada passo: emite fumaça do meio das rodas traseiras (sobe, cresce,
-   some aos poucos) e, de vez em quando, um detrito (marrom, cai com gravidade);
-   move, mata os vencidos compactando, e manda o array com rzSetSprites. */
+   some aos poucos), de vez em quando um detrito (marrom, cai com gravidade)
+   e, com `turbo` ligado, fogo nas quatro rodas (amarelo que vira vermelho e
+   encolhe); move, mata os vencidos compactando, e manda o array com
+   rzSetSprites. */
 #define RZTD_MAX_PARTICLES 256   /* = máximo de rzSetSprites */
 #define RZTD_DEBRIS_COLOR  132   /* rampa marrom (tipo 4) */
+enum { RZTD_PART_SMOKE = 0, RZTD_PART_DEBRIS, RZTD_PART_FIRE };
 typedef struct RztdParticles {
     int      count;
     uint32_t seed;
     int      tick;
+    int      turbo;                        /* != 0: solta fogo pelas rodas (viewer) */
+    int      hasPrevHub;
+    float    prevHub[4][3];                /* rodas no passo anterior (o fogo herda parte do movimento) */
     float    pos[RZTD_MAX_PARTICLES][3];   /* x (coluna), y (altura), z (linha), tiles */
     float    vel[RZTD_MAX_PARTICLES][3];
     float    life[RZTD_MAX_PARTICLES];     /* frames restantes */
     float    maxLife[RZTD_MAX_PARTICLES];
-    uint8_t  debris[RZTD_MAX_PARTICLES];
+    uint8_t  kind[RZTD_MAX_PARTICLES];     /* RZTD_PART_* */
     RzSprite sprites[RZTD_MAX_PARTICLES];  /* o que vai para o renderer */
 } RztdParticles;
 
@@ -584,15 +596,20 @@ static float rztdRand(RztdParticles* p) {
     return (float)(p->seed >> 8) / 16777216.0f;
 }
 
-static void rztdEmit(RztdParticles* p, const float* at, int debris) {
+static void rztdEmit(RztdParticles* p, const float* at, int kind) {
     int i;
     if (p->count >= RZTD_MAX_PARTICLES) return;
     i = p->count++;
     p->pos[i][0] = at[0] + (rztdRand(p) - 0.5f) * 0.05f;
     p->pos[i][1] = at[1];
     p->pos[i][2] = at[2] + (rztdRand(p) - 0.5f) * 0.05f;
-    p->debris[i] = (uint8_t)debris;
-    if (debris) {
+    p->kind[i] = (uint8_t)kind;
+    if (kind == RZTD_PART_FIRE) {
+        p->vel[i][0] = (rztdRand(p) - 0.5f) * 0.02f;
+        p->vel[i][1] = 0.005f + rztdRand(p) * 0.01f;
+        p->vel[i][2] = (rztdRand(p) - 0.5f) * 0.02f;
+        p->maxLife[i] = 8.0f + rztdRand(p) * 6.0f;
+    } else if (kind == RZTD_PART_DEBRIS) {
         p->vel[i][0] = (rztdRand(p) - 0.5f) * 0.03f;
         p->vel[i][1] = 0.02f + rztdRand(p) * 0.02f;
         p->vel[i][2] = (rztdRand(p) - 0.5f) * 0.03f;
@@ -616,9 +633,24 @@ static int32_t rztdStepParticles(RzContext* ctx, RztdParticles* p, const RztdMes
     exhaust[1] = 0.5f * (rl[1] + rr[1]) + 0.02f;
     exhaust[2] = 0.5f * (rl[2] + rr[2]);
     ++p->tick;
-    rztdEmit(p, exhaust, 0);
-    if (p->tick % 3 == 0) rztdEmit(p, exhaust, 0);
-    if (p->tick % 9 == 0) rztdEmit(p, (p->tick & 1) ? rl : rr, 1);
+    rztdEmit(p, exhaust, RZTD_PART_SMOKE);
+    if (p->tick % 3 == 0) rztdEmit(p, exhaust, RZTD_PART_SMOKE);
+    if (p->tick % 9 == 0) rztdEmit(p, (p->tick & 1) ? rl : rr, RZTD_PART_DEBRIS);
+    for (k = 0; k < 4; ++k) {
+        const float* hub = vehicle->pos[RZTD_WHEEL_FIRST + k];
+        if (p->turbo) {
+            int n, a;
+            for (n = 0; n < 2; ++n) {
+                int before = p->count;
+                rztdEmit(p, hub, RZTD_PART_FIRE);
+                if (p->count > before && p->hasPrevHub) {     /* acompanha 60% do carro */
+                    for (a = 0; a < 3; ++a) p->vel[before][a] += 0.6f * (hub[a] - p->prevHub[k][a]);
+                }
+            }
+        }
+        p->prevHub[k][0] = hub[0]; p->prevHub[k][1] = hub[1]; p->prevHub[k][2] = hub[2];
+    }
+    p->hasPrevHub = 1;
 
     /* move e mata (compactando, como o legado) */
     alive = 0;
@@ -626,14 +658,16 @@ static int32_t rztdStepParticles(RzContext* ctx, RztdParticles* p, const RztdMes
         p->life[i] -= 1.0f;
         if (p->life[i] <= 0.0f) continue;
         for (k = 0; k < 3; ++k) p->pos[i][k] += p->vel[i][k];
-        if (p->debris[i]) {
+        if (p->kind[i] == RZTD_PART_DEBRIS) {
             p->vel[i][1] -= 0.0025f;                         /* gravidade */
+        } else if (p->kind[i] == RZTD_PART_FIRE) {
+            p->vel[i][1] += 0.001f;                          /* sobe */
         } else {
             p->vel[i][0] *= 0.98f; p->vel[i][2] *= 0.98f;
         }
         if (alive != i) {
             for (k = 0; k < 3; ++k) { p->pos[alive][k] = p->pos[i][k]; p->vel[alive][k] = p->vel[i][k]; }
-            p->life[alive] = p->life[i]; p->maxLife[alive] = p->maxLife[i]; p->debris[alive] = p->debris[i];
+            p->life[alive] = p->life[i]; p->maxLife[alive] = p->maxLife[i]; p->kind[alive] = p->kind[i];
         }
         ++alive;
     }
@@ -646,7 +680,12 @@ static int32_t rztdStepParticles(RzContext* ctx, RztdParticles* p, const RztdMes
         s->x = rztdCoord(p->pos[i][0]);
         s->y = rztdCoord(p->pos[i][2]);
         s->z = rztdCoord(p->pos[i][1] > 0.0f ? p->pos[i][1] : 0.0f);
-        if (p->debris[i]) {
+        if (p->kind[i] == RZTD_PART_FIRE) {
+            s->size    = 0.22f * (1.0f - 0.7f * age);
+            s->type    = RZ_SPRITE_DEBRIS;
+            s->color   = (uint8_t)(RZTD_FIRE_RAMP + 31 - (int)(age * 31.0f));   /* amarelo -> vermelho */
+            s->opacity = 1.6f;                                   /* mais forte que o detrito */
+        } else if (p->kind[i] == RZTD_PART_DEBRIS) {
             s->size  = 0.06f;
             s->type    = RZ_SPRITE_DEBRIS;
             s->color   = RZTD_DEBRIS_COLOR;

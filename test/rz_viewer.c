@@ -6,6 +6,7 @@
  *
  *   W / S                   acelera / freia e dá ré no carro
  *   A / D                   vira o carro para a esquerda / direita
+ *   Espaço (segurado)       turbo: 8x mais rápido e fogo saindo das rodas
  *   Seta cima / baixo       sobe / desce a câmera (altura acima do carro)
  *   PgUp / PgDn             aproxima / afasta a câmera (comprimento da corda)
  *   T                       liga / desliga as texturas
@@ -69,6 +70,7 @@ static float    g_carX, g_carZ, g_carHeading, g_carSpeed, g_carSteer;
 #define CAR_TURN_RATE    0.045f           /* rad/frame na velocidade máxima */
 #define CAR_STEER_MAX    0.45f            /* rad: esterçamento visual das rodas dianteiras */
 #define CAR_STEER_RATE   0.06f            /* rad/frame para chegar lá */
+#define CAR_TURBO        8.0f             /* espaço: multiplica velocidade máxima e aceleração */
 
 /* Entrada: teclas seguradas (lidas por scancode) e foco da janela. */
 static const Uint8* g_keys;              /* SDL_GetKeyboardState: 1 = segurada */
@@ -87,17 +89,28 @@ static void driveCar(int active) {
     int back    = active && keyDown(SDL_SCANCODE_S);
     int left    = active && keyDown(SDL_SCANCODE_A);
     int right   = active && keyDown(SDL_SCANCODE_D);
+    int turbo   = active && keyDown(SDL_SCANCODE_SPACE);
+    const float boost    = turbo ? CAR_TURBO : 1.0f;
+    const float maxSpeed = CAR_MAX_SPEED * boost;
     float turn, nx, nz;
 
-    if (forward)    g_carSpeed += (g_carSpeed < 0.0f) ? CAR_BRAKE : CAR_ACCEL;
+    g_particles.turbo = turbo;                         /* fogo pelas rodas */
+    if (forward)    g_carSpeed += (g_carSpeed < 0.0f) ? CAR_BRAKE : CAR_ACCEL * boost;
     else if (back)  g_carSpeed -= (g_carSpeed > 0.0f) ? CAR_BRAKE : CAR_ACCEL;
     else            g_carSpeed *= CAR_FRICTION;
-    if (g_carSpeed >  CAR_MAX_SPEED)   g_carSpeed =  CAR_MAX_SPEED;
+    /* Acima do máximo (soltou o turbo): perde velocidade aos poucos, sem tranco */
+    if (g_carSpeed > maxSpeed) {
+        g_carSpeed *= CAR_FRICTION;
+        if (g_carSpeed < maxSpeed) g_carSpeed = maxSpeed;
+    }
     if (g_carSpeed < -CAR_MAX_REVERSE) g_carSpeed = -CAR_MAX_REVERSE;
     if (g_carSpeed > -0.0005f && g_carSpeed < 0.0005f && !forward && !back) g_carSpeed = 0.0f;
 
-    /* Vira proporcional à velocidade (parado não gira; de ré, inverte) */
+    /* Vira proporcional à velocidade (parado não gira; de ré, inverte), no
+       máximo CAR_TURN_RATE (no turbo não gira 8x mais) */
     turn = CAR_TURN_RATE * (g_carSpeed / CAR_MAX_SPEED);
+    if (turn >  CAR_TURN_RATE) turn =  CAR_TURN_RATE;
+    if (turn < -CAR_TURN_RATE) turn = -CAR_TURN_RATE;
     if (left)  g_carHeading -= turn;
     if (right) g_carHeading += turn;
 
