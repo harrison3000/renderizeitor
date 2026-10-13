@@ -102,10 +102,12 @@ bool createRenderer(RzContext* ctx) {
     t.shading  = glGetUniformLocation(t.program, "uShading");
     t.ambient   = glGetUniformLocation(t.program, "uShadowLight");
     t.smooth   = glGetUniformLocation(t.program, "uSmooth");
+    t.model    = glGetUniformLocation(t.program, "uModel");
     const GLint shadowDim = glGetUniformLocation(t.program, "uShadowDim");
     glUseProgram(t.program);
     glUniform1i(t.atlas, kUnitAtlas);
     glUniform1i(t.smooth, 0);
+    glUniformMatrix4fv(t.model, 1, GL_TRUE, Mat4::identity().e);
     glUniform1f(t.shading, kTexturedShading);
     glUniform1f(t.ambient, kShadowLight);
     glUniform1f(shadowDim, kShadowTexturedDim);
@@ -119,7 +121,9 @@ bool createRenderer(RzContext* ctx) {
     o.viewProj = glGetUniformLocation(o.program, "uViewProj");
     o.texture  = glGetUniformLocation(o.program, "uTexture");
     o.ambient   = glGetUniformLocation(o.program, "uShadowLight");
+    o.model    = glGetUniformLocation(o.program, "uModel");
     glUseProgram(o.program);
+    glUniformMatrix4fv(o.model, 1, GL_TRUE, Mat4::identity().e);
     glUniform1i(o.texture, kUnitAtlas);
     glUniform1f(o.ambient, kShadowLight);
     initShadowUniforms(o.program, o.shadow);
@@ -131,6 +135,9 @@ bool createRenderer(RzContext* ctx) {
     d.program = linkProgram(kDepthVertexShader, kDepthFragmentShader);
     if (!d.program) return false;
     d.lightViewProj = glGetUniformLocation(d.program, "uLightViewProj");
+    d.model         = glGetUniformLocation(d.program, "uModel");
+    glUseProgram(d.program);
+    glUniformMatrix4fv(d.model, 1, GL_TRUE, Mat4::identity().e);
     if (!createShadowMaps(ctx)) return false;
     if (!createBorder(ctx)) return false;
     if (!createGlassProgram(ctx)) return false;

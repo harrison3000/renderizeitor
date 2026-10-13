@@ -262,7 +262,7 @@ void drawObjectsDepth(RzContext* ctx, int32_t onlyId, int32_t skipId) {
         if (!objectInRange(ctx, o)) continue;
         glBindVertexArray(o.vao);
         glDrawArrays(GL_TRIANGLES, 0, o.drawVertexCount());
-        drawWheelsDepth(o);
+        drawWheelsDepth(ctx, o);
     }
 }
 

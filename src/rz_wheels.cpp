@@ -1,4 +1,5 @@
-// Rodas dos objetos: quatro cilindros pretos finos, gerados a cada update.
+// Rodas dos objetos: quatro pneus com ombros arredondados e, opcionalmente,
+// faces texturizadas (rzSetObjectWheelFaces).
 //
 // rzSetObjectWheels: para cada roda, o vértice do objeto que é o centro do
 // cubo (hub), se é dianteira ou traseira e o diâmetro (tiles). Precisam ser
@@ -6,18 +7,22 @@
 // rzUpdateObjectWheels: ângulo de esterçamento das duas dianteiras (radianos;
 // positivo vira para a esquerda, anti-horário visto de cima). Traseiras retas.
 //
-// Referencial do carro, refeito a cada envio a partir dos quatro cubos:
+// A malha de cada roda é montada uma vez, no referencial dela (x frente,
+// y cima, z eixo, centro no cubo), e só é refeita quando as rodas ou as faces
+// mudam. A cada frame a CPU só calcula uma matriz por roda (wheelModel:
+// posição do cubo, esterçamento e giro), aplicada no vertex shader (uModel).
+//
+// Referencial do carro, refeito a cada frame a partir dos quatro cubos:
 //   frente f = meio das dianteiras − meio das traseiras;
 //   cima   u = perpendicular a f e à linha entre as rodas, apontando para +y;
 //   direita r = f x u.
-// Cada roda: cilindro de diâmetro d e largura kWheelWidth x d, eixo = r (nas
-// dianteiras, girado em torno de u pelo esterçamento). kWheelSegments lados;
-// o anel (cos/sen) e as duas orientações (dianteira, traseira) são calculados
-// uma vez por envio.
+// Cada roda: diâmetro d e largura kWheelWidth x d, eixo = r (nas dianteiras,
+// girado em torno de u pelo esterçamento), kWheelSegments lados.
 //
-// Desenho: com o programa do terreno no modo sem textura (cor flat iluminada,
-// sombras e neblina de graça), sem culling (cilindro fechado: o depth resolve).
-// Projetam sombra (mapas 1 e 2, junto com o objeto).
+// Desenho: o pneu com o programa do terreno no modo sem textura (cor flat
+// iluminada, sombras e neblina de graça), as faces com o dos objetos; sem
+// culling (cilindro fechado: o depth resolve). Projetam sombra (mapas 1 e 2,
+// junto com o objeto). Um glDrawArrays por roda (a matriz muda).
 
 #include <cmath>
 
@@ -74,11 +79,10 @@ void emitTexTri(GpuVertex*& out, Vec3 pa, Vec3 pb, Vec3 pc, uint32_t normal, con
     *out++ = capCorner(pc, normal, face, cx, cy, mirror);
 }
 
-// Monta os quatro cilindros na posição atual e reenvia os VBOs (sem alocar).
-// O pneu (a lateral) vai para o VBO plano; as duas tampas vão para o VBO das
-// faces com a textura do objeto quando há faces (rzSetObjectWheelFaces), ou
-// para o VBO plano, pretas, quando não há.
-void buildWheels(Object& o) {
+// Referencial do carro a partir dos quatro cubos (ver o topo do arquivo):
+// fwd/axis [0] traseira (reta), [1] dianteira (esterçada). Na primeira vez,
+// fixa o sentido do "cima" e qual tampa de cada roda é a externa.
+void wheelFrame(Object& o, Vec3* up, Vec3 fwd[2], Vec3 axis[2]) {
     Vec3 hub[4];
     for (int32_t i = 0; i < 4; ++i) hub[i] = o.world[o.wheelVertex[i]];
     Vec3 frontMid = { 0, 0, 0 }, rearMid = { 0, 0, 0 };
@@ -95,7 +99,7 @@ void buildWheels(Object& o) {
     Vec3 axle2 = rr[1] - rr[0];
     if (dot(axle, axle2) < 0.0f) axle2 = scale(axle2, -1.0f);
     axle = axle + axle2;
-    // O "cima" das rodas: fixa o sentido na 1a montagem (carro em pé, u aponta
+    // O "cima" das rodas: fixa o sentido na 1a vez (carro em pé, u aponta
     // para +y) e depois acompanha o corpo continuamente, SEM reforçar o +y a
     // cada frame. Assim emborcar não inverte o eixo (nem, com ele, a identidade
     // das tampas): u gira junto com o carro em vez de dar um salto.
@@ -104,17 +108,12 @@ void buildWheels(Object& o) {
     u = scale(u, o.wheelUpSign);
     if (dot(u, u) == 0.0f) u = { 0.0f, 1.0f, 0.0f };
 
-    // anel unitário (fechado: ring[kWheelSegments] = ring[0])
-    float ringC[kWheelSegments + 1], ringS[kWheelSegments + 1];
-    for (int32_t k = 0; k <= kWheelSegments; ++k) {
-        const float a = 2.0f * kPi * float(k % kWheelSegments) / float(kWheelSegments);
-        ringC[k] = cosf(a);
-        ringS[k] = sinf(a);
-    }
-    // orientações: [0] traseira (reta), [1] dianteira (esterçada; positivo = esquerda)
     const float s = sinf(o.wheelSteer), c = cosf(o.wheelSteer);
-    const Vec3 fwd[2]  = { f, scale(f, c) + scale(cross(u, f), s) };
-    const Vec3 axis[2] = { normalized(cross(fwd[0], u)), normalized(cross(fwd[1], u)) };
+    fwd[0] = f;
+    fwd[1] = scale(f, c) + scale(cross(u, f), s);
+    axis[0] = normalized(cross(fwd[0], u));
+    axis[1] = normalized(cross(fwd[1], u));
+    *up = u;
 
     // Decide uma vez (e fixa) qual tampa de cada roda é a externa, pelo eixo
     // RETO (axis[0], o lado direito do carro), não pelo esterçado: assim o
@@ -123,17 +122,37 @@ void buildWheels(Object& o) {
         for (int32_t i = 0; i < 4; ++i)
             o.wheelPlusOuter[i] = dot(hub[i] - carMid, axis[0]) > 0.0f ? 1 : 0;
         o.wheelOuterResolved = true;
+        o.wheelsDirty = true;            // a malha depende de qual tampa é a externa
     }
+}
+
+// Monta a malha das quatro rodas, cada uma no próprio referencial (x frente,
+// y cima, z eixo, centro no cubo, sem giro), e envia os VBOs. Só na carga e
+// quando rodas/faces mudam: posição, esterçamento e giro vêm de wheelModel.
+// O pneu (a lateral) vai para o VBO plano; as duas tampas vão para o VBO das
+// faces com a textura do objeto quando há faces (rzSetObjectWheelFaces), ou
+// para o VBO plano, pretas, quando não há.
+void buildWheels(Object& o) {
+    // anel unitário (fechado: ring[kWheelSegments] = ring[0])
+    float ringC[kWheelSegments + 1], ringS[kWheelSegments + 1];
+    for (int32_t k = 0; k <= kWheelSegments; ++k) {
+        const float a = 2.0f * kPi * float(k % kWheelSegments) / float(kWheelSegments);
+        ringC[k] = cosf(a);
+        ringS[k] = sinf(a);
+    }
+    const Vec3 fw = { 1.0f, 0.0f, 0.0f }, u = { 0.0f, 1.0f, 0.0f }, ax = { 0.0f, 0.0f, 1.0f };
+    const Vec3 p = { 0.0f, 0.0f, 0.0f };
+    const uint32_t nOut = packNormal(ax), nIn = packNormal(scale(ax, -1.0f));
 
     const bool textured = o.wheelFacesSet;
-    TerrainVertex* out = o.wheelStaging.data();
-    GpuVertex*     cap = o.wheelCapStaging.data();
+    TerrainVertex* const flat0 = o.wheelStaging.data();
+    GpuVertex*     const cap0  = o.wheelCapStaging.data();
+    TerrainVertex* out = flat0;
+    GpuVertex*     cap = cap0;
     for (int32_t i = 0; i < 4; ++i) {
-        const int32_t which = o.wheelFront[i];
-        const Vec3 fw = fwd[which], ax = axis[which];
-        const Vec3 p = hub[i];
+        TerrainVertex* const outStart = out;
+        GpuVertex*     const capStart = cap;
         const bool plusIsOuter = o.wheelPlusOuter[i] != 0;   // tampa +eixo é a externa?
-        const uint32_t nOut = packNormal(ax), nIn = packNormal(scale(ax, -1.0f));
 
         // Medidas do pneu (mundo), de fora para dentro no raio: banda de rodagem
         // (reta, raio R) -> ombro arredondado -> parede lateral texturizada (anel
@@ -170,22 +189,16 @@ void buildWheels(Object& o) {
             push(wt + sh * sinf(th), rimR + sh * cosf(th), cosf(th), sinf(th));
         }
 
-        // A UV usa o anel SEM o giro (ringC/ringS): a textura fica presa à roda e
-        // gira junto com a geometria (que usa o anel girado). A face externa usa o
-        // quadrado externo (sem espelho), a interna o interno (espelhado em u).
+        // A face externa usa o quadrado externo (sem espelho), a interna o
+        // interno (espelhado em u). A UV fica presa à malha, então o desenho da
+        // face gira junto com a roda (o giro está em wheelModel).
         const float* fPlus  = plusIsOuter ? o.wheelFaceOuter : o.wheelFaceInner;   // tampa +eixo
         const float* fMinus = plusIsOuter ? o.wheelFaceInner : o.wheelFaceOuter;   // tampa -eixo
         const bool mPlus = !plusIsOuter, mMinus = plusIsOuter;
 
-        // Giro da roda (rzSetObjectWheelSpin): roda o anel em torno do eixo, no
-        // plano (fw, u). Afeta a geometria e a UV da face, então o desenho da
-        // face gira junto. cr/sr: rotação do giro acumulado desta roda.
-        const float cr = cosf(o.wheelRoll[i]), sr = sinf(o.wheelRoll[i]);
         for (int32_t k = 0; k < kWheelSegments; ++k) {
-            const float c0 = ringC[k] * cr - ringS[k] * sr,         s0 = ringS[k] * cr + ringC[k] * sr;
-            const float c1 = ringC[k + 1] * cr - ringS[k + 1] * sr, s1 = ringS[k + 1] * cr + ringC[k + 1] * sr;
-            const Vec3 rad0 = scale(fw, c0) + scale(u, s0);  // direção radial (unitária), já girada
-            const Vec3 rad1 = scale(fw, c1) + scale(u, s1);
+            const Vec3 rad0 = scale(fw, ringC[k]) + scale(u, ringS[k]);           // direção radial (unitária)
+            const Vec3 rad1 = scale(fw, ringC[k + 1]) + scale(u, ringS[k + 1]);
             // Casca de cor fixa: uma banda por par de pontos do perfil, com normais
             // por vértice (ombros arredondados com luz lisa).
             for (int32_t j = 0; j + 1 < ns; ++j) {
@@ -238,9 +251,13 @@ void buildWheels(Object& o) {
                 emitSmooth(out, cM, iM0, iM1, axn, axn, axn);
             }
         }
+        o.wheelFlatFirst[i] = int32_t(outStart - flat0);
+        o.wheelFlatCount[i] = int32_t(out - outStart);
+        o.wheelCapFirst[i]  = int32_t(capStart - cap0);
+        o.wheelCapCount[i]  = int32_t(cap - capStart);
     }
-    o.wheelFlatVerts = int32_t(out - o.wheelStaging.data());
-    o.wheelCapVerts  = int32_t(cap - o.wheelCapStaging.data());
+    o.wheelFlatVerts = int32_t(out - flat0);
+    o.wheelCapVerts  = int32_t(cap - cap0);
 
     glBindBuffer(GL_ARRAY_BUFFER, o.wheelVbo);
     glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(size_t(o.wheelFlatVerts) * sizeof(TerrainVertex)),
@@ -267,7 +284,8 @@ void freeWheels(Object& o) {
 
 // Antes dos passes do frame (junto com prepareObjects). Com velocidade, adianta
 // o giro de cada roda neste frame: ângulo = distância andada / raio (cada roda
-// pelo seu diâmetro; positivo = para a frente), e remonta.
+// pelo seu diâmetro; positivo = para a frente). Refaz a malha local só se
+// rodas/faces mudaram; todo frame, só as quatro matrizes (wheelModel).
 void prepareWheels(RzContext* ctx, Object& o) {
     if (o.wheelStaging.empty() || !o.positioned) return;
     if (o.wheelSpeed != 0.0f) {
@@ -276,33 +294,54 @@ void prepareWheels(RzContext* ctx, Object& o) {
             o.wheelRoll[i] -= dist / (0.5f * o.wheelDiameter[i]);   // -: topo vai para a frente
             o.wheelRoll[i] = fmodf(o.wheelRoll[i], 2.0f * kPi);
         }
-        o.wheelsDirty = true;
     }
-    if (!o.wheelsDirty) return;
-    buildWheels(o);
-    o.wheelsDirty = false;
+    Vec3 u, fwd[2], axis[2];
+    wheelFrame(o, &u, fwd, axis);
+    if (o.wheelsDirty) {
+        buildWheels(o);
+        o.wheelsDirty = false;
+    }
+    // Colunas da matriz: x (frente) e y (cima) girados pelo giro da roda em
+    // volta do eixo z; z = eixo; translação = cubo
+    for (int32_t i = 0; i < 4; ++i) {
+        const int32_t which = o.wheelFront[i];
+        const Vec3 f = fwd[which], ax = axis[which], hub = o.world[o.wheelVertex[i]];
+        const float cr = cosf(o.wheelRoll[i]), sr = sinf(o.wheelRoll[i]);
+        const Vec3 x = scale(f, cr) + scale(u, sr);
+        const Vec3 y = scale(f, -sr) + scale(u, cr);
+        Mat4& m = o.wheelModel[i];
+        m = Mat4::identity();
+        m[0, 0] = x.x; m[0, 1] = y.x; m[0, 2] = ax.x; m[0, 3] = hub.x;
+        m[1, 0] = x.y; m[1, 1] = y.y; m[1, 2] = ax.y; m[1, 3] = hub.y;
+        m[2, 0] = x.z; m[2, 1] = y.z; m[2, 2] = ax.z; m[2, 3] = hub.z;
+    }
 }
 
 // Passe de sombra: o programa de profundidade já está ligado. A posição está no
 // atributo 0 nos dois VBOs (pneu e faces), então os dois projetam sombra.
-void drawWheelsDepth(const Object& o) {
+void drawWheelsDepth(const RzContext* ctx, const Object& o) {
     if (o.wheelStaging.empty() || !o.positioned) return;
-    glBindVertexArray(o.wheelVao);
-    glDrawArrays(GL_TRIANGLES, 0, GLsizei(o.wheelFlatVerts));
-    if (o.wheelCapVerts > 0) {
-        glBindVertexArray(o.wheelCapVao);
-        glDrawArrays(GL_TRIANGLES, 0, GLsizei(o.wheelCapVerts));
+    const GLint model = ctx->depthProgram.model;
+    for (int32_t i = 0; i < 4; ++i) {
+        glUniformMatrix4fv(model, 1, GL_TRUE, o.wheelModel[i].e);
+        glBindVertexArray(o.wheelVao);
+        glDrawArrays(GL_TRIANGLES, o.wheelFlatFirst[i], o.wheelFlatCount[i]);
+        if (o.wheelCapCount[i] > 0) {
+            glBindVertexArray(o.wheelCapVao);
+            glDrawArrays(GL_TRIANGLES, o.wheelCapFirst[i], o.wheelCapCount[i]);
+        }
     }
+    glUniformMatrix4fv(model, 1, GL_TRUE, Mat4::identity().e);
 }
 
 // Passe principal, depois dos objetos: o pneu (lateral), programa do terreno
 // sem textura. As faces vão em drawWheelFaces. Sem culling (o depth resolve).
 void drawWheels(RzContext* ctx, const Mat4& viewProj) {
     bool bound = false;
+    const TerrainProgram& t = ctx->terrainProgram;
     for (const Object& o : ctx->objects) {
         if (!o.alive || !o.positioned || o.wheelStaging.empty() || !objectInRange(ctx, o)) continue;
         if (!bound) {
-            const TerrainProgram& t = ctx->terrainProgram;
             glUseProgram(t.program);
             glUniformMatrix4fv(t.viewProj, 1, GL_TRUE, viewProj.e);
             bindShadowMaps(ctx, t.shadow);
@@ -313,18 +352,24 @@ void drawWheels(RzContext* ctx, const Mat4& viewProj) {
             bound = true;
         }
         glBindVertexArray(o.wheelVao);
-        glDrawArrays(GL_TRIANGLES, 0, GLsizei(o.wheelFlatVerts));
+        for (int32_t i = 0; i < 4; ++i) {
+            glUniformMatrix4fv(t.model, 1, GL_TRUE, o.wheelModel[i].e);
+            glDrawArrays(GL_TRIANGLES, o.wheelFlatFirst[i], o.wheelFlatCount[i]);
+        }
     }
-    if (bound) glUniform1i(ctx->terrainProgram.smooth, 0);   // restaura o flat p/ o terreno
+    if (bound) {                                 // restaura o terreno: flat, sem modelo
+        glUniform1i(t.smooth, 0);
+        glUniformMatrix4fv(t.model, 1, GL_TRUE, Mat4::identity().e);
+    }
 }
 
 // As faces (discos) das rodas: programa dos objetos, com a textura do objeto,
 // depois de drawWheels. Sem culling, como o pneu.
 void drawWheelFaces(RzContext* ctx, const Mat4& viewProj) {
     bool bound = false;
+    const ObjectProgram& prog = ctx->objectProgram;
     for (const Object& o : ctx->objects) {
         if (!o.alive || !o.positioned || o.wheelCapVerts <= 0 || !objectInRange(ctx, o)) continue;
-        const ObjectProgram& prog = ctx->objectProgram;
         if (!bound) {
             glUseProgram(prog.program);
             glUniformMatrix4fv(prog.viewProj, 1, GL_TRUE, viewProj.e);
@@ -335,8 +380,12 @@ void drawWheelFaces(RzContext* ctx, const Mat4& viewProj) {
         }
         glBindTexture(GL_TEXTURE_2D, o.texture ? o.texture : ctx->fallbackTex);
         glBindVertexArray(o.wheelCapVao);
-        glDrawArrays(GL_TRIANGLES, 0, GLsizei(o.wheelCapVerts));
+        for (int32_t i = 0; i < 4; ++i) {
+            glUniformMatrix4fv(prog.model, 1, GL_TRUE, o.wheelModel[i].e);
+            glDrawArrays(GL_TRIANGLES, o.wheelCapFirst[i], o.wheelCapCount[i]);
+        }
     }
+    if (bound) glUniformMatrix4fv(prog.model, 1, GL_TRUE, Mat4::identity().e);
 }
 
 } // namespace rz
@@ -420,10 +469,7 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateObjectWheels(RzContext* ctx, int32_t id,
     if (!validId(ctx, id) || !std::isfinite(steer)) return recordError(ctx, "rzUpdateObjectWheels", RZ_ERR_INVALID_ARG);
     Object& o = ctx->objects[id];
     if (o.wheelStaging.empty()) return recordError(ctx, "rzUpdateObjectWheels", RZ_ERR_INVALID_ARG);   // sem rzSetObjectWheels
-    if (steer != o.wheelSteer) {
-        o.wheelSteer = steer;
-        o.wheelsDirty = true;
-    }
+    o.wheelSteer = steer;                // só muda a matriz (prepareWheels)
     return RZ_OK;
 }
 

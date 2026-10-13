@@ -258,7 +258,7 @@ struct GlassVertex {
 static_assert(sizeof(GlassVertex) == 28);
 
 // Rodas (rz_wheels.cpp): pneus, geometria de revolução com ombros arredondados
-constexpr int32_t  kWheelSegments      = 12;        // lados do anel (low poly, como o legado)
+constexpr int32_t  kWheelSegments      = 24;        // lados do anel
 constexpr int32_t  kWheelShoulderSteps = 3;         // passos que arredondam cada ombro do pneu
 constexpr float    kWheelWidth    = 0.4f;           // largura = 0,4 x diâmetro (12:30)
 constexpr uint32_t kWheelColor    = 0x001C1C1Cu;    // quase preto (para a luz ainda aparecer)
@@ -314,7 +314,13 @@ struct Object {
     std::vector<TerrainVertex> wheelStaging;    // parte plana: pneu (+ faces sem textura)
     GLuint    wheelVao = 0, wheelVbo = 0;
     int32_t   wheelFlatVerts = 0;       // vértices em uso no VBO plano
-    bool      wheelsDirty = false;
+    bool      wheelsDirty = false;      // malha local a refazer (rodas/faces novas)
+    // Malha de cada roda no referencial dela (x frente, y cima, z eixo, centro
+    // no cubo), feita só na carga; a cada frame só muda wheelModel[i]
+    // (posição, esterçamento e giro), aplicada no vertex shader (uModel)
+    int32_t   wheelFlatFirst[4] = {}, wheelFlatCount[4] = {};
+    int32_t   wheelCapFirst[4] = {},  wheelCapCount[4] = {};
+    Mat4      wheelModel[4] = {};
     // Faces texturizadas (rzSetObjectWheelFaces): os discos, com a textura do
     // objeto; VBO próprio no formato dos objetos (GpuVertex).
     bool      wheelFacesSet = false;
@@ -349,6 +355,7 @@ struct TerrainProgram {
     GLuint program = 0;
     GLint  viewProj = -1, atlas = -1, textured = -1, shading = -1, ambient = -1;
     GLint  smooth = -1;    // luz por pixel (normal interpolada) em vez de flat: rodas
+    GLint  model = -1;     // uModel: identidade, exceto nas rodas
     ShadowUniforms shadow;
     FogUniforms    fog;
 };
@@ -356,6 +363,7 @@ struct TerrainProgram {
 struct ObjectProgram {
     GLuint program = 0;
     GLint  viewProj = -1, texture = -1, ambient = -1;
+    GLint  model = -1;     // uModel: identidade, exceto nas rodas
     ShadowUniforms shadow;
     FogUniforms    fog;
 };
@@ -398,6 +406,7 @@ struct SpriteVertex {      // 28 bytes; seis por sprite
 struct DepthProgram {
     GLuint program = 0;
     GLint  lightViewProj = -1;
+    GLint  model = -1;     // uModel: identidade, exceto nas rodas
 };
 
 // Imagem paletizada lida de um PCX (rz_pcx.cpp)
@@ -627,7 +636,7 @@ void  drawWall(const RzContext* ctx, const Mat4& viewProj);
 // rz_wheels.cpp
 void freeWheels(Object& o);
 void prepareWheels(RzContext* ctx, Object& o);
-void drawWheelsDepth(const Object& o);
+void drawWheelsDepth(const RzContext* ctx, const Object& o);
 void drawWheels(RzContext* ctx, const Mat4& viewProj);
 void drawWheelFaces(RzContext* ctx, const Mat4& viewProj);   // discos, com a textura do objeto
 
