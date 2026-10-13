@@ -68,6 +68,10 @@ constexpr GLenum GL_RED                     = 0x1903;
 constexpr GLenum GL_RGBA                    = 0x1908;
 constexpr GLenum GL_BGRA                    = 0x80E1;
 constexpr GLenum GL_RED_INTEGER             = 0x8D94;
+constexpr GLenum GL_INT                     = 0x1404;
+constexpr GLenum GL_TEXTURE_BUFFER          = 0x8C2A;
+constexpr GLenum GL_R16UI                   = 0x8234;
+constexpr GLenum GL_RGBA32F                 = 0x8814;
 constexpr GLenum GL_R8                      = 0x8229;
 constexpr GLenum GL_R8UI                    = 0x8232;
 constexpr GLenum GL_RGBA8                   = 0x8058;
@@ -182,7 +186,10 @@ constexpr GLenum GL_FRAMEBUFFER_COMPLETE    = 0x8CD5;
     X(void, glBufferSubData, (GLenum target, GLintptr offset, GLsizeiptr size, const void* data))  \
     X(void, glVertexAttribPointer, (GLuint index, GLint size, GLenum type, GLboolean normalized,   \
                                     GLsizei stride, const void* offset))                           \
+    X(void, glVertexAttribIPointer, (GLuint index, GLint size, GLenum type, GLsizei stride,        \
+                                     const void* offset))                                          \
     X(void, glEnableVertexAttribArray, (GLuint index))                                             \
+    X(void, glTexBuffer, (GLenum target, GLenum internalFormat, GLuint buffer))                    \
     X(void, glDrawArrays, (GLenum mode, GLint first, GLsizei count))
 
 #define RZ_GL_DECLARE(ret, name, args)       \

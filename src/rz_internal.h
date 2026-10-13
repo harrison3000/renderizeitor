@@ -160,6 +160,8 @@ constexpr float   kCascadeFarRecenter   = 10.0f;  // tiles andados até refazer 
 constexpr float   kCascadeFarMargin     = 4.0f;   // tiles além da neblina + recentragem
 constexpr int32_t kShadowScissorMargin  = 4;     // texels em volta da área refeita da cascata 2
 constexpr int32_t kUnitShadowFirst      = 1;      // unidades de textura 1..3 (0: atlas/objeto)
+constexpr int32_t kUnitObjectPositions  = 4;      // objetos: texture buffer das posições
+constexpr int32_t kUnitObjectIndices    = 5;      // objetos: texture buffer dos índices dos polígonos
 constexpr float   kShadowTexturedDim  = 0.48f;  // chão texturizado na sombra (era 0,6; 20 % mais escuro)
 constexpr float   kShadowLight        = kAmbient * 0.8f;   // luz na sombra (cores flat e objetos):
                                                          // 20 % abaixo do ambiente
@@ -231,6 +233,19 @@ struct GpuVertex {
 };
 static_assert(sizeof(GpuVertex) == 24);
 
+// Canto de triângulo dos objetos (VBO estático): nos polígonos, só o vértice
+// do objeto, o polígono (início e tamanho em `indices`) e o UV; posição e
+// normal saem dos texture buffers no vertex shader. Nas linhas (vertex = -1),
+// posição e normal diretas, refeitas a cada update.
+struct ObjectVertex {
+    float    x, y, z;          // só linhas
+    uint32_t normal;           // só linhas (packNormal)
+    float    u, v;
+    int32_t  vertex;           // índice do vértice do objeto, ou -1 (linha)
+    int32_t  polygonStart, polygonLength;
+};
+static_assert(sizeof(ObjectVertex) == 36);
+
 // Faixa de amostras da paleta no pé de toda textura de objeto: 256 blocos de
 // kSwatchBlock x kSwatchBlock, um por cor, da esquerda para a direita e de cima
 // para baixo, nas últimas kSwatchRows linhas (side/4 blocos por linha de blocos;
@@ -278,7 +293,8 @@ constexpr float kGlassShininess = 12.0f;
 struct Object {
     bool      alive   = false;
     bool      positioned = false;   // já recebeu rzUpdateObjectVertices
-    bool      gpuDirty   = false;   // staging/VBO desatualizado: reenviar no próximo frame
+    bool      gpuDirty   = false;   // cantos/VBO desatualizados (polígonos, linhas): reenviar no próximo frame
+    bool      positionsDirty = false;   // posições novas (rzUpdateObjectVertices): reenviar o texture buffer
     int32_t   uploadedSide = 0;     // lado da textura usado no último envio (UV das cores)
     Vec3      center = { 0.0f, 0.0f, 0.0f };   // esfera envolvente (refeita em cada update)
     float     radius = 0.0f;
@@ -289,10 +305,12 @@ struct Object {
     std::vector<uint16_t> indices;        // cópia dos índices dos polígonos (sem os fechamentos)
     std::vector<float>    uvs;            // (u, v) de cada entrada de `indices`; 0 nos de cor sólida
     std::vector<int16_t>  polygonPalette; // índice de cor (rzAddObjectPolygon) ou -1 (UVs próprios)
-    std::vector<uint32_t> polygonNormals; // normal de fora por polígono (Newell, packNormal)
     std::vector<ObjectTriangle> triangles; // leque de cada polígono, montado na carga
     std::vector<ObjectLine> lines;        // rzAddObjectLine: prisma fino gerado no envio
-    std::vector<GpuVertex> staging;       // triangles.size() * 3 + lines.size() * kLineVertices
+    std::vector<ObjectVertex> staging;    // triangles.size() * 3 + lines.size() * kLineVertices
+    std::vector<float>    positionStaging;   // world em vec4, para o texture buffer
+    GLuint    positionBuffer = 0, positionTexture = 0;   // RGBA32F, um texel por vértice
+    GLuint    indexBuffer = 0, indexTexture = 0;         // R16UI, `indices`
 
     GLuint    vao = 0;
     GLuint    vbo = 0;
@@ -364,6 +382,7 @@ struct ObjectProgram {
     GLuint program = 0;
     GLint  viewProj = -1, texture = -1, ambient = -1;
     GLint  model = -1;     // uModel: identidade, exceto nas rodas
+    GLint  fromBuffer = -1; // 1: objetos (posições/normais do texture buffer); 0: faces das rodas
     ShadowUniforms shadow;
     FogUniforms    fog;
 };
@@ -406,6 +425,7 @@ struct SpriteVertex {      // 28 bytes; seis por sprite
 struct DepthProgram {
     GLuint program = 0;
     GLint  lightViewProj = -1;
+    GLint  positions = -1;     // só no dos objetos (texture buffer)
     GLint  model = -1;     // uModel: identidade, exceto nas rodas
 };
 
@@ -446,6 +466,7 @@ struct RzContext {
     rz::TerrainProgram terrainProgram;
     rz::ObjectProgram  objectProgram;
     rz::DepthProgram   depthProgram;
+    rz::DepthProgram   objectDepthProgram;   // sombra dos objetos (posição do texture buffer)
     rz::WallProgram    wallProgram;
     rz::GlassProgram   glassProgram;
     rz::SpriteProgram  spriteProgram;
@@ -692,7 +713,7 @@ void   swatchUV(int32_t paletteIndex, int32_t side, float* u, float* v);   // ce
 bool objectInRange(const RzContext* ctx, const Object& o);   // não está todo além da neblina
 void prepareObjects(RzContext* ctx);          // reenvia os VBOs alterados
 // passe da sombra (programa já ligado): onlyId >= 0 desenha só ele; skipId >= 0 pula ele
-void drawObjectsDepth(RzContext* ctx, int32_t onlyId, int32_t skipId);
+void drawObjectsDepth(RzContext* ctx, const Mat4& lightViewProj, int32_t onlyId, int32_t skipId);
 void drawObjects(RzContext* ctx, const Mat4& viewProj);
 void destroyAllObjects(RzContext* ctx);
 

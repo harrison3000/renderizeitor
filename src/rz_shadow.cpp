@@ -259,7 +259,7 @@ void renderShadowMaps(RzContext* ctx) {
             glDrawArrays(GL_TRIANGLES, 0, kTriangleCount * 3);
             drawSkirtDepth(ctx);
         }
-        drawObjectsDepth(ctx, -1, -1);
+        drawObjectsDepth(ctx, ctx->shadowMatrix[2], -1, -1);
         ctx->cascadeFarValid = true;
         ctx->cascadeFarOverview = true;
         ctx->terrainShadowDirty = false;
@@ -281,7 +281,7 @@ void renderShadowMaps(RzContext* ctx) {
         ctx->shadowMatrix[i] = boxProjection(ctx, box) * view;
         beginPass(ctx, i, ctx->shadowMatrix[i]);
         drawTerrainDepth(ctx, view, box);
-        drawObjectsDepth(ctx, -1, -1);
+        drawObjectsDepth(ctx, ctx->shadowMatrix[i], -1, -1);
     }
 
     // Cascata 2: só terreno, quadrado em volta do olho, refeito só quando precisa

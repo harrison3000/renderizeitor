@@ -81,4 +81,9 @@ inline constexpr unsigned char kDepthFragmentShader[] = {
 #embed "shaders/depth.frag"
 , 0 };
 
+// Passe da sombra dos objetos: posição do texture buffer (fragment: o de cima)
+inline constexpr unsigned char kObjectDepthVertexShader[] = {
+#embed "shaders/object_depth.vert"
+, 0 };
+
 } // namespace rz

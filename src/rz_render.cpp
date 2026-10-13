@@ -122,8 +122,12 @@ bool createRenderer(RzContext* ctx) {
     o.texture  = glGetUniformLocation(o.program, "uTexture");
     o.ambient   = glGetUniformLocation(o.program, "uShadowLight");
     o.model    = glGetUniformLocation(o.program, "uModel");
+    o.fromBuffer = glGetUniformLocation(o.program, "uFromBuffer");
     glUseProgram(o.program);
     glUniformMatrix4fv(o.model, 1, GL_TRUE, Mat4::identity().e);
+    glUniform1i(o.fromBuffer, 0);
+    glUniform1i(glGetUniformLocation(o.program, "uPositions"), kUnitObjectPositions);
+    glUniform1i(glGetUniformLocation(o.program, "uIndices"), kUnitObjectIndices);
     glUniform1i(o.texture, kUnitAtlas);
     glUniform1f(o.ambient, kShadowLight);
     initShadowUniforms(o.program, o.shadow);
@@ -138,6 +142,14 @@ bool createRenderer(RzContext* ctx) {
     d.model         = glGetUniformLocation(d.program, "uModel");
     glUseProgram(d.program);
     glUniformMatrix4fv(d.model, 1, GL_TRUE, Mat4::identity().e);
+
+    DepthProgram& od = ctx->objectDepthProgram;
+    od.program = linkProgram(kObjectDepthVertexShader, kDepthFragmentShader);
+    if (!od.program) return false;
+    od.lightViewProj = glGetUniformLocation(od.program, "uLightViewProj");
+    od.positions     = glGetUniformLocation(od.program, "uPositions");
+    glUseProgram(od.program);
+    glUniform1i(od.positions, kUnitObjectPositions);
     if (!createShadowMaps(ctx)) return false;
     if (!createBorder(ctx)) return false;
     if (!createGlassProgram(ctx)) return false;
@@ -185,6 +197,7 @@ void destroyRenderer(RzContext* ctx) {
     if (ctx->atlasTex) glDeleteTextures(1, &ctx->atlasTex);
     if (ctx->fallbackTex) glDeleteTextures(1, &ctx->fallbackTex);
     if (ctx->depthProgram.program) glDeleteProgram(ctx->depthProgram.program);
+    if (ctx->objectDepthProgram.program) glDeleteProgram(ctx->objectDepthProgram.program);
     destroyShadowMaps(ctx);
     destroyBorder(ctx);
     if (ctx->glassProgram.program) glDeleteProgram(ctx->glassProgram.program);

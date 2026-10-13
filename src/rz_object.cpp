@@ -10,10 +10,15 @@
 // paleta, no pé da textura (kSwatch*, rz_texture.cpp): UV constante, derivada
 // zero, sempre o nível 0 do mipmap. Como a posição do bloco depende do lado
 // da textura, esses UVs são calculados no envio ao VBO.
+// Os cantos dos triângulos (VBO) são estáticos: vértice do objeto, polígono e
+// UV. As posições ficam num texture buffer (RGBA32F) e os índices dos
+// polígonos em outro (R16UI); o vertex shader busca a posição do canto e
+// calcula a normal de Newell do polígono inteiro (luz flat por polígono, mesmo
+// não plano). As linhas (rzAddObjectLine) têm posição e normal diretas.
 // Update (rzUpdateObjectVertices): passa as posições (tiles) para o mundo e
-// recalcula a cor sombreada de cada polígono.
-// Frame (drawObjects): reenvia o VBO dos objetos alterados (sem alocar) e faz
-// um glDrawArrays por objeto visível.
+// refaz a esfera envolvente; no frame, só o texture buffer das posições (e as
+// linhas) é reenviado.
+// Frame (drawObjects): um glDrawArrays por objeto visível.
 
 #include <cmath>
 
@@ -34,6 +39,10 @@ void freeObject(Object& o) {
     if (o.texture) glDeleteTextures(1, &o.texture);
     if (o.vbo) glDeleteBuffers(1, &o.vbo);
     if (o.vao) glDeleteVertexArrays(1, &o.vao);
+    if (o.positionTexture) glDeleteTextures(1, &o.positionTexture);
+    if (o.positionBuffer) glDeleteBuffers(1, &o.positionBuffer);
+    if (o.indexTexture) glDeleteTextures(1, &o.indexTexture);
+    if (o.indexBuffer) glDeleteBuffers(1, &o.indexBuffer);
     freeGlass(o);
     freeWheels(o);
     o = Object{};
@@ -66,33 +75,12 @@ void loadPositions(const RzContext* ctx, Object& o, const RzVertex* vertices) {
     o.radius = sqrtf(r2);
 }
 
-// Normal de fora do polígono (uma só para o polígono inteiro, mesmo não
-// plano), para a luz flat no shader. No sentido do legado (horário visto de
-// fora), a normal de Newell aponta para dentro; a de fora é a oposta.
-uint32_t polygonNormal(const Object& o, size_t p) {
-    const uint16_t* idx = o.indices.data() + o.polygonStart[p];
-    const int32_t n = o.polygonLength[p];
-    Vec3 normal = { 0.0f, 0.0f, 0.0f };
-    for (int32_t i = 0; i < n; ++i) {
-        const Vec3 cur  = o.world[idx[i]];
-        const Vec3 next = o.world[idx[i + 1 == n ? 0 : i + 1]];
-        normal.x += (cur.y - next.y) * (cur.z + next.z);
-        normal.y += (cur.z - next.z) * (cur.x + next.x);
-        normal.z += (cur.x - next.x) * (cur.y + next.y);
-    }
-    return packNormal(Vec3{ -normal.x, -normal.y, -normal.z });
-}
-
-void computePolygonNormals(Object& o) {
-    for (size_t p = 0; p < o.polygonStart.size(); ++p) o.polygonNormals[p] = polygonNormal(o, p);
-}
-
 // Linhas (rzAddObjectLine): prisma de seção quadrada (lado = grossura) em
 // volta do segmento a-b, 4 lados + 2 tampas, cor sólida da paleta (UV do
 // bloquinho) com a luz flat de cada face. A seção é orientada pelo "cima" do
 // mundo (não gira junto com o objeto em volta da linha; é fina, não aparece).
 // Faces no sentido do legado (horário visto de fora), para o culling.
-void emitLines(const Object& o, int32_t side, GpuVertex*& v) {
+void emitLines(const Object& o, int32_t side, ObjectVertex*& v) {
     for (const ObjectLine& l : o.lines) {
         const Vec3 pa = o.world[l.a], pb = o.world[l.b];
         float su, sv;
@@ -100,7 +88,7 @@ void emitLines(const Object& o, int32_t side, GpuVertex*& v) {
         Vec3 d = pb - pa;
         const float len2 = dot(d, d);
         if (!(len2 > 0.0f)) {                                  // ponta com ponta: nada visível
-            for (int32_t k = 0; k < kLineVertices; ++k) *v++ = { pa.x, pa.y, pa.z, 0, su, sv };
+            for (int32_t k = 0; k < kLineVertices; ++k) *v++ = { pa.x, pa.y, pa.z, 0, su, sv, -1, 0, 0 };
             continue;
         }
         const float invLen = 1.0f / sqrtf(len2);
@@ -121,7 +109,7 @@ void emitLines(const Object& o, int32_t side, GpuVertex*& v) {
             if (dot(cross(p1 - p0, p2 - p0), n) > 0.0f) { const Vec3 t = p1; p1 = p3; p3 = t; }
             const uint32_t normal = packNormal(n);
             const Vec3 q[6] = { p0, p1, p2, p0, p2, p3 };
-            for (const Vec3& p : q) *v++ = { p.x, p.y, p.z, normal, su, sv };
+            for (const Vec3& p : q) *v++ = { p.x, p.y, p.z, normal, su, sv, -1, 0, 0 };
         };
         for (int32_t k = 0; k < 4; ++k) {
             const int32_t k1 = (k + 1) & 3;
@@ -132,37 +120,85 @@ void emitLines(const Object& o, int32_t side, GpuVertex*& v) {
     }
 }
 
-// Tamanho do staging/VBO: polígonos + linhas (fase de carga: realoca o VBO;
-// o conteúdo vai no próximo frame)
+// Tamanho do staging/VBO: polígonos + linhas (fase de carga: realoca o VBO
+// e reenvia os índices dos polígonos; os cantos vão no próximo frame)
 void resizeObjectBuffers(Object& o) {
     o.staging.resize(o.triangles.size() * 3 + o.lines.size() * size_t(kLineVertices));
     glBindBuffer(GL_ARRAY_BUFFER, o.vbo);
-    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(o.staging.size() * sizeof(GpuVertex)),
-                 nullptr, GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(o.staging.size() * sizeof(ObjectVertex)),
+                 nullptr, GL_STATIC_DRAW);
+    glBindBuffer(GL_TEXTURE_BUFFER, o.indexBuffer);
+    glBufferData(GL_TEXTURE_BUFFER, GLsizeiptr(o.indices.size() * sizeof(uint16_t)),
+                 o.indices.data(), GL_STATIC_DRAW);
     o.gpuDirty = true;
 }
 
-// Monta os vértices dos triângulos (e das linhas) e reenvia o vertex buffer
+// Monta os cantos dos triângulos (e das linhas) e reenvia o vertex buffer
 // inteiro (que já tem o tamanho certo: é realocado em resizeObjectBuffers).
 // side: lado da textura em uso, para o UV das cores sólidas.
 void uploadObject(Object& o, int32_t side) {
-    GpuVertex* v = o.staging.data();
+    ObjectVertex* v = o.staging.data();
     for (const ObjectTriangle& tri : o.triangles) {
-        const uint32_t normal = o.polygonNormals[tri.polygon];
-        const int32_t  pal   = o.polygonPalette[tri.polygon];
+        const int32_t pal   = o.polygonPalette[tri.polygon];
+        const int32_t first = o.polygonStart[tri.polygon], count = o.polygonLength[tri.polygon];
         float su = 0.0f, sv = 0.0f;
         if (pal >= 0) swatchUV(pal, side, &su, &sv);
         const int32_t corners[3] = { tri.a, tri.b, tri.c };
         for (int32_t corner : corners) {
-            const Vec3 p = o.world[o.indices[corner]];
-            if (pal >= 0) *v++ = { p.x, p.y, p.z, normal, su, sv };
-            else          *v++ = { p.x, p.y, p.z, normal, o.uvs[corner * 2], o.uvs[corner * 2 + 1] };
+            const int32_t vertex = o.indices[corner];
+            if (pal >= 0) *v++ = { 0.0f, 0.0f, 0.0f, 0, su, sv, vertex, first, count };
+            else          *v++ = { 0.0f, 0.0f, 0.0f, 0, o.uvs[corner * 2], o.uvs[corner * 2 + 1], vertex, first, count };
         }
     }
     emitLines(o, side, v);
     glBindBuffer(GL_ARRAY_BUFFER, o.vbo);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(o.staging.size() * sizeof(GpuVertex)),
+    glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(o.staging.size() * sizeof(ObjectVertex)),
                     o.staging.data());
+}
+
+// Linhas: dependem das posições, então são refeitas e reenviadas (só a parte
+// delas, no fim do VBO) a cada update
+void uploadLines(Object& o, int32_t side) {
+    if (o.lines.empty()) return;
+    const size_t first = o.triangles.size() * 3;
+    ObjectVertex* v = o.staging.data() + first;
+    emitLines(o, side, v);
+    glBindBuffer(GL_ARRAY_BUFFER, o.vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, GLintptr(first * sizeof(ObjectVertex)),
+                    GLsizeiptr((o.staging.size() - first) * sizeof(ObjectVertex)), o.staging.data() + first);
+}
+
+// Posições no mundo -> texture buffer (vec4 por vértice)
+void uploadPositions(Object& o) {
+    float* p = o.positionStaging.data();
+    for (const Vec3& w : o.world) { *p++ = w.x; *p++ = w.y; *p++ = w.z; *p++ = 1.0f; }
+    glBindBuffer(GL_TEXTURE_BUFFER, o.positionBuffer);
+    glBufferSubData(GL_TEXTURE_BUFFER, 0, GLsizeiptr(o.positionStaging.size() * sizeof(float)),
+                    o.positionStaging.data());
+}
+
+// Layout de ObjectVertex: posição/normal/UV nos atributos 0..2 (como
+// GpuVertex) e (vértice, início, tamanho do polígono) inteiros no 3.
+void setObjectBufferLayout() {
+    const GLsizei stride = sizeof(ObjectVertex);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(0));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 4, GL_INT_2_10_10_10_REV, GL_TRUE, stride,
+                          reinterpret_cast<void*>(offsetof(ObjectVertex, normal)));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(offsetof(ObjectVertex, u)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribIPointer(3, 3, GL_INT, stride, reinterpret_cast<void*>(offsetof(ObjectVertex, vertex)));
+    glEnableVertexAttribArray(3);
+}
+
+// Liga os dois texture buffers do objeto nas unidades deles e volta à 0
+void bindObjectBuffers(const Object& o) {
+    glActiveTexture(GL_TEXTURE0 + GLenum(kUnitObjectPositions));
+    glBindTexture(GL_TEXTURE_BUFFER, o.positionTexture);
+    glActiveTexture(GL_TEXTURE0 + GLenum(kUnitObjectIndices));
+    glBindTexture(GL_TEXTURE_BUFFER, o.indexTexture);
+    glActiveTexture(GL_TEXTURE0);
 }
 
 // Corpo comum de rzAddObjectPolygon (indices, cor = paletteIndex) e
@@ -201,7 +237,6 @@ int32_t addPolygon(RzContext* ctx, int32_t id, const uint16_t* indices, const Rz
     for (int32_t i = 1; i + 1 < n; ++i) {
         o.triangles.push_back({ first, first + i, first + i + 1, polygon });
     }
-    o.polygonNormals.push_back(polygonNormal(o, polygon));
     resizeObjectBuffers(o);
     return glGetError() == GL_NO_ERROR ? RZ_OK : RZ_ERR_GL;
 }
@@ -210,7 +245,7 @@ int32_t addPolygon(RzContext* ctx, int32_t id, const uint16_t* indices, const Rz
 
 namespace rz {
 
-// Layout de GpuVertex (objetos e faces das rodas): posição (vec3), normal
+// Layout de GpuVertex (faces das rodas): posição (vec3), normal
 // (4 bytes 2-10-10-10) e UV (vec2). O VAO e o VBO já precisam estar ligados.
 void setObjectVertexLayout() {
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(GpuVertex), reinterpret_cast<void*>(0));
@@ -243,10 +278,16 @@ void prepareObjects(RzContext* ctx) {
         if (o.alive && objectInRange(ctx, o)) prepareWheels(ctx, o);
         if (!drawable(o) || !objectInRange(ctx, o)) continue;
         const int32_t side = o.texture ? o.textureSize : ctx->fallbackSize;
-        if (o.gpuDirty || o.uploadedSide != side) {   // textura trocada: UVs das cores mudam
+        const bool rebuild = o.gpuDirty || o.uploadedSide != side;   // textura trocada: UVs das cores mudam
+        if (rebuild) {
             uploadObject(o, side);
             o.gpuDirty = false;
             o.uploadedSide = side;
+        }
+        if (o.positionsDirty) {
+            uploadPositions(o);
+            if (!rebuild) uploadLines(o, side);
+            o.positionsDirty = false;
         }
     }
 }
@@ -255,14 +296,25 @@ void prepareObjects(RzContext* ctx) {
 // onlyId >= 0: só esse objeto; skipId >= 0: todos menos ele.
 // Os além da neblina ficam de fora; os que só saem da caixa do mapa são
 // cortados pelo clipping.
-void drawObjectsDepth(RzContext* ctx, int32_t onlyId, int32_t skipId) {
+void drawObjectsDepth(RzContext* ctx, const Mat4& lightViewProj, int32_t onlyId, int32_t skipId) {
+    auto selected = [&](int32_t id, const Object& o) {
+        return drawable(o) && !(onlyId >= 0 && id != onlyId) && id != skipId && objectInRange(ctx, o);
+    };
+    // Objetos: programa próprio (posição do texture buffer)
+    glUseProgram(ctx->objectDepthProgram.program);
+    glUniformMatrix4fv(ctx->objectDepthProgram.lightViewProj, 1, GL_TRUE, lightViewProj.e);
     for (int32_t id = 0; id < int32_t(ctx->objects.size()); ++id) {
         const Object& o = ctx->objects[id];
-        if (!drawable(o) || (onlyId >= 0 && id != onlyId) || id == skipId) continue;
-        if (!objectInRange(ctx, o)) continue;
+        if (!selected(id, o)) continue;
+        bindObjectBuffers(o);
         glBindVertexArray(o.vao);
         glDrawArrays(GL_TRIANGLES, 0, o.drawVertexCount());
-        drawWheelsDepth(ctx, o);
+    }
+    // Rodas: o programa de profundidade comum (fica ligado para quem chamou)
+    glUseProgram(ctx->depthProgram.program);
+    for (int32_t id = 0; id < int32_t(ctx->objects.size()); ++id) {
+        const Object& o = ctx->objects[id];
+        if (selected(id, o)) drawWheelsDepth(ctx, o);
     }
 }
 
@@ -281,14 +333,17 @@ void drawObjects(RzContext* ctx, const Mat4& viewProj) {
             glUniformMatrix4fv(prog.viewProj, 1, GL_TRUE, viewProj.e);
             bindShadowMaps(ctx, prog.shadow);           // deixa a unidade 0 ativa
             bindFog(ctx, prog.fog);
+            glUniform1i(prog.fromBuffer, 1);
             programBound = true;
         }
+        bindObjectBuffers(o);
         // Textura própria ou fallback
         const GLuint  texture = o.texture ? o.texture : ctx->fallbackTex;
         glBindTexture(GL_TEXTURE_2D, texture);
         glBindVertexArray(o.vao);
         glDrawArrays(GL_TRIANGLES, 0, o.drawVertexCount());
     }
+    if (programBound) glUniform1i(ctx->objectProgram.fromBuffer, 0);   // faces das rodas: posição direta
 }
 
 void destroyAllObjects(RzContext* ctx) {
@@ -316,15 +371,31 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzCreateObject(RzContext* ctx, int32_t vertexCou
 
     Object& o = ctx->objects[id];
     o.world.assign(size_t(vertexCount), Vec3{ 0.0f, 0.0f, 0.0f });
+    o.positionStaging.assign(size_t(vertexCount) * 4, 0.0f);
 
-    // Vertex buffer (vazio até o primeiro polígono): posição (vec3), cor (4 bytes
-    // normalizados) e UV (vec2)
+    // Vertex buffer (vazio até o primeiro polígono): cantos (ObjectVertex)
     glGenVertexArrays(1, &o.vao);
     glGenBuffers(1, &o.vbo);
     glBindVertexArray(o.vao);
     glBindBuffer(GL_ARRAY_BUFFER, o.vbo);
-    setObjectVertexLayout();
+    setObjectBufferLayout();
     glBindVertexArray(0);
+
+    // Texture buffers: posições (tamanho fixo) e índices dos polígonos (cresce)
+    glGenBuffers(1, &o.positionBuffer);
+    glBindBuffer(GL_TEXTURE_BUFFER, o.positionBuffer);
+    glBufferData(GL_TEXTURE_BUFFER, GLsizeiptr(o.positionStaging.size() * sizeof(float)),
+                 o.positionStaging.data(), GL_DYNAMIC_DRAW);
+    glGenTextures(1, &o.positionTexture);
+    glBindTexture(GL_TEXTURE_BUFFER, o.positionTexture);
+    glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32F, o.positionBuffer);
+    glGenBuffers(1, &o.indexBuffer);
+    glBindBuffer(GL_TEXTURE_BUFFER, o.indexBuffer);
+    glBufferData(GL_TEXTURE_BUFFER, 2, nullptr, GL_STATIC_DRAW);
+    glGenTextures(1, &o.indexTexture);
+    glBindTexture(GL_TEXTURE_BUFFER, o.indexTexture);
+    glTexBuffer(GL_TEXTURE_BUFFER, GL_R16UI, o.indexBuffer);
+    glBindTexture(GL_TEXTURE_BUFFER, 0);
 
     o.alive      = true;
     o.positioned = false;
@@ -375,11 +446,9 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzUpdateObjectVertices(RzContext* ctx, int32_t i
         }
     }
     loadPositions(ctx, o, vertices);
-    computePolygonNormals(o);
     o.positioned = true;
-    o.gpuDirty   = true;
+    o.positionsDirty = true;
     o.glassDirty = !o.glassStaging.empty();
-    o.wheelsDirty = !o.wheelStaging.empty();
     return RZ_OK;
 }
 
