@@ -12,6 +12,8 @@
  *   T                       liga / desliga as texturas
  *   C                       câmera segue o veículo / visão geral do terreno
  *   R                       volta a câmera aos valores iniciais
+ *   F                       liga / desliga o limite de 60 fps (sem limite: renderiza o
+ *                           mais rápido possível; a simulação continua a 60 Hz)
  *   Esc                     sai
  *
  * Uso: rz_viewer [heightmap.raw] [atlas.pcx]   (em qualquer ordem)
@@ -75,6 +77,7 @@ static float    g_carX, g_carZ, g_carHeading, g_carSpeed, g_carSteer;
 /* Entrada: teclas seguradas (lidas por scancode) e foco da janela. */
 static const Uint8* g_keys;              /* SDL_GetKeyboardState: 1 = segurada */
 static int g_hasFocus = 1;
+static int g_uncapped = 0;               /* F: sem limite de fps (para medir o render) */
 
 static int keyDown(SDL_Scancode sc) {
     return g_keys && g_keys[sc];
@@ -158,13 +161,13 @@ static void updateTitle(SDL_Window* win, int32_t renderUs, int32_t fps) {
     char title[256];
     if (g_follow) {
         snprintf(title, sizeof(title),
-                 "Renderizeitor  |  %d fps  |  render %d.%02d ms  |  seguindo: corda %.1f  altura %.1f",
-                 fps, renderUs / 1000, (renderUs % 1000) / 10,
+                 "Renderizeitor  |  %d fps%s  |  render %d.%02d ms  |  seguindo: corda %.1f  altura %.1f",
+                 fps, g_uncapped ? " (sem limite)" : "", renderUs / 1000, (renderUs % 1000) / 10,
                  (double)g_followDist, (double)g_followHeight);
     } else {
         snprintf(title, sizeof(title),
-                 "Renderizeitor  |  %d fps  |  render %d.%02d ms  |  visao geral",
-                 fps, renderUs / 1000, (renderUs % 1000) / 10);
+                 "Renderizeitor  |  %d fps%s  |  render %d.%02d ms  |  visao geral",
+                 fps, g_uncapped ? " (sem limite)" : "", renderUs / 1000, (renderUs % 1000) / 10);
     }
     SDL_SetWindowTitle(win, title);
 }
@@ -184,7 +187,7 @@ static void fatal(SDL_Window* win, const char* msg) {
 int main(int argc, char** argv) {
     static uint8_t heightmap[256 * 256];
     SDL_Window* win = NULL;
-    Uint64 freq, next, now, fpsStart;
+    Uint64 freq, next, now, fpsStart, lastTime, simAcc = 0;
     Sint64 frameTicks;
     int32_t err, running = 1, frames = 0, renderUsSum = 0;
     char pcxPath[1024], tempDir[512], wallPath[1024], carPath[1024];
@@ -310,12 +313,14 @@ int main(int argc, char** argv) {
     rzLoadObjectTexture(g_ctx, g_cubeId, "nao_existe.pcx");
     rzGetError(g_ctx, NULL);
 
-    /* Laço com frame rate fixo: o carro e a câmera andam por frame, então o
-       fps fixo mantém a velocidade constante. */
+    /* Laço: a simulação (carro, cubo, partículas) anda em passos fixos de
+       1/60 s. Com limite, um passo e um frame a cada tick; sem limite (F),
+       renderiza sem esperar e roda quantos passos o tempo pedir (0 ou mais). */
     freq = SDL_GetPerformanceFrequency();
     frameTicks = (Sint64)(freq / TARGET_FPS);
     next = SDL_GetPerformanceCounter();
     fpsStart = next;
+    lastTime = next;
 
     while (running) {
         SDL_Event ev;
@@ -346,6 +351,11 @@ int main(int argc, char** argv) {
                     g_followDist = FOLLOW_DIST_DEFAULT;
                     g_followHeight = FOLLOW_HEIGHT_DEFAULT;
                     break;
+                case SDLK_f:
+                    g_uncapped = !g_uncapped;
+                    simAcc = 0;
+                    next = lastTime = SDL_GetPerformanceCounter();
+                    break;
                 default:
                     break;
                 }
@@ -356,20 +366,34 @@ int main(int argc, char** argv) {
         }
         if (!running) break;
 
-        handleInput();
+        {
+            int steps = 1, k;
+            now = SDL_GetPerformanceCounter();
+            if (g_uncapped) {
+                simAcc += now - lastTime;
+                steps = (int)(simAcc / (Uint64)frameTicks);
+                if (steps > 5) { steps = 5; simAcc = 0; }    /* travou: não tenta recuperar */
+                else simAcc -= (Uint64)steps * (Uint64)frameTicks;
+            }
+            lastTime = now;
+            for (k = 0; k < steps; ++k) {
+                handleInput();
 
-        /* O host move o carro e o cubo e avisa o renderer */
-        driveCar(g_hasFocus);
-        placeVehicle();
-        rzUpdateObjectVertices(g_ctx, g_vehicleId, RZTD_VERTICES(&g_vehicle));
-        rztdSteerVehicle(g_ctx, g_vehicleId, g_carSteer);
-        rzSetObjectWheelSpin(g_ctx, g_vehicleId, g_carSpeed);  /* gira as rodas conforme a velocidade */
-        rztdStepParticles(g_ctx, &g_particles, &g_vehicle);   /* fumaça e detritos */
+                /* O host move o carro e o cubo e avisa o renderer */
+                driveCar(g_hasFocus);
+                placeVehicle();
+                rzUpdateObjectVertices(g_ctx, g_vehicleId, RZTD_VERTICES(&g_vehicle));
+                rztdSteerVehicle(g_ctx, g_vehicleId, g_carSteer);
+                rztdStepParticles(g_ctx, &g_particles, &g_vehicle);   /* fumaça e detritos */
 
-        g_cubeAngle += 0.03f;
-        rztdSpinningCube(&g_cube, g_cubePos[0], g_cubePos[1], g_cubePos[2], 0.6f, g_cubeAngle);
-        rzUpdateObjectVertices(g_ctx, g_cubeId, RZTD_VERTICES(&g_cube));
-        rzSetCameraFollow(g_ctx, g_followDist, g_followHeight, 0.08f);
+                g_cubeAngle += 0.03f;
+                rztdSpinningCube(&g_cube, g_cubePos[0], g_cubePos[1], g_cubePos[2], 0.6f, g_cubeAngle);
+                rzUpdateObjectVertices(g_ctx, g_cubeId, RZTD_VERTICES(&g_cube));
+            }
+            /* As rodas giram por rzRender: o giro deste frame = os passos rodados */
+            rzSetObjectWheelSpin(g_ctx, g_vehicleId, g_carSpeed * (float)steps);
+            rzSetCameraFollow(g_ctx, g_followDist, g_followHeight, 0.08f);
+        }
 
         {
             Uint64 t0 = SDL_GetPerformanceCounter(), t1;
@@ -388,6 +412,8 @@ int main(int argc, char** argv) {
             renderUsSum = 0;
             fpsStart = now;
         }
+
+        if (g_uncapped) continue;
 
         /* Espera o próximo tick; se atrasou demais, ressincroniza. */
         next += frameTicks;
