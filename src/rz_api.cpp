@@ -264,6 +264,37 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCameraTarget(RzContext* ctx, int32_t id, in
     return RZ_OK;
 }
 
+RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCamera(RzContext* ctx, int32_t mode) {
+    if (!ctx) return RZ_ERR_INVALID_ARG;
+    if (mode < RZ_CAMERA_FOLLOW || mode > RZ_CAMERA_OVERVIEW) return recordError(ctx, "rzSetCamera", RZ_ERR_INVALID_ARG);
+    ctx->cameraMode = mode;
+    return RZ_OK;
+}
+
+RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCameraInternalAxes(RzContext* ctx, const RzVertex* forward,
+                                                        const RzVertex* right) {
+    if (!ctx) return RZ_ERR_INVALID_ARG;
+    if (!forward || !right) return recordError(ctx, "rzSetCameraInternalAxes", RZ_ERR_INVALID_ARG);
+    // Eixos do legado (coluna, linha, cima) -> mundo (x, y para cima, z)
+    Vec3 f = { forward->x, forward->z, forward->y };
+    Vec3 r = { right->x, right->z, right->y };
+    const float lf = sqrtf(dot(f, f));
+    if (!(lf > 1.0e-12f && lf < 1.0e30f)) return recordError(ctx, "rzSetCameraInternalAxes", RZ_ERR_INVALID_ARG);   // pega NaN
+    f = { f.x / lf, f.y / lf, f.z / lf };
+    const float along = dot(r, f);                     // right perpendicular a forward
+    r = { r.x - f.x * along, r.y - f.y * along, r.z - f.z * along };
+    const float lr = sqrtf(dot(r, r));
+    if (!(lr > 1.0e-6f * sqrtf(dot(Vec3{ right->x, right->y, right->z }, Vec3{ right->x, right->y, right->z })) && lr < 1.0e30f)) {
+        return recordError(ctx, "rzSetCameraInternalAxes", RZ_ERR_INVALID_ARG);                         // paralelos, nulo ou NaN
+    }
+    r = { r.x / lr, r.y / lr, r.z / lr };
+    ctx->internalForward = f;
+    ctx->internalRight   = r;
+    ctx->internalUp      = cross(r, f);
+    ctx->internalValid   = true;
+    return RZ_OK;
+}
+
 RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCameraFollow(RzContext* ctx, float distance, float height,
                                                   float stiffness) {
     if (!ctx) return RZ_ERR_INVALID_ARG;

@@ -1,6 +1,12 @@
-// Câmera: perseguição de um vértice-alvo "na corda". Sem alvo, visão geral
-// fixa do terreno inteiro (fallback para testes e base de um futuro modo de
-// câmera livre). Roda na CPU uma vez por frame e produz a view-projection.
+// Câmera (modo em rzSetCamera), roda na CPU uma vez por frame e produz a
+// view-projection:
+//   perseguição      vértice-alvo "na corda", olhando para ele (com a bolha);
+//   congelada        a posição da perseguição para onde está, ainda olhando
+//                    para o alvo;
+//   interna          no vértice-alvo, orientada pelos eixos do host
+//                    (rzSetCameraInternalAxes); vindo da perseguição entra
+//                    num voo suave, nos outros casos (e na saída) corte seco;
+//   visão geral      fixa, o terreno inteiro (também sem alvo).
 
 #include <cmath>
 
@@ -239,12 +245,75 @@ Mat4 updateCamera(RzContext* ctx) {
     const Vec3 terrainCenter = { 127.5f * cs, 127.5f * hs, 127.5f * cs };
 
     const int32_t target = ctx->cameraTargetObject;
-    const bool following = target >= 0 && target < int32_t(ctx->objects.size()) &&
+    const bool hasTarget = target >= 0 && target < int32_t(ctx->objects.size()) &&
                            ctx->objects[target].alive && ctx->objects[target].positioned &&
                            ctx->cameraTargetVertex < ctx->objects[target].vertexCount();
+    const int32_t mode = hasTarget ? ctx->cameraMode : RZ_CAMERA_OVERVIEW;
+    const bool following = mode != RZ_CAMERA_OVERVIEW;    // perseguição, congelada ou interna
+    const bool internal  = mode == RZ_CAMERA_INTERNAL;
 
     Vec3 eye, at;
-    if (following) {
+    Vec3 viewF = {}, viewR = {}, viewU = {};              // base da câmera interna
+    if (internal) {
+        // Corte seco: sem transições. A perseguição fica pronta atrás do alvo
+        // (pela frente da câmera interna), para a volta também ser um corte.
+        const Vec3 raw = ctx->objects[target].world[ctx->cameraTargetVertex];
+        ctx->targetPos = raw;
+        ctx->retargetPending = ctx->retargetActive = false;
+        ctx->overviewActive = false;
+        ctx->overviewBlend = 0.0f;
+        viewF = ctx->internalForward;
+        viewR = ctx->internalRight;
+        viewU = ctx->internalUp;
+        if (!ctx->internalValid) {                        // sem eixos ainda: olha para onde a perseguição olhava
+            Vec3 d = raw - ctx->camLastEye;
+            d.y = 0.0f;
+            const float l = sqrtf(dot(d, d));
+            viewF = l > 1e-4f ? Vec3{ d.x / l, 0.0f, d.z / l } : Vec3{ 0.0f, 0.0f, -1.0f };
+            viewR = { -viewF.z, 0.0f, viewF.x };
+            viewU = { 0.0f, 1.0f, 0.0f };
+        }
+        // Vindo da perseguição/congelada: voa do olho atual até o vértice,
+        // girando da orientação atual para a dos eixos (corte seco nos outros casos)
+        if (ctx->camHasLast && ctx->camLastMode != RZ_CAMERA_INTERNAL) {
+            ctx->internalEnterActive = ctx->camLastMode != RZ_CAMERA_OVERVIEW;
+            ctx->internalEnterT = 0.0f;
+            ctx->internalEye0 = ctx->camLastEye;
+            ctx->internalF0 = ctx->camForward;
+            ctx->internalU0 = ctx->camUp;
+        }
+        eye = raw;
+        if (ctx->internalEnterActive) {
+            float t = ctx->internalEnterT + 1.0f / kInternalEnterFrames;
+            if (t >= 1.0f) { t = 1.0f; ctx->internalEnterActive = false; }
+            ctx->internalEnterT = t;
+            const float e = smooth01(t);
+            eye = lerp3(ctx->internalEye0, raw, e);
+            Vec3 f = lerp3(ctx->internalF0, viewF, e);
+            Vec3 u = lerp3(ctx->internalU0, viewU, e);
+            const float lf = sqrtf(dot(f, f));
+            if (lf > 1e-4f) {
+                f = { f.x / lf, f.y / lf, f.z / lf };
+                Vec3 r = cross(f, u);
+                const float lr = sqrtf(dot(r, r));
+                if (lr > 1e-4f) {
+                    r = { r.x / lr, r.y / lr, r.z / lr };
+                    viewF = f;
+                    viewR = r;
+                    viewU = cross(r, f);
+                }
+            }
+        }
+        at = eye + Vec3{ viewF.x * cs, viewF.y * cs, viewF.z * cs };
+        Vec3 h = { viewF.x, 0.0f, viewF.z };
+        const float lh = sqrtf(dot(h, h));
+        h = lh > 1e-4f ? Vec3{ h.x / lh, 0.0f, h.z / lh } : Vec3{ 0.0f, 0.0f, -1.0f };
+        ctx->followEye = restEye(ctx, raw, h);
+        ctx->followLook = raw;
+        ctx->followInitialized = true;
+        ctx->followAppliedDistance = ctx->followDistance;
+        ctx->aimValid = false;
+    } else if (following) {
         // Perseguição: câmera na corda, olhando para o vértice-alvo suavizado
         // (o mesmo ponto puxa a corda, então a altura da câmera também não treme)
         const Vec3 raw = ctx->objects[target].world[ctx->cameraTargetVertex];
@@ -290,6 +359,7 @@ Mat4 updateCamera(RzContext* ctx) {
         } else if (ctx->retargetActive) {
             updateRetarget(ctx, raw);
         } else {
+            const bool frozen = mode == RZ_CAMERA_FOLLOW_FREEZE && ctx->followInitialized;
             if (!ctx->followInitialized) {
                 ctx->followLook = raw;
             } else {
@@ -298,7 +368,7 @@ Mat4 updateCamera(RzContext* ctx) {
                 look.z += (raw.z - look.z) * kFollowLookXZ;
                 look.y += (raw.y - look.y) * kFollowLookY;
             }
-            updateFollowCamera(ctx, ctx->followLook);
+            if (!frozen) updateFollowCamera(ctx, ctx->followLook);   // congelada: o olho fica onde está
         }
         if (!ctx->overviewActive && ctx->overviewBlend > 0.0f) {
             // transição interrompida por outro alvo: a neblina termina sozinha
@@ -306,9 +376,9 @@ Mat4 updateCamera(RzContext* ctx) {
             if (ctx->overviewBlend < 0.0f) ctx->overviewBlend = 0.0f;
         }
         eye = ctx->followEye;
-        if (ctx->overviewActive || ctx->retargetActive) {
+        if (ctx->overviewActive || ctx->retargetActive || mode == RZ_CAMERA_FOLLOW_FREEZE) {
             at = ctx->followLook;
-            ctx->aimValid = false;                     // transições: olha direto para o alvo
+            ctx->aimValid = false;                     // transições e congelada: olha direto para o alvo
         } else {
             // Zona morta no ângulo (manobras lentas, indo e voltando, não
             // balançam a câmera); a corda continua seguindo o alvo
@@ -350,6 +420,8 @@ Mat4 updateCamera(RzContext* ctx) {
     }
     ctx->camHasLast = true;
     ctx->camLastFollowing = following;
+    ctx->camLastMode = mode;
+    if (!internal) ctx->internalEnterActive = false;
     ctx->camLastEye = eye;
     ctx->camLastLook = at;
 
@@ -367,7 +439,7 @@ Mat4 updateCamera(RzContext* ctx) {
     ctx->shadowWholeTerrain = b >= 0.5f;
     ctx->wallOn = following && b < 0.5f;
 
-    const Mat4 view = lookAt(eye, at);
+    const Mat4 view = internal ? viewFromAxes(eye, viewF, viewR, viewU) : lookAt(eye, at);
     ctx->camRight   = { view[0, 0], view[0, 1], view[0, 2] };
     ctx->camUp      = { view[1, 0], view[1, 1], view[1, 2] };
     ctx->camForward = { -view[2, 0], -view[2, 1], -view[2, 2] };
@@ -382,6 +454,7 @@ Mat4 updateCamera(RzContext* ctx) {
     float nearPlane = terrainDist - radius;
     if (nearPlane > 0.5f * focusDist) nearPlane = 0.5f * focusDist;
     if (nearPlane < 0.002f * radius) nearPlane = 0.002f * radius;   // ~0,36 tile: chão perto da câmera
+    if (internal) nearPlane = kInternalNear * cs;                   // dentro do objeto: o painel fica perto
     float farPlane = terrainDist + radius;
     // Com neblina, nada além do fim dela aparece: o far encosta nele (melhor precisão)
     const Vec3 toFog = ctx->fogOrigin - eye;
@@ -392,6 +465,16 @@ Mat4 updateCamera(RzContext* ctx) {
     ctx->farPlane  = farPlane;
 
     return perspective(ctx->focalX, ctx->focalY, nearPlane, farPlane, !ctx->windowed) * view;
+}
+
+// Matriz de view com a base dada (frente f, direita r, cima u; ortonormal),
+// câmera olhando para −z no espaço de view.
+Mat4 viewFromAxes(Vec3 eye, Vec3 f, Vec3 r, Vec3 u) {
+    Mat4 v = Mat4::identity();
+    v[0, 0] =  r.x; v[0, 1] =  r.y; v[0, 2] =  r.z; v[0, 3] = -dot(r, eye);
+    v[1, 0] =  u.x; v[1, 1] =  u.y; v[1, 2] =  u.z; v[1, 3] = -dot(u, eye);
+    v[2, 0] = -f.x; v[2, 1] = -f.y; v[2, 2] = -f.z; v[2, 3] =  dot(f, eye);
+    return v;
 }
 
 // Matriz de view olhando de `eye` para `at`, y para cima (sistema destro,

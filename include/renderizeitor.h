@@ -344,12 +344,37 @@ RZ_API int32_t RZ_CALL rzSetSprites(RzContext* ctx, const RzSprite* sprites, int
 
 /* ------------------------------------------------------------------------ */
 
-/* Câmera. Com um alvo, persegue o vértice `vertex` do objeto `id` (ver
-   rzSetCameraFollow), sempre olhando para ele e acompanhando
-   rzUpdateObjectVertices; o vértice não precisa fazer parte de nenhum
-   polígono. Sem alvo (id < 0, o padrão, ou objeto destruído), mostra uma
-   visão geral fixa do terreno inteiro: só para testes e fallback. */
+/* Modos de câmera (rzSetCamera). Todos menos a visão geral usam o vértice de
+   referência de rzSetCameraTarget; sem alvo, qualquer modo cai na visão geral. */
+#define RZ_CAMERA_FOLLOW         0   /* perseguição na corda (rzSetCameraFollow); padrão */
+#define RZ_CAMERA_INTERNAL       1   /* no vértice de referência, orientada por
+                                        rzSetCameraInternalAxes */
+#define RZ_CAMERA_FOLLOW_FREEZE  2   /* a posição da perseguição congela onde está,
+                                        mas continua olhando para o alvo */
+#define RZ_CAMERA_OVERVIEW       3   /* visão geral fixa do terreno inteiro */
+
+/* Escolhe o modo da câmera (RZ_CAMERA_*). Entre perseguição, congelada e
+   visão geral a câmera faz a transição suave de sempre; a interna entra e
+   sai num corte seco (ao sair dela, a perseguição recomeça atrás do alvo,
+   pela frente de rzSetCameraInternalAxes). Erros: RZ_ERR_INVALID_ARG (modo
+   desconhecido). */
+RZ_API int32_t RZ_CALL rzSetCamera(RzContext* ctx, int32_t mode);
+
+/* Vértice de referência da câmera: o vértice `vertex` do objeto `id`,
+   acompanhando rzUpdateObjectVertices; não precisa fazer parte de nenhum
+   polígono. A perseguição olha para ele; a câmera interna fica nele.
+   id < 0 (o padrão) ou objeto destruído: sem alvo (visão geral). */
 RZ_API int32_t RZ_CALL rzSetCameraTarget(RzContext* ctx, int32_t id, int32_t vertex);
+
+/* Orientação da câmera interna: dois eixos nos eixos do legado (como
+   RzVertex: x coluna, y linha, z para cima), `forward` para onde ela olha e
+   `right` a direita da imagem (o "cima" sai dos dois, então a câmera
+   inclina junto com o objeto). Não precisam ser unitários nem exatamente
+   perpendiculares (right é ajustado). Feita para ser chamada todo frame,
+   junto com rzUpdateObjectVertices. Erros: RZ_ERR_INVALID_ARG (nulos, não
+   finitos, nulos em comprimento ou paralelos). */
+RZ_API int32_t RZ_CALL rzSetCameraInternalAxes(RzContext* ctx, const RzVertex* forward,
+                                               const RzVertex* right);
 
 /* Câmera de perseguição, como se puxada por uma corda:
    distance  comprimento da corda, em tiles (padrão 3): com o alvo mais longe

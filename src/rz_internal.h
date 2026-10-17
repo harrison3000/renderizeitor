@@ -62,6 +62,8 @@ constexpr float kFollowLookY        = 0.1f;
 // alvo empurra por dentro. A câmera olha para o centro da bolha; enquanto o
 // alvo anda dentro dela, o olhar não muda. A posição (corda) segue normal.
 constexpr float kCameraBubbleRadius  = 0.3f;    // tiles
+constexpr float kInternalNear        = 0.02f;   // câmera interna: near plane (tiles)
+constexpr float kInternalEnterFrames = 30.0f;   // perseguição -> interna: voo suave (frames)
 
 // Troca de alvo da câmera (rzSetCameraTarget com outro objeto): em vez de
 // teleportar, a câmera vai até o novo alvo. A câmera avança por frame, então a
@@ -555,6 +557,19 @@ struct RzContext {
     // (visão geral fixa do terreno)
     int32_t cameraTargetObject = -1;
     int32_t cameraTargetVertex = 0;
+    int32_t cameraMode = RZ_CAMERA_FOLLOW;          // rzSetCamera
+
+    // Câmera interna (rzSetCameraInternalAxes): base ortonormal no mundo
+    bool     internalValid = false;
+    rz::Vec3 internalForward = { 0.0f, 0.0f, -1.0f };
+    rz::Vec3 internalRight   = { 1.0f, 0.0f, 0.0f };
+    rz::Vec3 internalUp      = { 0.0f, 1.0f, 0.0f };
+    // Entrada suave na interna vindo da perseguição (ou da congelada)
+    bool     internalEnterActive = false;
+    float    internalEnterT = 0.0f;
+    rz::Vec3 internalEye0 = { 0.0f, 0.0f, 0.0f };
+    rz::Vec3 internalF0   = { 0.0f, 0.0f, -1.0f };    // frente e cima da câmera no início
+    rz::Vec3 internalU0   = { 0.0f, 1.0f, 0.0f };
 
     // Câmera de perseguição ("na corda"); estado avança a cada rzRender
     float    followDistance  = rz::kFollowDistance;
@@ -582,6 +597,7 @@ struct RzContext {
     // Entrada/saída da visão geral (rz_camera.cpp)
     bool     camHasLast      = false;    // já houve um frame (camLast* valem)
     bool     camLastFollowing = false;
+    int32_t  camLastMode = RZ_CAMERA_OVERVIEW;   // modo efetivo do frame anterior
     rz::Vec3 camLastEye  = { 0.0f, 0.0f, 0.0f };
     rz::Vec3 camLastLook = { 0.0f, 0.0f, 0.0f };
     bool     overviewActive  = false;    // transição em andamento
@@ -637,6 +653,7 @@ int32_t loadPcxAtlas(const char* path, uint8_t* indices, uint8_t* paletteRGB);
 // também guarda o foco da sombra.
 Mat4 updateCamera(RzContext* ctx);
 Mat4 lookAt(Vec3 eye, Vec3 at);
+Mat4 viewFromAxes(Vec3 eye, Vec3 f, Vec3 r, Vec3 u);
 
 // rz_shadow.cpp
 bool createShadowMaps(RzContext* ctx);

@@ -10,7 +10,8 @@
  *   Seta cima / baixo       sobe / desce a câmera (altura acima do carro)
  *   PgUp / PgDn             aproxima / afasta a câmera (comprimento da corda)
  *   T                       liga / desliga as texturas
- *   C                       câmera segue o veículo / visão geral do terreno
+ *   1 / 2 / 3 / 4           câmera: perseguição / interna / perseguição congelada /
+ *                           visão geral do terreno
  *   R                       volta a câmera aos valores iniciais
  *   F                       liga / desliga o limite de 60 fps (sem limite: renderiza o
  *                           mais rápido possível; a simulação continua a 60 Hz)
@@ -59,7 +60,7 @@ static float    g_cubeAngle = 0.0f;
 static int32_t  g_vehicleId = -1;
 static RztdMesh g_vehicle;
 static RztdParticles g_particles;   /* sprites do carro (array compacto, como o legado) */
-static int32_t  g_follow = 1;
+static int32_t  g_cameraMode = RZ_CAMERA_FOLLOW;   /* teclas 1..4 */
 static const uint8_t* g_heights;
 static float    g_carX, g_carZ, g_carHeading, g_carSpeed, g_carSteer;
 #define HEIGHT_SCALE RZTD_HEIGHT_SCALE   /* padrão de rzSetTerrainScale */
@@ -85,6 +86,25 @@ static int keyDown(SDL_Scancode sc) {
 
 static void placeVehicle(void) {
     rztdVehicle(&g_vehicle, g_heights, HEIGHT_SCALE, g_carX, g_carZ, g_carHeading);
+}
+
+/* Câmera interna: frente = meio das rodas dianteiras - meio das traseiras,
+   direita = roda dianteira direita - esquerda (eixos do legado, como os
+   vértices); acompanha a inclinação do carro no terreno. */
+static void setInternalCameraAxes(void) {
+    const RzVertex* v = RZTD_VERTICES(&g_vehicle);
+    const RzVertex* fl = &v[RZTD_WHEEL_FIRST + 0];
+    const RzVertex* fr = &v[RZTD_WHEEL_FIRST + 1];
+    const RzVertex* rl = &v[RZTD_WHEEL_FIRST + 2];
+    const RzVertex* rr = &v[RZTD_WHEEL_FIRST + 3];
+    RzVertex forward, right;
+    forward.x = 0.5f * (fl->x + fr->x - rl->x - rr->x);
+    forward.y = 0.5f * (fl->y + fr->y - rl->y - rr->y);
+    forward.z = 0.5f * (fl->z + fr->z - rl->z - rr->z);
+    right.x = fr->x - fl->x;
+    right.y = fr->y - fl->y;
+    right.z = fr->z - fl->z;
+    rzSetCameraInternalAxes(g_ctx, &forward, &right);
 }
 
 static void driveCar(int active) {
@@ -158,16 +178,18 @@ static void handleInput(void) {
 }
 
 static void updateTitle(SDL_Window* win, int32_t renderUs, int32_t fps) {
+    static const char* const names[4] = { "seguindo", "interna", "congelada", "visao geral" };
     char title[256];
-    if (g_follow) {
+    if (g_cameraMode == RZ_CAMERA_FOLLOW || g_cameraMode == RZ_CAMERA_FOLLOW_FREEZE) {
         snprintf(title, sizeof(title),
-                 "Renderizeitor  |  %d fps%s  |  render %d.%02d ms  |  seguindo: corda %.1f  altura %.1f",
+                 "Renderizeitor  |  %d fps%s  |  render %d.%02d ms  |  %s: corda %.1f  altura %.1f",
                  fps, g_uncapped ? " (sem limite)" : "", renderUs / 1000, (renderUs % 1000) / 10,
-                 (double)g_followDist, (double)g_followHeight);
+                 names[g_cameraMode], (double)g_followDist, (double)g_followHeight);
     } else {
         snprintf(title, sizeof(title),
-                 "Renderizeitor  |  %d fps%s  |  render %d.%02d ms  |  visao geral",
-                 fps, g_uncapped ? " (sem limite)" : "", renderUs / 1000, (renderUs % 1000) / 10);
+                 "Renderizeitor  |  %d fps%s  |  render %d.%02d ms  |  %s",
+                 fps, g_uncapped ? " (sem limite)" : "", renderUs / 1000, (renderUs % 1000) / 10,
+                 names[g_cameraMode]);
     }
     SDL_SetWindowTitle(win, title);
 }
@@ -275,6 +297,7 @@ int main(int argc, char** argv) {
     rztdSetVehicleWheels(g_ctx, g_vehicleId);
     rztdAddVehicleAntenna(g_ctx, g_vehicleId);
     rzSetCameraTarget(g_ctx, g_vehicleId, RZTD_VEHICLE_TARGET);
+    setInternalCameraAxes();
 
     {
         static RztdMesh buildings[RZTD_MAX_OBJECTS];
@@ -339,9 +362,10 @@ int main(int argc, char** argv) {
                 case SDLK_ESCAPE:
                     running = 0;
                     break;
-                case SDLK_c:
-                    g_follow = !g_follow;
-                    rzSetCameraTarget(g_ctx, g_follow ? g_vehicleId : -1, RZTD_VEHICLE_TARGET);
+                case SDLK_1: case SDLK_2: case SDLK_3: case SDLK_4:
+                    /* números de cima: 1 perseguição, 2 interna, 3 congelada, 4 visão geral */
+                    g_cameraMode = RZ_CAMERA_FOLLOW + (int32_t)(ev.key.keysym.sym - SDLK_1);
+                    rzSetCamera(g_ctx, g_cameraMode);
                     break;
                 case SDLK_t:
                     g_textures = !g_textures;
@@ -384,6 +408,7 @@ int main(int argc, char** argv) {
                 placeVehicle();
                 rzUpdateObjectVertices(g_ctx, g_vehicleId, RZTD_VERTICES(&g_vehicle));
                 rztdSteerVehicle(g_ctx, g_vehicleId, g_carSteer);
+                setInternalCameraAxes();
                 rztdStepParticles(g_ctx, &g_particles, &g_vehicle);   /* fumaça e detritos */
 
                 g_cubeAngle += 0.03f;
