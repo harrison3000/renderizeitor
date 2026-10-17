@@ -5,6 +5,7 @@ uniform vec3  uTarget;
 uniform float uFadeNear, uFadeFar;
 uniform float uXSize;
 uniform float uCellSize;
+uniform float uTop, uTopFade;   // v (tiles acima da base) do topo e faixa em que a parede some
 uniform int   uFogOn;
 uniform float uFogStart, uFogEnd;
 uniform vec3  uFogColor;
@@ -36,6 +37,7 @@ void main() {
     color = mix(color, vec3(0.92, 0.10, 0.07), red);  alpha = mix(alpha, 0.85, red);
     color = mix(color, vec3(1.0, 1.0, 1.0), ring);    alpha = mix(alpha, 0.90, ring);
     alpha *= near;
+    alpha *= 1.0 - smoothstep(uTop - uTopFade, uTop, vUV.y);   // topo: some aos poucos
     if (uFogOn != 0) {
         float fog = smoothstep(uFogStart, uFogEnd, length(vWorld - uFogOrigin));
         color = mix(color, uFogColor, fog);

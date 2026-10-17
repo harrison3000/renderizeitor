@@ -325,6 +325,8 @@ bool createBorder(RzContext* ctx) {
     w.fadeFar    = glGetUniformLocation(w.program, "uFadeFar");
     w.xSize      = glGetUniformLocation(w.program, "uXSize");
     w.cellSize   = glGetUniformLocation(w.program, "uCellSize");
+    w.top        = glGetUniformLocation(w.program, "uTop");
+    w.topFade    = glGetUniformLocation(w.program, "uTopFade");
     initFogUniforms(w.program, w.fog);
     return glGetError() == GL_NO_ERROR;
 }
@@ -435,6 +437,8 @@ void drawWall(const RzContext* ctx, const Mat4& viewProj) {
     glUniform1f(w.fadeFar, kBorderFadeFar * ctx->cellSize);
     glUniform1f(w.xSize, kBorderXSize);
     glUniform1f(w.cellSize, ctx->cellSize);
+    glUniform1f(w.top, kBorderWallHeight + 0.5f);      // v do topo: altura + o que afunda (buildWallMesh)
+    glUniform1f(w.topFade, kBorderTopFade);
     bindFog(ctx, w.fog);
 
     glDisable(GL_CULL_FACE);
