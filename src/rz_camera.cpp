@@ -10,6 +10,27 @@ namespace rz {
 
 namespace {
 
+// Zona morta, só no ângulo da câmera: uma bolha de raio kCameraBubbleRadius
+// em volta do alvo suavizado (look), que ele empurra por dentro. Enquanto o
+// alvo anda dentro dela, o centro não se mexe; se ele chega na parede, o
+// centro é arrastado o mínimo para mantê-lo na superfície. Devolve o centro
+// (para onde a câmera olha). A posição do olho não é afetada.
+Vec3 aimBubble(RzContext* ctx, Vec3 look) {
+    if (!ctx->aimValid) {
+        ctx->aimPoint = look;
+        ctx->aimValid = true;
+        return look;
+    }
+    const Vec3 d = look - ctx->aimPoint;
+    const float len = sqrtf(dot(d, d));
+    const float radius = kCameraBubbleRadius * ctx->cellSize;
+    if (len > radius) {
+        const float s = (len - radius) / len;
+        ctx->aimPoint = { ctx->aimPoint.x + d.x * s, ctx->aimPoint.y + d.y * s, ctx->aimPoint.z + d.z * s };
+    }
+    return ctx->aimPoint;
+}
+
 // Altura do terreno (mundo) no ponto (x, z) do mundo, bilinear; 0 sem terreno.
 // Com a continuação montada, vale também fora do mapa (câmera atrás do alvo
 // perto da borda).
@@ -284,9 +305,17 @@ Mat4 updateCamera(RzContext* ctx) {
             ctx->overviewBlend -= 1.0f / kOverviewFrames;
             if (ctx->overviewBlend < 0.0f) ctx->overviewBlend = 0.0f;
         }
-        at = ctx->followLook;
         eye = ctx->followEye;
+        if (ctx->overviewActive || ctx->retargetActive) {
+            at = ctx->followLook;
+            ctx->aimValid = false;                     // transições: olha direto para o alvo
+        } else {
+            // Zona morta no ângulo (manobras lentas, indo e voltando, não
+            // balançam a câmera); a corda continua seguindo o alvo
+            at = aimBubble(ctx, ctx->followLook);
+        }
     } else {
+        ctx->aimValid = false;
         ctx->followInitialized = false;
         ctx->retargetPending = ctx->retargetActive = false;
         Vec3 ovEye;

@@ -58,6 +58,10 @@ constexpr float kFollowClimb        = 0.2f;   // amortecimento ao subir
 // chega à câmera. Forte na vertical, leve na horizontal (pouco atraso).
 constexpr float kFollowLookXZ       = 0.5f;
 constexpr float kFollowLookY        = 0.1f;
+// Zona morta do ângulo da câmera: uma bolha (esfera) em volta do alvo, que o
+// alvo empurra por dentro. A câmera olha para o centro da bolha; enquanto o
+// alvo anda dentro dela, o olhar não muda. A posição (corda) segue normal.
+constexpr float kCameraBubbleRadius  = 0.3f;    // tiles
 
 // Troca de alvo da câmera (rzSetCameraTarget com outro objeto): em vez de
 // teleportar, a câmera vai até o novo alvo. A câmera avança por frame, então a
@@ -559,7 +563,9 @@ struct RzContext {
     bool     followInitialized = false;
     float    followAppliedDistance = 0.0f;   // corda com que followEye foi calculado
     rz::Vec3 followEye = { 0.0f, 0.0f, 0.0f };
-    rz::Vec3 followLook = { 0.0f, 0.0f, 0.0f };   // alvo suavizado: para onde a câmera olha
+    rz::Vec3 followLook = { 0.0f, 0.0f, 0.0f };   // alvo suavizado: puxa a corda (posição da câmera)
+    rz::Vec3 aimPoint = { 0.0f, 0.0f, 0.0f };     // centro da bolha: para onde a câmera olha (perseguição normal)
+    bool     aimValid = false;                    // false: a próxima perseguição normal começa com a bolha no alvo
 
     // Troca de alvo suave (rz_camera.cpp): pedida pelo rzSetCameraTarget,
     // montada no próximo frame (quando a posição do novo alvo é conhecida)

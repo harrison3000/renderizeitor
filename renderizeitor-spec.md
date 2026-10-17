@@ -203,6 +203,7 @@ O modo normal é a perseguição (9.2): o host sempre define um alvo.
 
 - **Alvo:** o vértice `vertex` do objeto `id`, que não precisa estar em polígono. A câmera olha para ele (lookAt), suavizado.
 - **Alvo suavizado:** a cada frame, o ponto olhado anda 50% do caminho até o vértice na horizontal (`kFollowLookXZ`) e 10% na vertical (`kFollowLookY`). Os pulos do alvo em terreno esburacado não fazem a câmera tremer; o atraso na horizontal fica em cerca de um frame de movimento. É esse ponto suavizado que puxa a corda e define a altura da câmera.
+- **Zona morta (só no ângulo):** uma bolha 3D de raio 0,3 tile (`kCameraBubbleRadius`) em volta do ponto suavizado, que ele empurra por dentro: enquanto ele anda dentro da bolha, o centro dela não se mexe; quando chega na parede, o centro é arrastado o mínimo para mantê-lo na superfície. A câmera olha para o centro da bolha, então manobras curtas (ré e frente, mudando de direção) não giram a câmera. A posição da câmera (corda e altura) segue o alvo normalmente, então ela nunca fica para trás. Nas transições (troca de alvo, visão geral) não há bolha; a perseguição seguinte começa com ela centrada no alvo.
 - **Movimento horizontal:**
   - além do comprimento da corda (padrão 3 tiles), a câmera é puxada;
   - abaixo da metade dele, recua;
