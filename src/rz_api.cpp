@@ -272,25 +272,25 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCamera(RzContext* ctx, int32_t mode) {
 }
 
 RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCameraInternalAxes(RzContext* ctx, const RzVertex* forward,
-                                                        const RzVertex* right) {
+                                                        const RzVertex* up) {
     if (!ctx) return RZ_ERR_INVALID_ARG;
-    if (!forward || !right) return recordError(ctx, "rzSetCameraInternalAxes", RZ_ERR_INVALID_ARG);
+    if (!forward || !up) return recordError(ctx, "rzSetCameraInternalAxes", RZ_ERR_INVALID_ARG);
     // Eixos do legado (coluna, linha, cima) -> mundo (x, y para cima, z)
     Vec3 f = { forward->x, forward->z, forward->y };
-    Vec3 r = { right->x, right->z, right->y };
+    Vec3 u = { up->x, up->z, up->y };
     const float lf = sqrtf(dot(f, f));
-    if (!(lf > 1.0e-12f && lf < 1.0e30f)) return recordError(ctx, "rzSetCameraInternalAxes", RZ_ERR_INVALID_ARG);   // pega NaN
-    f = { f.x / lf, f.y / lf, f.z / lf };
-    const float along = dot(r, f);                     // right perpendicular a forward
-    r = { r.x - f.x * along, r.y - f.y * along, r.z - f.z * along };
-    const float lr = sqrtf(dot(r, r));
-    if (!(lr > 1.0e-6f * sqrtf(dot(Vec3{ right->x, right->y, right->z }, Vec3{ right->x, right->y, right->z })) && lr < 1.0e30f)) {
-        return recordError(ctx, "rzSetCameraInternalAxes", RZ_ERR_INVALID_ARG);                         // paralelos, nulo ou NaN
+    const float lu0 = sqrtf(dot(u, u));
+    if (!(lf > 1.0e-12f && lf < 1.0e30f) || !(lu0 > 1.0e-12f && lu0 < 1.0e30f)) {
+        return recordError(ctx, "rzSetCameraInternalAxes", RZ_ERR_INVALID_ARG);   // nulo ou NaN
     }
-    r = { r.x / lr, r.y / lr, r.z / lr };
+    f = { f.x / lf, f.y / lf, f.z / lf };
+    const float along = dot(u, f);                     // up perpendicular a forward
+    u = { u.x - f.x * along, u.y - f.y * along, u.z - f.z * along };
+    const float lu = sqrtf(dot(u, u));
+    if (!(lu > 1.0e-6f * lu0)) return recordError(ctx, "rzSetCameraInternalAxes", RZ_ERR_INVALID_ARG);   // paralelos
+    u = { u.x / lu, u.y / lu, u.z / lu };
     ctx->internalForward = f;
-    ctx->internalRight   = r;
-    ctx->internalUp      = cross(r, f);
+    ctx->internalUp      = u;
     ctx->internalValid   = true;
     return RZ_OK;
 }

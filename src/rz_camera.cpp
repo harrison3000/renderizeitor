@@ -253,7 +253,7 @@ Mat4 updateCamera(RzContext* ctx) {
     const bool internal  = mode == RZ_CAMERA_INTERNAL;
 
     Vec3 eye, at;
-    Vec3 viewF = {}, viewR = {}, viewU = {};              // base da câmera interna
+    Vec3 up = { 0.0f, 1.0f, 0.0f };                       // "cima" da câmera (a interna inclina)
     if (internal) {
         // Corte seco: sem transições. A perseguição fica pronta atrás do alvo
         // (pela frente da câmera interna), para a volta também ser um corte.
@@ -262,16 +262,14 @@ Mat4 updateCamera(RzContext* ctx) {
         ctx->retargetPending = ctx->retargetActive = false;
         ctx->overviewActive = false;
         ctx->overviewBlend = 0.0f;
-        viewF = ctx->internalForward;
-        viewR = ctx->internalRight;
-        viewU = ctx->internalUp;
-        if (!ctx->internalValid) {                        // sem eixos ainda: olha para onde a perseguição olhava
+        Vec3 forward = ctx->internalForward;
+        if (ctx->internalValid) {
+            up = ctx->internalUp;
+        } else {                                          // sem eixos ainda: olha para onde a perseguição olhava
             Vec3 d = raw - ctx->camLastEye;
             d.y = 0.0f;
             const float l = sqrtf(dot(d, d));
-            viewF = l > 1e-4f ? Vec3{ d.x / l, 0.0f, d.z / l } : Vec3{ 0.0f, 0.0f, -1.0f };
-            viewR = { -viewF.z, 0.0f, viewF.x };
-            viewU = { 0.0f, 1.0f, 0.0f };
+            forward = l > 1e-4f ? Vec3{ d.x / l, 0.0f, d.z / l } : Vec3{ 0.0f, 0.0f, -1.0f };
         }
         // Vindo da perseguição/congelada: voa do olho atual até o vértice,
         // girando da orientação atual para a dos eixos (corte seco nos outros casos)
@@ -284,28 +282,17 @@ Mat4 updateCamera(RzContext* ctx) {
         }
         eye = raw;
         if (ctx->internalEnterActive) {
+            // frente e cima interpolados; o lookAt ortonormaliza
             float t = ctx->internalEnterT + 1.0f / kInternalEnterFrames;
             if (t >= 1.0f) { t = 1.0f; ctx->internalEnterActive = false; }
             ctx->internalEnterT = t;
             const float e = smooth01(t);
             eye = lerp3(ctx->internalEye0, raw, e);
-            Vec3 f = lerp3(ctx->internalF0, viewF, e);
-            Vec3 u = lerp3(ctx->internalU0, viewU, e);
-            const float lf = sqrtf(dot(f, f));
-            if (lf > 1e-4f) {
-                f = { f.x / lf, f.y / lf, f.z / lf };
-                Vec3 r = cross(f, u);
-                const float lr = sqrtf(dot(r, r));
-                if (lr > 1e-4f) {
-                    r = { r.x / lr, r.y / lr, r.z / lr };
-                    viewF = f;
-                    viewR = r;
-                    viewU = cross(r, f);
-                }
-            }
+            forward = lerp3(ctx->internalF0, forward, e);
+            up = lerp3(ctx->internalU0, up, e);
         }
-        at = eye + Vec3{ viewF.x * cs, viewF.y * cs, viewF.z * cs };
-        Vec3 h = { viewF.x, 0.0f, viewF.z };
+        at = eye + Vec3{ forward.x * cs, forward.y * cs, forward.z * cs };
+        Vec3 h = { forward.x, 0.0f, forward.z };
         const float lh = sqrtf(dot(h, h));
         h = lh > 1e-4f ? Vec3{ h.x / lh, 0.0f, h.z / lh } : Vec3{ 0.0f, 0.0f, -1.0f };
         ctx->followEye = restEye(ctx, raw, h);
@@ -439,7 +426,7 @@ Mat4 updateCamera(RzContext* ctx) {
     ctx->shadowWholeTerrain = b >= 0.5f;
     ctx->wallOn = following && b < 0.5f;
 
-    const Mat4 view = internal ? viewFromAxes(eye, viewF, viewR, viewU) : lookAt(eye, at);
+    const Mat4 view = lookAt(eye, at, up);
     ctx->camRight   = { view[0, 0], view[0, 1], view[0, 2] };
     ctx->camUp      = { view[1, 0], view[1, 1], view[1, 2] };
     ctx->camForward = { -view[2, 0], -view[2, 1], -view[2, 2] };
@@ -467,23 +454,14 @@ Mat4 updateCamera(RzContext* ctx) {
     return perspective(ctx->focalX, ctx->focalY, nearPlane, farPlane, !ctx->windowed) * view;
 }
 
-// Matriz de view com a base dada (frente f, direita r, cima u; ortonormal),
-// câmera olhando para −z no espaço de view.
-Mat4 viewFromAxes(Vec3 eye, Vec3 f, Vec3 r, Vec3 u) {
-    Mat4 v = Mat4::identity();
-    v[0, 0] =  r.x; v[0, 1] =  r.y; v[0, 2] =  r.z; v[0, 3] = -dot(r, eye);
-    v[1, 0] =  u.x; v[1, 1] =  u.y; v[1, 2] =  u.z; v[1, 3] = -dot(u, eye);
-    v[2, 0] = -f.x; v[2, 1] = -f.y; v[2, 2] = -f.z; v[2, 3] =  dot(f, eye);
-    return v;
-}
-
-// Matriz de view olhando de `eye` para `at`, y para cima (sistema destro,
-// câmera olhando para −z no espaço de view).
-Mat4 lookAt(Vec3 eye, Vec3 at) {
+// Matriz de view olhando de `eye` para `at`, com `up` (não precisa ser
+// unitário nem perpendicular) para cima (sistema destro, câmera olhando para
+// −z no espaço de view).
+Mat4 lookAt(Vec3 eye, Vec3 at, Vec3 up) {
     Vec3 f = at - eye;
     const float invF = 1.0f / sqrtf(dot(f, f));
     f = { f.x * invF, f.y * invF, f.z * invF };
-    Vec3 r = cross(f, Vec3{ 0.0f, 1.0f, 0.0f });
+    Vec3 r = cross(f, up);
     const float invR = 1.0f / sqrtf(dot(r, r));
     r = { r.x * invR, r.y * invR, r.z * invR };
     const Vec3 u = cross(r, f);

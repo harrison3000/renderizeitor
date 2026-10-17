@@ -368,13 +368,13 @@ RZ_API int32_t RZ_CALL rzSetCameraTarget(RzContext* ctx, int32_t id, int32_t ver
 
 /* Orientação da câmera interna: dois eixos nos eixos do legado (como
    RzVertex: x coluna, y linha, z para cima), `forward` para onde ela olha e
-   `right` a direita da imagem (o "cima" sai dos dois, então a câmera
-   inclina junto com o objeto). Não precisam ser unitários nem exatamente
-   perpendiculares (right é ajustado). Feita para ser chamada todo frame,
+   `up` o cima da imagem (a direita sai dos dois, então a câmera inclina
+   junto com o objeto). Não precisam ser unitários nem exatamente
+   perpendiculares (up é ajustado). Feita para ser chamada todo frame,
    junto com rzUpdateObjectVertices. Erros: RZ_ERR_INVALID_ARG (nulos, não
    finitos, nulos em comprimento ou paralelos). */
 RZ_API int32_t RZ_CALL rzSetCameraInternalAxes(RzContext* ctx, const RzVertex* forward,
-                                               const RzVertex* right);
+                                               const RzVertex* up);
 
 /* Câmera de perseguição, como se puxada por uma corda:
    distance  comprimento da corda, em tiles (padrão 3): com o alvo mais longe

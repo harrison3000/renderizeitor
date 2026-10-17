@@ -562,7 +562,6 @@ struct RzContext {
     // Câmera interna (rzSetCameraInternalAxes): base ortonormal no mundo
     bool     internalValid = false;
     rz::Vec3 internalForward = { 0.0f, 0.0f, -1.0f };
-    rz::Vec3 internalRight   = { 1.0f, 0.0f, 0.0f };
     rz::Vec3 internalUp      = { 0.0f, 1.0f, 0.0f };
     // Entrada suave na interna vindo da perseguição (ou da congelada)
     bool     internalEnterActive = false;
@@ -652,8 +651,7 @@ int32_t loadPcxAtlas(const char* path, uint8_t* indices, uint8_t* paletteRGB);
 // rz_camera.cpp: avança a câmera um frame e devolve view-projection (convenção GL);
 // também guarda o foco da sombra.
 Mat4 updateCamera(RzContext* ctx);
-Mat4 lookAt(Vec3 eye, Vec3 at);
-Mat4 viewFromAxes(Vec3 eye, Vec3 f, Vec3 r, Vec3 u);
+Mat4 lookAt(Vec3 eye, Vec3 at, Vec3 up = { 0.0f, 1.0f, 0.0f });
 
 // rz_shadow.cpp
 bool createShadowMaps(RzContext* ctx);

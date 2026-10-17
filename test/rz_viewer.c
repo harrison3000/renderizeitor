@@ -89,22 +89,26 @@ static void placeVehicle(void) {
 }
 
 /* Câmera interna: frente = meio das rodas dianteiras - meio das traseiras,
-   direita = roda dianteira direita - esquerda (eixos do legado, como os
-   vértices); acompanha a inclinação do carro no terreno. */
+   cima = frente x (dianteira direita - esquerda) (eixos do legado, como os
+   vértices: nesse sistema o produto vetorial nesta ordem aponta para cima);
+   acompanha a inclinação do carro no terreno. */
 static void setInternalCameraAxes(void) {
     const RzVertex* v = RZTD_VERTICES(&g_vehicle);
     const RzVertex* fl = &v[RZTD_WHEEL_FIRST + 0];
     const RzVertex* fr = &v[RZTD_WHEEL_FIRST + 1];
     const RzVertex* rl = &v[RZTD_WHEEL_FIRST + 2];
     const RzVertex* rr = &v[RZTD_WHEEL_FIRST + 3];
-    RzVertex forward, right;
+    RzVertex forward, right, up;
     forward.x = 0.5f * (fl->x + fr->x - rl->x - rr->x);
     forward.y = 0.5f * (fl->y + fr->y - rl->y - rr->y);
     forward.z = 0.5f * (fl->z + fr->z - rl->z - rr->z);
     right.x = fr->x - fl->x;
     right.y = fr->y - fl->y;
     right.z = fr->z - fl->z;
-    rzSetCameraInternalAxes(g_ctx, &forward, &right);
+    up.x = forward.y * right.z - forward.z * right.y;
+    up.y = forward.z * right.x - forward.x * right.z;
+    up.z = forward.x * right.y - forward.y * right.x;
+    rzSetCameraInternalAxes(g_ctx, &forward, &up);
 }
 
 static void driveCar(int active) {
