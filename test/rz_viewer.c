@@ -276,7 +276,7 @@ int main(int argc, char** argv) {
 
     win = SDL_CreateWindow("Renderizeitor",
                            SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                           FB_WIDTH, FB_HEIGHT, SDL_WINDOW_OPENGL);
+                           FB_WIDTH, FB_HEIGHT, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
     if (!win) {
         fprintf(stderr, "rz_viewer: SDL_CreateWindow falhou: %s\n", SDL_GetError());
         SDL_Quit();

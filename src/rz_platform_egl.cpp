@@ -205,6 +205,15 @@ bool platformMakeCurrent(Platform* p) {
     return SDL_GL_MakeCurrent(p->window, p->glContext) == 0;
 }
 
+bool platformDrawableSize(Platform* p, int32_t* outWidth, int32_t* outHeight) {
+    if (p->mode != kSdl) return false;
+    int w = 0, h = 0;
+    SDL_GL_GetDrawableSize(p->window, &w, &h);
+    *outWidth  = w;
+    *outHeight = h;
+    return true;
+}
+
 void* platformGetProc(const char* name) {
     return g_getProc ? g_getProc(name) : nullptr;
 }

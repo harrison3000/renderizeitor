@@ -97,7 +97,9 @@ typedef char RzAssertSpriteSize[sizeof(RzSprite) == 24 ? 1 : -1];
                    do framebuffer (profundidade etc.) é escolhido quando a janela
                    é criada: antes do SDL_CreateWindow, o host deve pedir
                    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24) e
-                   SDL_GL_DOUBLEBUFFER = 1. rzDestroy apaga o contexto; a janela
+                   SDL_GL_DOUBLEBUFFER = 1. A resolução acompanha o tamanho
+                   da janela sozinha (lido a cada rzRender; pode ser
+                   SDL_WINDOW_RESIZABLE). rzDestroy apaga o contexto; a janela
                    continua do host (destrua-a depois do rzDestroy).
 
    Em ambos, o contexto OpenGL pertence à thread que chamou rzCreate*: todas

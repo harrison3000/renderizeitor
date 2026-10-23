@@ -89,6 +89,7 @@ Limites:
 ### 5.1 Janela (SDL2)
 
 - **Criação:** o host cria a janela SDL2 com `SDL_WINDOW_OPENGL` e chama `rzCreateWindow(window, &ctx)`. A plataforma (`rz_platform_egl.cpp`, modo SDL) cria um contexto OpenGL 3.3 core próprio na janela (`SDL_GL_CreateContext`, devolvendo depois os atributos de versão/perfil que o host tinha), resolve os ponteiros do GL com `SDL_GL_GetProcAddress` e usa o tamanho do drawable (`SDL_GL_GetDrawableSize`).
+- **Redimensionamento:** a cada `rzRender` lê o tamanho do drawable (`SDL_GL_GetDrawableSize`); se mudou, refaz a focal e o viewport (a janela pode ser `SDL_WINDOW_RESIZABLE`; minimizada, 0 × 0, mantém o último).
 - **Formato do framebuffer:** é escolhido na criação da janela, então o host pede `SDL_GL_DEPTH_SIZE` 24 e `SDL_GL_DOUBLEBUFFER` 1 antes do `SDL_CreateWindow`.
 - **Desenho e ritmo:** `rzRender` desenha direto no framebuffer padrão da janela (sem cópia, winding de frente `GL_CCW`) e deixa o frame no back buffer. Quem troca os buffers (`SDL_GL_SwapWindow`) depois de cada `rzRender` é o host, que também escolhe o v-sync (`SDL_GL_SetSwapInterval`, logo após `rzCreateWindow`, com o contexto já corrente) e controla o ritmo dos frames.
 - **Ciclo de vida:** a janela, a entrada e o laço de eventos são do host. `rzDestroy` apaga o contexto; o host destrói a janela depois.

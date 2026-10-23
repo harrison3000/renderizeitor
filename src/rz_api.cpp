@@ -317,6 +317,14 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCameraFollow(RzContext* ctx, float distance
 RZ_API RZ_ENTRY int32_t RZ_CALL rzRender(RzContext* ctx) {
     if (!ctx) return RZ_ERR_INVALID_ARG;
     if (!platformMakeCurrent(ctx->platform)) return recordError(ctx, "rzRender", RZ_ERR_GL);
+    // Janela: acompanha o tamanho atual (o host pode redimensionar); minimizada
+    // (0 x 0) mantém o último
+    int32_t w, h;
+    if (ctx->windowed && platformDrawableSize(ctx->platform, &w, &h) &&
+        w >= 1 && h >= 1 && w <= kMaxWindowSize && h <= kMaxWindowSize &&
+        (w != ctx->width || h != ctx->height)) {
+        setSize(ctx, w, h);
+    }
     renderFrame(ctx);
     return recordError(ctx, "rzRender", glGetError() == GL_NO_ERROR ? RZ_OK : RZ_ERR_GL);
 }

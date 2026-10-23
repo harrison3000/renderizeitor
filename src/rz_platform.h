@@ -20,5 +20,8 @@ Platform* platformCreateSdl(void* sdlWindow, int32_t* outWidth, int32_t* outHeig
 void  platformDestroy(Platform* p);
 bool  platformMakeCurrent(Platform* p);
 void* platformGetProc(const char* name);           // para loadGl (com contexto corrente)
+// Janela SDL: tamanho atual do drawable (acompanha o redimensionamento).
+// Offscreen: false (o tamanho é fixo).
+bool  platformDrawableSize(Platform* p, int32_t* outWidth, int32_t* outHeight);
 
 } // namespace rz
