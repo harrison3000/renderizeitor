@@ -12,7 +12,8 @@
  *   T                       liga / desliga as texturas
  *   1 / 2 / 3 / 4           câmera: perseguição / interna / perseguição congelada /
  *                           visão geral do terreno
- *   R                       volta a câmera aos valores iniciais
+ *   [ / ]                   diminui / aumenta o campo de visão (5 graus)
+ *   R                       volta a câmera (e o campo de visão) aos valores iniciais
  *   F                       liga / desliga o limite de 60 fps (sem limite: renderiza o
  *                           mais rápido possível; a simulação continua a 60 Hz)
  *   Esc                     sai
@@ -47,6 +48,8 @@ static RzContext* g_ctx;
 static float   g_followDist   = FOLLOW_DIST_DEFAULT;
 static float   g_followHeight = FOLLOW_HEIGHT_DEFAULT;
 static int32_t g_textures = 1;
+#define FOV_DEFAULT 50.0f
+static float   g_fov = FOV_DEFAULT;      /* graus, vertical ([ e ]) */
 
 /* Objetos: construções paradas e um cubo que este "host" gira a cada frame */
 static int32_t  g_cubeId = -1;
@@ -186,14 +189,14 @@ static void updateTitle(SDL_Window* win, int32_t renderUs, int32_t fps) {
     char title[256];
     if (g_cameraMode == RZ_CAMERA_FOLLOW || g_cameraMode == RZ_CAMERA_FOLLOW_FREEZE) {
         snprintf(title, sizeof(title),
-                 "Renderizeitor  |  %d fps%s  |  render %d.%02d ms  |  %s: corda %.1f  altura %.1f",
+                 "Renderizeitor  |  %d fps%s  |  render %d.%02d ms  |  fov %.0f  |  %s: corda %.1f  altura %.1f",
                  fps, g_uncapped ? " (sem limite)" : "", renderUs / 1000, (renderUs % 1000) / 10,
-                 names[g_cameraMode], (double)g_followDist, (double)g_followHeight);
+                 (double)g_fov, names[g_cameraMode], (double)g_followDist, (double)g_followHeight);
     } else {
         snprintf(title, sizeof(title),
-                 "Renderizeitor  |  %d fps%s  |  render %d.%02d ms  |  %s",
+                 "Renderizeitor  |  %d fps%s  |  render %d.%02d ms  |  fov %.0f  |  %s",
                  fps, g_uncapped ? " (sem limite)" : "", renderUs / 1000, (renderUs % 1000) / 10,
-                 names[g_cameraMode]);
+                 (double)g_fov, names[g_cameraMode]);
     }
     SDL_SetWindowTitle(win, title);
 }
@@ -378,6 +381,15 @@ int main(int argc, char** argv) {
                 case SDLK_r:
                     g_followDist = FOLLOW_DIST_DEFAULT;
                     g_followHeight = FOLLOW_HEIGHT_DEFAULT;
+                    g_fov = FOV_DEFAULT;
+                    rzSetCameraFov(g_ctx, g_fov);
+                    break;
+                case SDLK_LEFTBRACKET:
+                case SDLK_RIGHTBRACKET:
+                    g_fov += ev.key.keysym.sym == SDLK_RIGHTBRACKET ? 5.0f : -5.0f;
+                    if (g_fov < 10.0f)  g_fov = 10.0f;
+                    if (g_fov > 120.0f) g_fov = 120.0f;
+                    rzSetCameraFov(g_ctx, g_fov);
                     break;
                 case SDLK_f:
                     g_uncapped = !g_uncapped;

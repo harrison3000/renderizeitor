@@ -376,6 +376,13 @@ RZ_API int32_t RZ_CALL rzSetCameraTarget(RzContext* ctx, int32_t id, int32_t ver
 RZ_API int32_t RZ_CALL rzSetCameraInternalAxes(RzContext* ctx, const RzVertex* forward,
                                                const RzVertex* up);
 
+/* Campo de visão vertical, em graus, de 10 a 120 (padrão 50); o horizontal
+   sai da proporção da imagem. Vale para todos os modos de câmera, a partir do
+   próximo rzRender. Barata: pode ser chamada todo frame (ex.: zoom). FOV
+   largo deixa a sombra perto da câmera um pouco menos nítida (a cascata mais
+   próxima cobre mais área). Erros: RZ_ERR_INVALID_ARG (fora da faixa ou NaN). */
+RZ_API int32_t RZ_CALL rzSetCameraFov(RzContext* ctx, float degrees);
+
 /* Câmera de perseguição, como se puxada por uma corda:
    distance  comprimento da corda, em tiles (padrão 3): com o alvo mais longe
              que isso, a câmera é puxada; mais perto que a metade, ela recua;

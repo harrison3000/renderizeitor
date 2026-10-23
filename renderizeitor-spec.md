@@ -55,7 +55,7 @@ Suporte a Windows (DLL de 32 bits, WGL/GDI, MinGW32) e o carregamento como plugi
 | Objetos | `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count, paletteIndex)`, `rzAddObjectTexturedPolygon(id, RzTexVertex* corners, count)`, `rzAddObjectTranslucentPolygon(id, indices, count, tone)`, `rzAddObjectLine(id, a, b, thickness, paletteIndex)`, `rzLoadObjectTexture(id, caminhoPcx)`, `rzLoadFallbackTexture(caminhoPcx)`, `rzUpdateObjectVertices(id, RzVertex*)`, `rzDestroyObject` |
 | Rodas | `rzSetObjectWheels(id, RzWheel[4])`, `rzUpdateObjectWheels(id, steer)` |
 | Sprites | `rzSetSprites(RzSprite*, count)` (array inteiro a cada chamada, até 256) |
-| Câmera | `rzSetCamera(modo)`, `rzSetCameraTarget(id, vertex)`, `rzSetCameraInternalAxes(frente, cima)`, `rzSetCameraFollow(distance, height, stiffness)` |
+| Câmera | `rzSetCamera(modo)`, `rzSetCameraTarget(id, vertex)`, `rzSetCameraFov(graus)`, `rzSetCameraInternalAxes(frente, cima)`, `rzSetCameraFollow(distance, height, stiffness)` |
 | Cena | `rzSetBackgroundColor(índice)` (índice na paleta do atlas; sem atlas, 32, 40, 48), `rzSetFog(start, end)` (tiles; padrão 30, 65) |
 | Frame | `rzRender` |
 | Erros | `rzGetError(ctx, &funcao)` |
@@ -190,7 +190,7 @@ Limites:
 
 ## 9. Câmera
 
-Tudo na CPU, uma vez por `rzRender`, gerando a matriz view-projection. A projeção é perspectiva, com FOV vertical de 60° e profundidade no estilo GL.
+Tudo na CPU, uma vez por `rzRender`, gerando a matriz view-projection. A projeção é perspectiva, com FOV vertical ajustável por `rzSetCameraFov` (10–120°, padrão 50°, `kFovYDegrees`; vale para todos os modos a partir do próximo `rzRender`; no viewer, `[` e `]`) e profundidade no estilo GL.
 
 - **Modos (`rzSetCamera`):** `RZ_CAMERA_FOLLOW` (perseguição na corda, o padrão), `RZ_CAMERA_INTERNAL` (no vértice de referência), `RZ_CAMERA_FOLLOW_FREEZE` (a posição da perseguição congela onde está e ela continua olhando para o alvo suavizado, sem a bolha) e `RZ_CAMERA_OVERVIEW` (visão geral). Os três primeiros usam o vértice de `rzSetCameraTarget`; sem alvo, qualquer modo vira a visão geral. Entre perseguição, congelada e visão geral, as transições suaves de sempre; ao sair da congelada, a corda volta a puxar a partir de onde a câmera parou.
 - **Câmera interna:** no vértice de referência, com a base dada por `rzSetCameraInternalAxes(forward, up)` nos eixos do legado (convertidos para o mundo; `up` é ortogonalizado e a direita = frente × cima, no mundo, então a câmera inclina com o objeto). Feita para ser chamada todo frame. Vindo da perseguição (ou da congelada), entra num voo suave de 30 frames (`kInternalEnterFrames`): o olho vai do lugar atual até o vértice e a orientação gira da atual para a dos eixos (smoothstep); vindo da visão geral, e na saída, corte seco. Enquanto ela está ativa, a perseguição é mantida pronta atrás do alvo (pela frente horizontal da câmera interna), então a volta também é um corte. Near plane de 0,02 tile (`kInternalNear`): o painel fica perto. Sem eixos ainda, olha na direção horizontal de onde a câmera anterior estava para o alvo. No viewer, os eixos saem das rodas (frente = meio das dianteiras − meio das traseiras, cima = frente × (dianteira direita − esquerda), nos eixos do legado) e o vértice é o alvo de sempre, acima do teto.

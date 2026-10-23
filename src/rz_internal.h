@@ -36,7 +36,9 @@ constexpr float kBackgroundG = 40.0f / 255.0f;
 constexpr float kBackgroundB = 48.0f / 255.0f;
 
 constexpr float kPi              = 3.14159265358979f;
-constexpr float kFovYDegrees     = 50.0f;
+constexpr float kFovYDegrees     = 50.0f;   // padrão de rzSetCameraFov
+constexpr float kFovYMin         = 10.0f;
+constexpr float kFovYMax         = 120.0f;
 constexpr float kAmbient         = 0.3f;
 constexpr float kTexturedShading = 0.35f;   // força da luz sobre o chão texturizado (0 = textura pura)
 
@@ -526,6 +528,7 @@ struct RzContext {
     // Projeção
     float focalX = 1.0f;     // f / aspecto
     float focalY = 1.0f;     // f = 1 / tan(fov/2)
+    float fovY   = rz::kFovYDegrees;   // graus, vertical (rzSetCameraFov)
 
     // Terreno
     std::vector<uint8_t> heights;      // 256x256, cópia na CPU (malha e câmera de perseguição)

@@ -16,7 +16,7 @@ bool isPositiveFinite(float v) {
 
 void setSize(RzContext* ctx, int32_t width, int32_t height) {
     constexpr float degToRad = kPi / 180.0f;
-    const float focal = 1.0f / tanf(kFovYDegrees * 0.5f * degToRad);
+    const float focal = 1.0f / tanf(ctx->fovY * 0.5f * degToRad);
     ctx->width  = width;
     ctx->height = height;
     ctx->focalY = focal;
@@ -292,6 +292,14 @@ RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCameraInternalAxes(RzContext* ctx, const Rz
     ctx->internalForward = f;
     ctx->internalUp      = u;
     ctx->internalValid   = true;
+    return RZ_OK;
+}
+
+RZ_API RZ_ENTRY int32_t RZ_CALL rzSetCameraFov(RzContext* ctx, float degrees) {
+    if (!ctx) return RZ_ERR_INVALID_ARG;
+    if (!(degrees >= kFovYMin && degrees <= kFovYMax)) return recordError(ctx, "rzSetCameraFov", RZ_ERR_INVALID_ARG);   // pega NaN
+    ctx->fovY = degrees;
+    setSize(ctx, ctx->width, ctx->height);        // só a focal muda; vale no próximo rzRender
     return RZ_OK;
 }
 
