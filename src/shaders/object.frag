@@ -3,6 +3,12 @@ flat in float vLight;
 in vec2 vUV;
 in vec3 vShadow0, vShadow1, vShadow2;
 in vec3 vWorld;
+in float vNdotL;
+
+// Terminador: com a luz rasante ou por trás (n · l perto de 0 ou negativo) a
+// face fica na sombra de vez, em vez de alternar luz/sombra pela resolução
+// do mapa; a luz direta ali já é quase zero, então a troca é suave.
+uniform float uShadowTerminator;
 
 // Neblina: smoothstep da distância a uFogOrigin entre uFogStart e uFogEnd, na
 // cor uFogColor (a de fundo).
@@ -61,7 +67,7 @@ void main() {
     vec4 tex = textureGrad(uTexture, vUV, dUVx, dUVy);       // nearest no nível, linear entre níveis
     if (tex.a < 0.5) discard;                                // índice 255 do PCX: transparente
     vec3 texel = tex.rgb;
-    float lit = shadowTerm();
+    float lit = shadowTerm() * smoothstep(0.0, uShadowTerminator, vNdotL);
     vec3 color = texel * mix(min(uShadowLight, vLight), vLight, lit);
     fragColor = vec4(mix(color, uFogColor, fog), 0.0);
 }

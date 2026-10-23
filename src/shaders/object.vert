@@ -10,12 +10,14 @@ uniform int  uFromBuffer;                 // 1: objetos (posições em uPosition
 uniform samplerBuffer  uPositions;        // posições no mundo dos vértices do objeto
 uniform usamplerBuffer uIndices;          // índices dos polígonos (sem os fechamentos)
 uniform mat4 uShadowMatrix[3];            // luz: cascatas 0, 1 e 2
+uniform vec3 uShadowOffset;               // normal offset de cada cascata (mundo)
 uniform vec3  uLight;                     // direção para a luz (normalizada)
 uniform float uAmbient;
 flat out float vLight;
 out vec2 vUV;
 out vec3 vShadow0, vShadow1, vShadow2;
 out vec3 vWorld;                          // para a neblina
+out float vNdotL;                         // normal · luz (sombra no terminador)
 
 vec3 vertexAt(int i) { return texelFetch(uPositions, i).xyz; }
 
@@ -42,12 +44,17 @@ void main() {
         position = vertexAt(aPolygon.x);
         normal = polygonNormal(aPolygon.y, aPolygon.z);
     }
-    vLight = uAmbient + (1.0 - uAmbient) * max(dot(normalize(mat3(uModel) * normal), uLight), 0.0);
+    vec3 n = normalize(mat3(uModel) * normal);
+    vNdotL = dot(n, uLight);
+    vLight = uAmbient + (1.0 - uAmbient) * max(vNdotL, 0.0);
     vUV = aUV;
     vec4 world = uModel * vec4(position, 1.0);
-    vShadow0 = (uShadowMatrix[0] * world).xyz * 0.5 + 0.5;
-    vShadow1 = (uShadowMatrix[1] * world).xyz * 0.5 + 0.5;
-    vShadow2 = (uShadowMatrix[2] * world).xyz * 0.5 + 0.5;
+    // Normal offset: lê o mapa de sombra num ponto empurrado pela normal, mais
+    // quanto mais rasante a luz (o acne some sem descolar a sombra)
+    vec3 push = n * clamp(1.0 - vNdotL, 0.0, 1.0);
+    vShadow0 = (uShadowMatrix[0] * (world + vec4(push * uShadowOffset.x, 0.0))).xyz * 0.5 + 0.5;
+    vShadow1 = (uShadowMatrix[1] * (world + vec4(push * uShadowOffset.y, 0.0))).xyz * 0.5 + 0.5;
+    vShadow2 = (uShadowMatrix[2] * (world + vec4(push * uShadowOffset.z, 0.0))).xyz * 0.5 + 0.5;
     vWorld = world.xyz;
     gl_Position = uViewProj * world;
 }

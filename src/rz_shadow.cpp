@@ -265,6 +265,7 @@ void renderShadowMaps(RzContext* ctx) {
         ctx->terrainShadowDirty = false;
         ctx->terrainShadowAll = false;
         ctx->shadowMatrix[0] = ctx->shadowMatrix[1] = ctx->shadowMatrix[2];
+        ctx->shadowTexel[0] = ctx->shadowTexel[1] = ctx->shadowTexel[2] = 2.0f * radius / float(ctx->shadowSize[2]);
         glDisable(GL_POLYGON_OFFSET_FILL);
         return;
     }
@@ -277,6 +278,12 @@ void renderShadowMaps(RzContext* ctx) {
         const float d0 = i == 0 ? 0.0f : splits[i] - blend;
         float half = sliceSphere(ctx, d0, splits[i + 1], &center);
         half += 2.0f * half / float(ctx->shadowSize[i]);        // + texels do PCF
+        // Tamanho em degraus de kCascadeSizeStep (arredonda para cima): mudando
+        // o FOV, a caixa não muda de tamanho todo frame, e entre os degraus o
+        // encaixe em texels (snappedBox) segura a sombra parada
+        const float stepLog = logf(kCascadeSizeStep);
+        half = expf(ceilf(logf(half) / stepLog) * stepLog);
+        ctx->shadowTexel[i] = 2.0f * half / float(ctx->shadowSize[i]);
         const ShadowBox box = snappedBox(view, center, half, ctx->shadowSize[i]);
         ctx->shadowMatrix[i] = boxProjection(ctx, box) * view;
         beginPass(ctx, i, ctx->shadowMatrix[i]);
@@ -304,6 +311,7 @@ void renderShadowMaps(RzContext* ctx) {
             ++ctx->cascadeFarRedraws;
         }
         const ShadowBox box = snappedBox(view, ctx->cascadeFarCenter, ctx->cascadeFarHalf, ctx->shadowSize[2]);
+        ctx->shadowTexel[2] = 2.0f * ctx->cascadeFarHalf / float(ctx->shadowSize[2]);
         ctx->shadowMatrix[2] = boxProjection(ctx, box) * view;
         beginPass(ctx, 2, ctx->shadowMatrix[2]);
         drawTerrainDepth(ctx, view, box);
@@ -350,12 +358,14 @@ void initShadowUniforms(GLuint program, ShadowUniforms& u) {
     u.matrices = glGetUniformLocation(program, "uShadowMatrix");
     u.cascade  = glGetUniformLocation(program, "uCascade");
     u.onlyFar  = glGetUniformLocation(program, "uCascadeOnlyFar");
+    u.offset   = glGetUniformLocation(program, "uShadowOffset");
     const char* names[kShadowMaps] = { "uShadow0", "uShadow1", "uShadow2" };
     glUseProgram(program);
     for (int32_t i = 0; i < kShadowMaps; ++i) {
         u.maps[i] = glGetUniformLocation(program, names[i]);
         glUniform1i(u.maps[i], kUnitShadowFirst + i);
     }
+    glUniform1f(glGetUniformLocation(program, "uShadowTerminator"), kShadowTerminator);
 }
 
 // Programa já em uso. Deixa a unidade de textura 0 ativa.
@@ -369,6 +379,8 @@ void bindShadowMaps(const RzContext* ctx, const ShadowUniforms& u) {
     const float cs = ctx->cellSize;
     glUniform3f(u.cascade, kCascadeSplit0 * cs, kCascadeSplit1 * cs, kCascadeBlend * cs);
     glUniform1i(u.onlyFar, ctx->shadowWholeTerrain ? 1 : 0);
+    glUniform3f(u.offset, kShadowNormalOffset * ctx->shadowTexel[0], kShadowNormalOffset * ctx->shadowTexel[1],
+                kShadowNormalOffset * ctx->shadowTexel[2]);
 }
 
 } // namespace rz

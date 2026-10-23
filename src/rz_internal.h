@@ -176,6 +176,9 @@ constexpr float   kShadowLight        = kAmbient * 0.8f;   // luz na sombra (cor
                                                          // 20 % abaixo do ambiente
 constexpr float   kShadowOffsetFactor = 2.0f;   // glPolygonOffset no passe de profundidade
 constexpr float   kShadowOffsetUnits  = 4.0f;
+constexpr float   kShadowNormalOffset = 1.5f;   // normal offset na leitura, em texels do mapa
+constexpr float   kShadowTerminator   = 0.15f;  // n · l abaixo disso: a sombra entra (smoothstep)
+constexpr float   kCascadeSizeStep    = 1.1f;   // caixas 0 e 1: tamanho em degraus (não muda todo frame)
 
 // Texturas: blocos 16x16 numa textura array (uma camada por bloco), com
 // mipmaps 16, 8, 4, 2, 1 gerados na carga (média 2x2, como no software).
@@ -374,7 +377,7 @@ struct FogUniforms {
 };
 
 struct ShadowUniforms {
-    GLint matrices = -1, cascade = -1, onlyFar = -1;
+    GLint matrices = -1, cascade = -1, onlyFar = -1, offset = -1;
     GLint maps[kShadowMaps] = { -1, -1, -1 };
 };
 
@@ -503,6 +506,7 @@ struct RzContext {
     rz::GLuint shadowFbo[rz::kShadowMaps] = {};
     rz::GLuint shadowTex[rz::kShadowMaps] = {};
     rz::Mat4   shadowMatrix[rz::kShadowMaps] = {};     // do frame; contíguas (glUniformMatrix4fv)
+    float      shadowTexel[rz::kShadowMaps] = {};      // tamanho do texel de cada mapa (mundo)
     int32_t    shadowSize[rz::kShadowMaps] = {};      // lado de cada mapa (já limitado pelo driver)
     bool       terrainShadowDirty = true;            // terreno mudou: cascata 2 refeita...
     bool       terrainShadowAll   = true;            // ...inteira, ou só a caixa abaixo (mundo)
