@@ -36,7 +36,7 @@ constexpr float kBackgroundG = 40.0f / 255.0f;
 constexpr float kBackgroundB = 48.0f / 255.0f;
 
 constexpr float kPi              = 3.14159265358979f;
-constexpr float kFovYDegrees     = 60.0f;
+constexpr float kFovYDegrees     = 50.0f;
 constexpr float kAmbient         = 0.3f;
 constexpr float kTexturedShading = 0.35f;   // força da luz sobre o chão texturizado (0 = textura pura)
 
