@@ -1,8 +1,8 @@
 #!/bin/sh
 # Renderizeitor (OpenGL) no Linux.
 #   rz_test    : modo offscreen (rzCreate) via EGL surfaceless (llvmpipe serve).
-#   rz_viewer  : aplicação SDL2 com janela (rzCreateCurrent).
-# Precisa de libEGL + driver Mesa, de libGL e de SDL2 (pkg-config sdl2).
+#   rz_viewer  : aplicação SDL2 com janela (rzCreateWindow).
+# Precisa de libEGL + driver Mesa e de SDL2 (pkg-config sdl2).
 set -e
 
 FLAGS="-std=c++23 -O2 -fno-exceptions -fno-rtti -Wall -Wextra -Wdouble-promotion -Iinclude"

@@ -4,7 +4,7 @@
 
 Renderizeitor é um renderizador 3D em OpenGL 3.3 core, escrito em C++23 no estilo "C com classes". É uma biblioteca estática com interface C, linkada direto no host.
 
-Ele renderiza um terreno a partir de um heightmap 256×256, com texturas por bloco vindas de um atlas paletizado. Também desenha objetos poligonais que o host atualiza, e a câmera persegue um vértice-alvo.
+Ele renderiza um terreno a partir de um heightmap 256×256, com texturas por bloco vindas de um atlas paletizado. Também desenha objetos poligonais que o host atualiza (com rodas, vidro e linhas), sprites (fumaça e detritos) e sombras em cascata, e a câmera persegue um vértice-alvo (ou fica nele, ou mostra a ilha inteira).
 
 Há dois modos de saída:
 
@@ -27,7 +27,7 @@ Suporte a Windows (DLL de 32 bits, WGL/GDI, MinGW32) e o carregamento como plugi
 
 - **Única dependência externa é o SDL2** (contexto da janela; no `rz_viewer`, também janela e entrada). Sem headers de GL do sistema: `rz_gl.h/.cpp` declara o subconjunto do GL 3.3 usado e o carrega por X-macro, resolvendo os ponteiros via `SDL_GL_GetProcAddress` (janela) ou EGL (offscreen).
 - **Shaders:** GLSL 3.30 core, um por arquivo em `src/shaders/` (`<nome>.vert` / `<nome>.frag`), incorporados em `src/rz_shaders.h` com `#embed` (extensão do GCC antes do C++26) como `unsigned char[]` terminado em 0.
-- **Std liberada quando simplifica o código**, desde que linke estática (`-static-libstdc++`). Containers como `std::vector` são o caso principal: buffers do terreno, do atlas e dos objetos, e o contexto inteiro (`new RzContext`, com os padrões nos inicializadores dos membros).
+- **Std liberada quando simplifica o código.** Containers como `std::vector` são o caso principal: buffers do terreno, do atlas e dos objetos, e o contexto inteiro (`new RzContext`, com os padrões nos inicializadores dos membros).
 - **Sem exceções** (`-fno-exceptions`): uma falha de alocação aborta o programa em vez de virar `RZ_ERR_NO_MEMORY`. A chance é baixíssima e isso foi aceito.
 - **O que não se usa:** streams e RTTI.
 - **Estilo "C com classes":**
@@ -43,7 +43,7 @@ Suporte a Windows (DLL de 32 bits, WGL/GDI, MinGW32) e o carregamento como plugi
 - **Chamadas:** nenhum struct passado por valor. As funções devolvem `int32_t` com um código `RZ_*`.
 - **Memória:** nunca troca de dono na fronteira. A biblioteca libera o que alocou em `rzDestroy`.
 - **Thread:** o contexto GL pertence à thread que chamou `rzCreate*`. Todas as chamadas do contexto devem vir dela, e no modo janela ela é a thread que criou o contexto e trata o laço de frames.
-- **Alocação:** só nas funções de carga (heightmap, atlas, mapa de blocos, `rzCreateObject`, `rzAddObjectPolygon`). `rzRender` e `rzUpdateObjectVertices` não alocam (os vetores já têm o tamanho final).
+- **Alocação:** só nas funções de carga (heightmap, atlas, mapa de blocos, texturas, `rzCreateObject`, `rzAddObject*`, `rzSetObjectWheels`). `rzRender`, `rzUpdateObjectVertices`, `rzSetSprites` e as funções de câmera não alocam (os vetores já têm o tamanho final).
 
 ### 4.2 Funções
 
@@ -53,7 +53,7 @@ Suporte a Windows (DLL de 32 bits, WGL/GDI, MinGW32) e o carregamento como plugi
 | Terreno | `rzSetHeightmap` (256×256; guarda o ponteiro); `rzSetTerrainScale(cellSize, heightScale)`; `rzUpdateTerrain()` (relê os buffers e refaz só o que mudou) |
 | Texturas | `rzLoadTileAtlas(caminhoPcx)`; `rzSetTileMap` (256×256, NULL desliga as texturas; guarda o ponteiro) |
 | Objetos | `rzCreateObject(vertexCount)`, `rzAddObjectPolygon(id, indices, count, paletteIndex)`, `rzAddObjectTexturedPolygon(id, RzTexVertex* corners, count)`, `rzAddObjectTranslucentPolygon(id, indices, count, tone)`, `rzAddObjectLine(id, a, b, thickness, paletteIndex)`, `rzLoadObjectTexture(id, caminhoPcx)`, `rzLoadFallbackTexture(caminhoPcx)`, `rzUpdateObjectVertices(id, RzVertex*)`, `rzDestroyObject` |
-| Rodas | `rzSetObjectWheels(id, RzWheel[4])`, `rzUpdateObjectWheels(id, steer)` |
+| Rodas | `rzSetObjectWheels(id, RzWheel[4])`, `rzSetObjectWheelFaces(id, externa, interna)`, `rzSetObjectWheelSpin(id, velocidade)`, `rzUpdateObjectWheels(id, steer)` |
 | Sprites | `rzSetSprites(RzSprite*, count)` (array inteiro a cada chamada, até 256) |
 | Câmera | `rzSetCamera(modo)`, `rzSetCameraTarget(id, vertex)`, `rzSetCameraFov(graus)`, `rzSetCameraInternalAxes(frente, cima)`, `rzSetCameraFollow(distance, height, stiffness)` |
 | Cena | `rzSetBackgroundColor(índice)` (índice na paleta do atlas; sem atlas, 32, 40, 48), `rzSetFog(start, end)` (tiles; padrão 30, 65) |
@@ -115,11 +115,11 @@ Limites:
 - **Tamanho:** 255×255 quads, ou 130.050 triângulos. Cada quad é dividido pela diagonal (c+1, r)–(c, r+1), igual ao legado (cantos 1 2 / 3 4 → triângulos 1 3 2 e 2 3 4):
   - A = (c, r), (c, r+1), (c+1, r)
   - B = (c+1, r), (c, r+1), (c+1, r+1)
-- **Montagem:** a malha é montada na CPU (`buildTerrainMesh`) e enviada a um VBO estático, sem índices. São 20 bytes por vértice:
+- **Montagem:** a malha é montada na CPU (`buildTerrainMesh`) e enviada a um VBO estático, sem índices. São 24 bytes por vértice (`TerrainVertex`):
   - posição float;
-  - cor flat do triângulo;
-  - (u, v) do canto do quad;
-  - camada do atlas.
+  - cor flat do triângulo (sem luz);
+  - (u, v) do canto do quad e camada do atlas;
+  - normal da face (10 bits por eixo).
 - **Por que sem índices:** a cor e o bloco são do triângulo e do quad, não do ponto da grade.
 - **Quando é remontada:** inteira (com a borda e a sombra do relevo) em `rzSetHeightmap` e `rzSetTerrainScale`; `rzSetTileMap` só refaz os blocos dos quads e da continuação (sem relevo nem sombra).
 - **Mudança durante o jogo (`rzUpdateTerrain`):** `rzSetHeightmap`/`rzSetTileMap` guardam o ponteiro do host (tem que continuar válido); o host altera os próprios arrays e chama `rzUpdateTerrain`, que compara com as cópias (2 × 64 KB) e trata ponto a ponto (no jogo são raros e pequenos): altura → refaz e reenvia os 4 quads em volta, a cópia estendida (câmera) e a sombra do relevo só ali (scissor na cascata 2); bloco → refaz o quad. Ponto na borda do mapa: só o y das vértices do terreno de fora que estão em cima dele acompanha (sem fresta); o resto de fora, cores e parede não são recalculados (imperfeito, aceito; `rzSetHeightmap` refaz tudo). Bloco a menos de 8 quads da borda refaz a malha da continuação. Mudanças no interior: resultado idêntico pixel a pixel ao de refazer tudo (testado). Custo (llvmpipe): ~0,2 ms por ponto, contra ~30 ms + sombra inteira de `rzSetHeightmap` + `rzSetTileMap`. (Uma versão que recalculava a vizinhança de fora com exatidão ficou no branch `super_complicated_border_update`.)
@@ -137,7 +137,7 @@ Limites:
   | 151–210 | Rocha |
   | 211–255 | Neve |
 
-- **Luz:** direcional fixa (`lightDirection`), com intensidade `0.3 + 0.7 · max(0, n·L)`. A cor é calculada na carga, por triângulo.
+- **Luz:** direcional fixa (`lightDirection`), com intensidade `0.3 + 0.7 · max(0, n·L)`, calculada no vertex shader pela normal da face (flat: a mesma nos três cantos).
 
 ### 7.3 Texturas
 
@@ -153,7 +153,7 @@ Limites:
 
 ## 8. Objetos
 
-- **Vértices:** `uint32` em ponto fixo 8.24 sem sinal, em coordenadas absolutas do mundo (1.0 = 1 tile), três por vértice.
+- **Vértices:** `RzVertex`, três `float` em coordenadas absolutas do mundo, em tiles (1.0 = 1 tile), nos eixos do legado (x coluna, y linha, z para cima). Vindo do 8.24 do legado: valor / 16777216.0f.
 - **Montagem:** `rzCreateObject` recebe só a quantidade de vértices; cada polígono entra com uma chamada a `rzAddObjectPolygon`, que copia os índices (a lista é do chamador). As posições chegam por `rzUpdateObjectVertices`, antes ou depois dos polígonos; o objeto só é desenhado (e só serve de alvo da câmera) depois da primeira.
 - **Polígonos:** convexos, índices `uint16`. Se o último índice repetir o primeiro (fechamento do legado), ele é descartado. Com menos de 3 vértices, o polígono é ignorado; com índice fora do objeto, dá `RZ_ERR_INVALID_ARG` e nada é acrescentado. Até 65535 polígonos por objeto. Triangulados em leque.
 - **Cor e luz:** todo polígono é texturizado; a cor é a textura × a luz flat do polígono (sem a atenuação do chão), de um lado só: `0,3 + 0,7 · max(0, n·L)`, com n = −(normal de Newell), porque no sentido do legado (horário visto de fora) a de Newell aponta para dentro. Face de costas para a luz fica só com o ambiente.
@@ -169,25 +169,27 @@ Limites:
   - Filtro multiplicativo (o que está atrás × cinza) + brilho especular embaçado (Blinn-Phong, expoente 12, força 0,45; `kGlassShininess`, `kGlassSpecular`) da luz direcional, que some na sombra (cascatas) e de costas para a luz.
   - Um passe, `glBlendFunc(GL_ONE, GL_SRC_ALPHA)` com saída (brilho, cinza): destino = brilho + destino × cinza. Não precisa de ordenação (o filtro comuta; dois vidros sobrepostos em ordens diferentes diferem em no máximo 1 nível por arredondamento).
   - Depois dos objetos opacos e antes da parede de limite; sem gravar profundidade nem alfa de destino; mesmo culling dos objetos (só a face de fora); não projeta sombra; neblina (filtro → 1, brilho → 0). VBO próprio por objeto, criado no primeiro vidro.
-- **Rodas (`rzSetObjectWheels`, `rzUpdateObjectWheels`, `src/rz_wheels.cpp`):** 4 por objeto, pneus com ombros arredondados (24 segmentos, largura 0,4 × diâmetro, aspecto 12:30; `kWheelSegments`, `kWheelWidth`, `kWheelColor`).
+- **Rodas (`rzSetObjectWheels`, `rzSetObjectWheelFaces`, `rzSetObjectWheelSpin`, `rzUpdateObjectWheels`, `src/rz_wheels.cpp`):** 4 por objeto, pneus com ombros arredondados (24 segmentos, largura 0,4 × diâmetro, aspecto 12:30; `kWheelSegments`, `kWheelWidth`, `kWheelColor`).
   - Definição: 4 índices de vértice (centro do cubo), 4 flags dianteira/traseira (`uint8_t`, exatamente 2 dianteiras) e 4 diâmetros em tiles (> 0). Chamar de novo redefine e zera o esterço.
-  - Referencial do carro tirado dos 4 cubos: frente = meio das dianteiras − meio das traseiras; eixo lateral = diferença dentro de cada par; "cima" = perpendicular aos dois, sempre com y ≥ 0. Vale para qualquer ordem dos índices.
+  - Referencial do carro tirado dos 4 cubos: frente = meio das dianteiras − meio das traseiras; eixo lateral = diferença dentro de cada par; "cima" = perpendicular aos dois. O sentido do "cima" (y ≥ 0) e qual tampa de cada roda é a externa são fixados na primeira montagem e depois acompanham o corpo, então emborcar não inverte as rodas. Vale para qualquer ordem dos índices.
+  - Faces (`rzSetObjectWheelFaces`): dois quadrados em UV na textura do objeto, um para a face externa e um para a interna (espelhada); sem eles, as tampas são pretas. Pneu: banda de rodagem, ombros arredondados, parede lateral texturizada e jante recuada.
+  - Giro (`rzSetObjectWheelSpin`): a velocidade do carro em tiles por `rzRender`; cada roda gira distância / raio a cada frame (a face gira junto).
   - Esterço (`rzUpdateObjectWheels`): um `float` em radianos para as duas dianteiras, positivo = à esquerda (anti-horário visto de cima), aplicado em volta do "cima" do carro; traseiras sempre retas. Só muda a matriz da roda.
   - Malha de cada roda montada uma vez, no referencial dela (x frente, y cima, z eixo, centro no cubo), e só refeita quando as rodas ou as faces mudam. A cada frame a CPU calcula só uma matriz por roda (cubo, esterço e giro), aplicada no vertex shader (`uModel`, identidade no resto: terreno, objetos e sombra). Pneu com o programa do chão sem textura (cor chapada com luz, sombra e neblina), faces com o dos objetos; sem culling; um `glDrawArrays` por roda; projeta sombra (cascatas 0 e 1).
-- **Linhas (`rzAddObjectLine`):** entre dois vértices do objeto, exibidas como uma barra de seção quadrada de lado `thickness` (tiles), cor sólida `paletteIndex` da paleta da textura do objeto (bloquinho da faixa de amostras, como `rzAddObjectPolygon`). Geradas a cada envio do VBO do próprio objeto, depois dos polígonos (4 lados + 2 tampas, 36 vértices), então ganham luz flat por face, sombra, neblina e o mesmo culling (faces no sentido do legado). A seção é orientada pelo "cima" do mundo (não gira com o objeto em volta da linha). Fase de carga (realoca o VBO); a == b é ignorada. Exemplo: antena do carro de teste (`rztdAddVehicleAntenna`).
-- **Na GPU:** um VBO por objeto (posição, cor e UV; 24 bytes por vértice), realocado a cada polígono acrescentado. Update, cor e polígono novo só marcam o objeto como alterado; o VBO é reenviado (sem alocar) no `rzRender` seguinte. Um `glDrawArrays` por objeto visível.
+- **Linhas (`rzAddObjectLine`):** entre dois vértices do objeto, exibidas como uma barra de seção quadrada de lado `thickness` (tiles), cor sólida `paletteIndex` da paleta da textura do objeto (bloquinho da faixa de amostras, como `rzAddObjectPolygon`). Geradas na CPU (dependem das posições) e reenviadas a cada update no fim do VBO do objeto, depois dos polígonos (4 lados + 2 tampas, 36 vértices; posição e normal diretas), então ganham luz flat por face, sombra, neblina e o mesmo culling (faces no sentido do legado). A seção é orientada pelo "cima" do mundo (não gira com o objeto em volta da linha). Fase de carga (realoca o VBO); a == b é ignorada. Exemplo: antena do carro de teste (`rztdAddVehicleAntenna`).
+- **Envio:** o VBO dos cantos (`ObjectVertex`, 36 bytes) é realocado a cada polígono ou linha acrescentados e reenviado inteiro no `rzRender` seguinte; um update só marca as posições, que vão no `rzRender` seguinte (sem alocar). Um `glDrawArrays` por objeto visível.
 - **Culling:** fixo, na convenção do legado: vista de fora, a face está em sentido horário; as faces em sentido anti-horário na tela são descartadas (o antigo `RZ_CULL_CCW`, validado no legado; `rzSetObjectCulling` saiu).
 - **Ids:** são índices num `std::vector`; os slots livres são reaproveitados.
-- **Structs da API:** `RzVertex` (x, y, z 8.24; 12 bytes), `RzTexVertex` (u, v, índice; 12), `RzWheel` (diâmetro, vértice do cubo, dianteira; 8), `RzSprite` (x, y, z 8.24, diâmetro, opacidade, cor, tipo; 24). Só por ponteiro, layout fixo do maior para o menor com padding explícito, tamanho conferido em compilação nos dois cabeçalhos.
+- **Structs da API:** `RzVertex` (x, y, z float; 12 bytes), `RzTexVertex` (u, v, índice; 12), `RzWheel` (diâmetro, vértice do cubo, dianteira; 8), `RzWheelFace` (dois cantos em UV; 16), `RzSprite` (x, y, z float, diâmetro, opacidade, cor, tipo; 24). Só por ponteiro, layout fixo do maior para o menor com padding explícito, tamanho conferido em compilação no cabeçalho.
 
 ### 8.1 Sprites (`rzSetSprites`, `src/rz_sprites.cpp`)
 
-- **Sem id:** o legado guarda um array compacto (quem morre faz os seguintes andarem), então cada chamada manda o array inteiro e substitui o anterior; o renderer não guarda estado por sprite. Até 256 (`kMaxSprites`, o máximo validado no legado; mais é `RZ_ERR_SIZE`); size ≤ 0 ou não finito, ou `type` desconhecido, é `RZ_ERR_INVALID_ARG` (nada muda). Não aloca: feita para todo frame.
+- **Sem id:** o legado guarda um array compacto (quem morre faz os seguintes andarem), então cada chamada manda o array inteiro e substitui o anterior; o renderer não guarda estado por sprite. Até 256 (`kMaxSprites`, o máximo validado no legado; mais é `RZ_ERR_SIZE`); size ≤ 0 ou não finito, `type` desconhecido ou `opacity` < 0 ou não finito é `RZ_ERR_INVALID_ARG` (nada muda). Não aloca: feita para todo frame.
 - **Tipos (`type`):** quad virado para a câmera, diâmetro `size` tiles.
   - `RZ_SPRITE_DEBRIS` (0): alfa de um ruído "spray do Paint" (2 cliques de pontinhos perto do centro) em quatro níveis: 0 fora do círculo do sprite; dentro dele, um valor sem clique, outro com um clique e outro com os dois (`kSpriteAlphaByHits`, ajustados no olho). São 8 variações numa textura array 64×64 gerada na criação. O quadro de cada sprite avança a cada 4 `rzRender`, deslocado pela posição no array. Ampliação nearest (pontinhos de perto), redução trilinear. Cor: índice `color` na paleta do jogo, a do PCX de `rzLoadTileAtlas` (antes dele, cinza = índice), vezes a luz de uma face virada para cima (como o chão plano). Alfa x `opacity`.
   - `RZ_SPRITE_SMOKE` (1): disco branco (ignora `color` e a luz) com borda suave. Alfa = ruído de valor 3D de baixa frequência (duas oitavas, calculado no shader) x `opacity` (float ≥ 0; 1 = normal, mais que 1 deixa mais densa). O ruído usa a posição no disco mais o centro do sprite no mundo, e o tempo (`frameCount`, `kSmokeNoiseSpeed` = 0,4 por segundo a 60 fps): muda sozinho e acompanha o sprite sem saltar quando o array é compactado.
 - **Desenho:** depois do vidro (fumaça na frente de um vidro não fica tingida) e antes da parede; blending alfa comum, ordenado de trás para frente na CPU; sem gravar profundidade nem alfa de destino; sem culling; com neblina (os que estão todos além do fim nem entram). Não projeta nem recebe sombra.
-- **Exemplo:** `rztdStepParticles` (`rz_testdata.h`) imita o legado (array compacto): fumaça saindo do meio das rodas traseiras do carro (sobe, cresce e some, com `opacity` caindo de 0,8 a 0) e detritos marrons que caem; no `rz_test` e no viewer.
+- **Exemplo:** `rztdStepParticles` (`rz_testdata.h`) imita o legado (array compacto): fumaça saindo do meio das rodas traseiras do carro (sobe, cresce e some, com `opacity` caindo de 0,8 a 0) e detritos marrons que caem; no `rz_test` e no viewer. No turbo do viewer, também fogo nas quatro rodas (detritos numa rampa de fogo da paleta de teste, amarelo → vermelho, `opacity` 1,6).
 
 ## 9. Câmera
 
@@ -200,7 +202,7 @@ O modo normal é a perseguição (9.2): o host sempre define um alvo.
 
 ### 9.1 Visão geral (fallback, sem alvo)
 
-- **Quando:** sem alvo (o padrão, `id < 0`) ou com o objeto-alvo destruído. Serve para testes, como fallback e como base de um futuro modo de câmera livre.
+- **Quando:** `RZ_CAMERA_OVERVIEW`, ou sem alvo (o padrão, `id < 0`) ou com o objeto-alvo destruído, em qualquer modo. Entrada e saída num voo suave de 120 frames (`kOverviewFrames`).
 - **Enquadramento:** olha para o centro do terreno pelo lado +z, com inclinação fixa de 50° (`kOverviewPitchDegrees`), na distância `R · focal` (R é o raio da esfera envolvente, e focal é o do eixo de FOV menor).
 
 ### 9.2 Perseguição "na corda" (`rzSetCameraTarget(id, vertex)`)
@@ -217,19 +219,19 @@ O modo normal é a perseguição (9.2): o host sempre define um alvo.
 - **Chão:** a altura desejada respeita uma folga de 0,5 tile sobre o terreno, com piso duro de 0,1. A subida é amortecida e mais rápida que a descida.
 - **Mudança na corda:** a distância horizontal muda na hora, na mesma proporção, para o zoom responder no mesmo frame.
 - **Início:** a câmera começa já em repouso, no lado +z do alvo. Quando o alvo anda, a corda a leva para trás dele.
-- **Saída:** `id < 0`, ou o objeto destruído, vai para a visão geral. Ao voltar a um alvo, a câmera recomeça do lado +z.
+- **Saída:** `id < 0`, o objeto destruído ou `RZ_CAMERA_OVERVIEW` vão para a visão geral, num voo. Ao voltar a um alvo, voa de onde está até atrás dele (na direção de onde veio). Trocar de alvo seguindo outro também faz um voo (em arco, se longe).
 
-### 9.3 Planos near/far (os dois modos)
+### 9.3 Planos near/far
 
-`near = dist(câmera, centro) − R` e `far = dist(câmera, centro) + R`. O near é limitado a no máximo metade da distância ao ponto observado e a no mínimo 0.002·R. Seguindo um alvo (com neblina), o far fica em no máximo o fim da neblina × 1,02.
+`near = dist(câmera, centro) − R` e `far = dist(câmera, centro) + R`. O near é limitado a no máximo metade da distância ao ponto observado e a no mínimo 0.002·R; na câmera interna, fixo em 0,02 tile (`kInternalNear`). O far fica em no máximo o fim da neblina × 1,02.
 
 ### 9.4 Neblina por distância
 
 `rzSetFog(start, end)` em tiles; padrão 30 e 65 (`kFogStartDefault`, `kFogEndDefault`). Custo desprezível (só guarda os valores; uniforms, far plane e cortes são lidos a cada `rzRender`): pode mudar a qualquer momento, até todo frame. Válido: 0 ≤ start < end ≤ 120 (`kFogMaxEnd`; a continuação do terreno vai até 128).
 
 - **Faixa:** limpa até start; de start a end, `smoothstep`; além de end, só a cor de fundo (`rzSetBackgroundColor`). (Histórico do padrão: 80–130, 40–80, agora 30–65.)
-- **Distância:** 3D, do pixel até o olho, calculada por pixel nos dois shaders (terreno e objetos).
-- **Só seguindo um alvo.** Na visão geral não há neblina (a câmera fica longe demais).
+- **Distância:** 3D, do pixel até a origem da neblina (o olho), calculada por pixel em todos os shaders (terreno, objetos, rodas, vidro, sprites, parede).
+- **Visão geral:** a neblina passa a ser em volta do centro do mapa, do raio do terreno até 60 tiles além (`kOverviewFogDepth`): só esconde o fim da continuação. Nas transições, origem e distâncias são interpoladas.
 - **Cortes:** pixel só de neblina sai direto, sem textura nem sombra (as derivadas da textura são calculadas antes desse desvio; a leitura usa `textureGrad`). Objetos com a esfera envolvente toda além de end + 10 tiles não são enviados nem desenhados, na tela e nas sombras.
 
 ### 9.5 Borda do mundo (continuação e parede)
@@ -245,12 +247,12 @@ Sem API; constantes `kSkirt*`/`kBorder*` em `rz_internal.h`, código em `src/rz_
 
 ## 10. Frame (`rzRender`)
 
-1. Atualiza a câmera e monta a view-projection e a matriz da luz (sombra).
-2. Reenvia os VBOs de objetos alterados.
+1. Janela: confere o tamanho do drawable (redimensionamento). Atualiza a câmera e monta a view-projection.
+2. Reenvia o que mudou nos objetos (cantos, posições, linhas, vidro) e monta as matrizes das rodas.
 3. Sombras (10.1): refaz as cascatas 0 e 1; a 2 só se o olho andou 10 tiles, a neblina mudou ou o terreno mudou.
 4. Faz bind do FBO (offscreen) ou do framebuffer padrão (janela) e limpa com a cor de fundo (`rzSetBackgroundColor`: índice na paleta do atlas; sem índice ou sem atlas, 32, 40, 48), com profundidade em `GL_LESS`.
 5. Desenha o terreno em um draw: textura se houver atlas e mapa de blocos, senão as cores flat. Seguindo um alvo, também a continuação (9.5).
-6. Desenha os objetos e, por último, a parede de limite (semitransparente).
+6. Desenha os objetos, os pneus, as faces das rodas, o vidro, os sprites (de trás para frente) e, por último, a parede de limite (semitransparente).
 7. Janela: nada (o host chama `SDL_GL_SwapWindow`). Offscreen: `glReadPixels` para o buffer do host.
 
 Sem heightmap, só limpa.
@@ -263,19 +265,17 @@ Sem API: tudo fixo em constantes (`kCascade*`, `rz_internal.h`); o código fica 
 
 | Cascata | Distância do olho | Projeta | Caixa | Tamanho | Refeita |
 |---|---|---|---|---|---|
-| 0 | 0 – 6 tiles | terreno + objetos | esfera da fatia do frustum (meia-largura ~7 tiles) | 512 (~0,028 tile/texel) | todo frame |
-| 1 | 6 – 20 | terreno + objetos | esfera da fatia (~23,5 tiles) | 1024 (~0,046) | todo frame |
-| 2 | 20 – fim da neblina | **só terreno** | quadrado em volta do olho, meia-largura = fim da neblina + 10 + 4 tiles | 2048 (~0,077 com neblina 65) | quando o olho anda 10 tiles, a neblina muda de tamanho, ou o terreno muda (`rzUpdateTerrain`: só o retângulo alterado, com scissor; terreno todo novo: no mesmo centro) |
+| 0 | 0 – 8 tiles (`kCascadeSplit0`) | terreno + objetos | esfera da fatia do frustum (depende do FOV), em degraus de 10% | 2048 (`kCascadeNearSize`) | todo frame |
+| 1 | 8 – 30 (`kCascadeSplit1`) | terreno + objetos | esfera da fatia, em degraus de 10% | 1024 (`kCascadeMidSize`) | todo frame |
+| 2 | 30 – fim da neblina | **só terreno** | quadrado em volta do olho, meia-largura = fim da neblina + 10 + 4 tiles | 2048 (`kCascadeFarSize`) | quando o olho anda 10 tiles, a neblina muda de tamanho, ou o terreno muda (`rzUpdateTerrain`: só o retângulo alterado, com scissor; terreno todo novo: no mesmo centro) |
 
-- **Escolha no shader:** pela distância 3D ao olho (`uCascade`), com 1 tile de transição antes de cada divisa misturando as duas vizinhas. Fora da caixa de uma cascata, ela não sombreia.
+- **Escolha no shader:** pela distância 3D ao olho (`uCascade`), com 2 tiles de transição (`kCascadeBlend`) antes de cada divisa misturando as duas vizinhas. Fora da caixa de uma cascata, ela não sombreia.
 - **Estabilidade:** a esfera da fatia só depende do FOV e dos limites (não muda quando a câmera gira); as caixas andam em passos inteiros de texel. O tamanho das caixas 0 e 1 é arredondado para cima em degraus de 10% (`kCascadeSizeStep`): mudando o FOV, ele só troca de vez em quando, e entre os degraus o encaixe em texels segura a sombra parada.
 - **Custo:** das cascatas 0 e 1, só os quads do terreno que podem cair na caixa são desenhados (um `glDrawArrays` por linha, colunas recortadas pela altura mínima/máxima do terreno seguida na direção da luz); a continuação só se a caixa passa da borda.
-- **Objetos além de 20 tiles não projetam sombra** (a cascata 2 só tem terreno); aceito, a neblina começa logo depois. Recebem a sombra do relevo normalmente.
+- **Objetos além de 30 tiles não projetam sombra** (a cascata 2 só tem terreno); aceito, a neblina começa logo depois. Recebem a sombra do relevo normalmente.
 - **Visão geral (sem alvo):** só a cascata 2, cobrindo o terreno inteiro, com terreno e objetos, refeita todo frame.
-- **Comparação com os três mapas antigos (terreno 4096 inteiro, objetos 2048 numa caixa de 96 tiles, alvo 256):** sombra do relevo perto bem mais nítida; a do carro, com a cascata 0 a 512, fica mais borrada que a do antigo mapa do alvo (0,006 tile/texel); 1024 quase iguala e 2048 iguala (llvmpipe: +2,5 / +6 ms por frame). `kCascadeNearSize`.
 - **Profundidade:** todas cobrem a esfera do terreno com folga (receptores dentro da faixa), 24 bits, `sampler2DShadow` com PCF 2×2 (`GL_LINEAR`), `glPolygonOffset(2, 4)`, sem culling. Na leitura, *normal offset*: o ponto é empurrado pela normal da face em 1,5 texel do mapa daquela cascata (`kShadowNormalOffset`) × (1 − n·l), então o acne em luz rasante some sem descolar a sombra (terreno, objetos e rodas; o vidro não). Tamanhos limitados a `GL_MAX_TEXTURE_SIZE`. A transparência do índice 255 é ignorada no passe de sombra (de propósito: shader mais barato).
 - **Efeito:** na sombra, a luz flat cai para 0,24 (`kShadowLight`, 80 % do ambiente) nas cores flat do terreno e nos objetos; no chão texturizado, a cor é multiplicada por 0,48 (`kShadowTexturedDim`). Terminador: o termo de luz do mapa é multiplicado por smoothstep(0; 0,15; n·l) (`kShadowTerminator`), então face com a luz rasante ou por trás fica na sombra de vez, em vez de alternar luz/sombra pela resolução do mapa (a luz direta ali já é quase zero).
-- **Custo (llvmpipe, `rz_test` 1280×720, 60 frames):** ~64 ms/frame com as cascatas (com os três mapas antigos, ~62).
 
 ## 11. Testes
 
@@ -294,21 +294,28 @@ Sem API: tudo fixo em constantes (`kCascade*`, `rz_internal.h`); o código fica 
 
   | Tecla | Ação |
   |---|---|
-  | WASD | Dirige o carro |
-  | C | Câmera segue o carro / visão geral |
-  | T | Liga/desliga as texturas |
-  | F | Alterna o filtro |
+  | W / S | Acelera / freia e dá ré |
+  | A / D | Vira |
+  | Espaço (segurado) | Turbo: 8× mais rápido, fogo nas rodas |
+  | 1 / 2 / 3 / 4 | Câmera: perseguição / interna / congelada / visão geral |
+  | ↑ / ↓ | Altura da câmera |
   | PgUp / PgDn | Comprimento da corda |
-  | ↑ / ↓ | Altura |
+  | [ / ] | Campo de visão (5°) |
+  | R | Volta a câmera e o FOV ao padrão |
+  | T | Liga/desliga as texturas |
+  | F | Liga/desliga o limite de 60 fps (a simulação segue a 60 Hz) |
+  | Esc | Sai |
 
-- **Linux:** com `build_linux.sh`, roda no llvmpipe via EGL.
+  A janela é redimensionável; o título mostra fps, tempo de render, FOV e o modo de câmera.
+
+- **Linux:** o `rz_test` roda sem janela (EGL surfaceless, llvmpipe serve); o `rz_viewer` precisa de um display.
 
 ## 12. Roadmap e decisões em aberto
 
 - **Bloco perto da borda no `rzUpdateTerrain` (~3 ms):** hoje um bloco alterado a menos de 8 quads da borda refaz a malha inteira da continuação (`rebuildSkirtMesh`). Otimização possível: refazer só o bloco dos triângulos de fora que copiam/sorteiam daquele quad (faixa ao longo da borda a até meandro + 8, e o quadrante do canto); uma versão disso (com índice espacial) está no branch `super_complicated_border_update`.
-- **Sombras:** APIs de configuração (tamanho do mapa, caixa, força) e otimizações (só redesenhar quando a luz/caixa muda, terreno simplificado no passe da sombra, cascatas). Iluminação por pixel.
+- **Sombras:** APIs de configuração (tamanho dos mapas, força) e otimizações (terreno simplificado no passe da sombra). Iluminação por pixel (hoje só nas rodas).
 - **Terreno em blocos:** reorganizar a malha em blocos (ex.: 16×16 quads) e desenhar só os que estão dentro da neblina e do campo de visão; o maior ganho possível no llvmpipe.
-- **Overlay/HUD:** para o legado desenhar por cima da janela GL.
+- **Overlay/HUD:** o host já pode desenhar no contexto depois de `rzRender` e antes do swap; falta uma API própria (texto, sprites 2D).
 - **Desempenho em CPU fraca:** no Allwinner D1, via llvmpipe, os 130 mil triângulos pequenos dominam. O próximo passo seria descarte de blocos do terreno fora do frustum e LOD por blocos.
 - **Escolha da diagonal do quad pela altura dos cantos**, de forma determinística.
 - **Valores provisórios:** paleta, direção da luz, ambient, força do sombreamento das texturas, FOV, inclinação da visão geral.
